@@ -17,6 +17,7 @@ import {
 } from '../../../src/ax/agent/optimize.js';
 import type { AxCodeRuntime } from '../../../src/ax/agent/rlm.js';
 import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
+import { optimize as optimizeProgram } from '../../../src/ax/dsp/optimize.js';
 import { AxACE } from '../../../src/ax/dsp/optimizers/ace.js';
 import {
   applyCuratorOperations,
@@ -30,6 +31,7 @@ import type {
   AxACEPlaybook,
   AxACEReflectionOutput,
 } from '../../../src/ax/dsp/optimizers/aceTypes.js';
+import { AxGEPA } from '../../../src/ax/dsp/optimizers/gepa.js';
 import { getGEPAUpdateGroup } from '../../../src/ax/dsp/optimizers/gepaDependencies.js';
 import { scalarizeGEPAScores } from '../../../src/ax/dsp/optimizers/gepaEvaluation.js';
 import { summarizeGEPATraces } from '../../../src/ax/dsp/optimizers/gepaReflection.js';
@@ -308,7 +310,7 @@ writeFixture('gepa-max-metric-calls-error', {
   optimize_options: { maxMetricCalls: 1, numTrials: 0 },
   gepa_scores: { 'Base answer instruction': 0.5 },
   expected_error_contains:
-    'AxGEPA: options.maxMetricCalls=1 is too small to evaluate the initial Pareto set',
+    'AxGEPA: options.maxMetricCalls=1 is too small for baseline evaluation; need at least 2 metric calls',
 });
 
 writeFixture('gepa-selector-state-artifact', {
@@ -353,7 +355,7 @@ writeFixture('gepa-selector-state-artifact', {
         paretoMetricKey: 'faithfulness',
       } as any),
       count: 1,
-      phase: 'initial Pareto evaluation',
+      phase: 'baseline evaluation',
     },
   ],
 });
@@ -453,19 +455,8 @@ writeFixture('gepa-bootstrap-demos', {
         programId: 'root',
         traces: [
           {
-            actionLog: [],
-            completionType: 'final',
-            finalOutput: {
-              componentValue: 'Base answer instruction',
-            },
-            functionCalls: [],
-            output: {
-              componentValue: 'Base answer instruction',
-            },
-            trace: {
-              componentValue: 'Base answer instruction',
-            },
-            usage: {},
+            question: 'Keep?',
+            componentValue: 'Base answer instruction',
           },
         ],
       },
@@ -2713,6 +2704,422 @@ await (async () => {
       expected_curator: out.curator,
     });
   }
+})();
+
+// Baseline reports are derived from real TypeScript optimizer runs. The port
+// fixtures keep their native artifact shape while asserting the same original
+// scores, validation subset, metric budget, and demonstration boundary.
+const baselineTrain = [
+  { question: 'training-only-0', answer: 'ok', score: 1 },
+  { question: 'training-only-1', answer: 'ok', score: 1 },
+];
+const heldOut = (count: number) =>
+  Array.from({ length: count }, (_, i) => ({
+    question: `held-out-${i}`,
+    score: (i + 1) / 10,
+  }));
+const baselineCases = [
+  {
+    name: 'baseline-gepa-zero-reuses-seed',
+    helper: false,
+    train: [
+      { question: 'training-zero', score: 0 },
+      { question: 'training-zero-2', score: 0 },
+    ],
+    validation: [{ question: 'training-zero', score: 0 }],
+    options: { maxMetricCalls: 1, bootstrap: false },
+  },
+  {
+    name: 'baseline-gepa-objectives-held-out',
+    helper: false,
+    train: baselineTrain,
+    validation: [
+      { question: 'held-out-0', score: { quality: 0.2, brevity: 0.8 } },
+      { question: 'held-out-1', score: { quality: 0.8, brevity: 0.6 } },
+    ],
+    options: {
+      maxMetricCalls: 2,
+      paretoMetricKey: 'quality',
+      bootstrap: false,
+    },
+  },
+  {
+    name: 'baseline-gepa-bootstrap-validation-budget',
+    helper: false,
+    train: baselineTrain,
+    validation: heldOut(3),
+    options: {
+      maxMetricCalls: 6,
+      bootstrap: { maxBootstrapMetricCalls: 1, maxBootstrapDemos: 1 },
+    },
+  },
+  {
+    name: 'baseline-gepa-bootstrap-insufficient-budget',
+    helper: false,
+    train: baselineTrain,
+    validation: heldOut(3),
+    expectedError: 'need at least 6 metric calls',
+    options: {
+      maxMetricCalls: 5,
+      bootstrap: { maxBootstrapMetricCalls: 1, maxBootstrapDemos: 1 },
+    },
+  },
+  {
+    name: 'baseline-gepa-rejected-bootstrap-reuses-seed',
+    helper: false,
+    train: baselineTrain,
+    validation: heldOut(2),
+    options: {
+      maxMetricCalls: 2,
+      bootstrap: { maxBootstrapMetricCalls: 1, scoreThreshold: 1.1 },
+    },
+  },
+  {
+    name: 'baseline-gepa-default-bootstrap-budget',
+    helper: false,
+    train: Array.from({ length: 9 }, (_, i) => ({
+      question: `training-only-${i}`,
+      answer: 'ok',
+      score: 0,
+    })),
+    validation: heldOut(2),
+    options: { maxMetricCalls: 2, bootstrap: true },
+  },
+  {
+    name: 'baseline-helper-before-bootstrap',
+    helper: true,
+    train: baselineTrain,
+    validation: heldOut(2),
+    options: {
+      maxMetricCalls: 4,
+      bootstrap: { maxRounds: 1, maxExamples: 1, maxDemos: 1 },
+    },
+  },
+  {
+    name: 'baseline-helper-rejected-bootstrap-reuses-seed',
+    helper: true,
+    train: baselineTrain,
+    validation: heldOut(2),
+    options: {
+      maxMetricCalls: 2,
+      bootstrap: { maxRounds: 1, maxExamples: 1, qualityThreshold: 1.1 },
+    },
+  },
+  {
+    name: 'baseline-helper-implicit-validation-budget',
+    helper: true,
+    train: baselineTrain,
+    validation: heldOut(61),
+    options: { bootstrap: { maxRounds: 1, maxExamples: 1, maxDemos: 1 } },
+  },
+  {
+    name: 'baseline-gepa-capped-held-out',
+    helper: false,
+    train: baselineTrain,
+    validation: heldOut(8),
+    options: { maxMetricCalls: 5, paretoSetSize: 5, bootstrap: false },
+  },
+];
+for (const scenario of baselineCases) {
+  const program = ax('question:string -> answer:string');
+  const client = new AxMockAIService({
+    chatResponse: { results: [{ index: 0, content: 'Answer: ok' }] },
+  });
+  const calls: string[] = [];
+  const metric = ({ example }: any) => {
+    calls.push(example.question);
+    return example.score;
+  };
+  const options = { numTrials: 0, ...scenario.options };
+  const asTask = (example: any) => ({
+    input: { question: example.question },
+    output: { answer: 'ok' },
+    score: example.score,
+  });
+  const fixtureDataset = scenario.helper
+    ? scenario.train.map(asTask)
+    : {
+        train: scenario.train.map(asTask),
+        validation: scenario.validation.map(asTask),
+      };
+  const fixtureOptions = scenario.helper
+    ? { ...options, validationExamples: scenario.validation.map(asTask) }
+    : options;
+  let result: Awaited<ReturnType<typeof optimizeProgram>>;
+  try {
+    result = scenario.helper
+      ? await optimizeProgram(
+          program,
+          scenario.train as any,
+          metric as any,
+          {
+            studentAI: client,
+            teacherAI: client,
+            validationExamples: scenario.validation as any,
+            ...options,
+          } as any
+        )
+      : await new AxGEPA({
+          studentAI: client,
+          teacherAI: client,
+          ...options,
+        } as any).compile(
+          program,
+          scenario.train as any,
+          metric as any,
+          {
+            ...options,
+            maxMetricCalls: (options as any).maxMetricCalls,
+            validationExamples: scenario.validation as any,
+          } as any
+        );
+  } catch (error) {
+    if ('expectedError' in scenario) {
+      if (!(error as Error).message.includes(scenario.expectedError!))
+        throw error;
+      writeFixture(scenario.name, {
+        kind: 'optimize',
+        operation: 'gepa',
+        program: 'axgen',
+        components: [
+          {
+            id: 'root::instruction',
+            owner: 'root',
+            kind: 'instruction',
+            current: '',
+          },
+        ],
+        dataset: fixtureDataset as Json,
+        optimize_options: fixtureOptions as Json,
+        expected_error_contains: (error as Error).message,
+      });
+      continue;
+    }
+    if (scenario.name !== 'baseline-helper-rejected-bootstrap-reuses-seed')
+      throw error;
+    writeFixture('baseline-helper-rejected-bootstrap-error', {
+      kind: 'optimize',
+      operation: 'helper',
+      program: 'axgen',
+      signature: 'question:string -> answer:string',
+      dataset: fixtureDataset as Json,
+      optimize_options: fixtureOptions as Json,
+      responses: Array.from({ length: 16 }, () => ({ content: 'Answer: ok' })),
+      expected_error_contains: (error as Error).message,
+    });
+    continue;
+  }
+  if ('expectedError' in scenario)
+    throw new Error(`${scenario.name}: expected a budget error`);
+  const bootCalls =
+    options.bootstrap === false
+      ? 0
+      : calls.filter((question) => question.startsWith('training-only')).length;
+  const hasDemos = (result.demos?.length ?? 0) > 0;
+  const artifact = {
+    baselineScore: result.baselineScore!,
+    baselineScores: result.baselineScores!,
+    metadata: {
+      baselineScore: result.baselineScore!,
+      baselineScores: result.baselineScores!,
+      bestScore: result.bestScore,
+      totalMetricCalls: calls.length - bootCalls,
+      bootstrapMetricCalls: bootCalls,
+      totalCalls: calls.length,
+    },
+  };
+  writeFixture(scenario.name, {
+    kind: 'optimize',
+    operation: scenario.helper ? 'helper' : 'gepa',
+    program: 'axgen',
+    signature: 'question:string -> answer:string',
+    components: [
+      {
+        id: 'root::instruction',
+        owner: 'root',
+        kind: 'instruction',
+        current: '',
+      },
+    ],
+    dataset: fixtureDataset as Json,
+    responses: Array.from({ length: calls.length + 4 }, () => ({
+      content: 'Answer: ok',
+    })),
+    optimize_options: fixtureOptions as Json,
+    expected_artifact_subset: artifact as Json,
+    expected_demo_count: hasDemos ? 1 : 0,
+    ...(!scenario.helper
+      ? {
+          expected_gepa_phases: [
+            'baseline evaluation',
+            ...(bootCalls
+              ? Array.from({ length: bootCalls }, () => 'bootstrap')
+              : []),
+            ...(hasDemos ? ['bootstrapped Pareto evaluation'] : []),
+          ],
+        }
+      : {}),
+  } as Fixture);
+}
+
+await (async () => {
+  const program = ax('question:string -> answer:string');
+  program.setInstruction('answer original');
+  const client = new AxMockAIService({
+    chatResponse: async () => ({
+      results: [
+        {
+          index: 0,
+          content: `Answer: ${program.getInstruction() === 'answer better' ? 'better' : 'original'}`,
+        },
+      ],
+    }),
+  });
+  const optimizer = new AxGEPA({
+    studentAI: client,
+    numTrials: 1,
+    minibatchSize: 1,
+  });
+  (optimizer as any).reflectTargetInstruction = async () => 'answer better';
+  const examples = [{ question: 'q1' }, { question: 'q2' }];
+  const result = await optimizer.compile(
+    program,
+    examples,
+    ({ prediction }) => (prediction.answer === 'better' ? 1 : 0.25),
+    { maxMetricCalls: 10, bootstrap: false }
+  );
+  if (result.paretoFront.some((point) => point.configuration.candidate === 0))
+    throw new Error(
+      'baseline-gepa-dominated-seed: original candidate remains on frontier'
+    );
+  writeFixture('baseline-gepa-dominated-seed', {
+    kind: 'optimize',
+    operation: 'gepa',
+    program: 'axgen',
+    components: [
+      {
+        id: 'root::instruction',
+        owner: 'root',
+        kind: 'instruction',
+        current: 'answer original',
+      },
+    ],
+    dataset: examples.map((input) => ({ input, score: 0.25 })),
+    optimize_options: {
+      numTrials: 1,
+      minibatchSize: 1,
+      maxMetricCalls: 10,
+      bootstrap: false,
+    },
+    reflection_responses: [
+      { results: [{ index: 0, content: 'New Value: answer better' }] },
+    ],
+    gepa_scores: { 'answer original': 0.25, 'answer better': 1 },
+    expected_artifact_subset: {
+      baselineScore: result.baselineScore!,
+      baselineScores: result.baselineScores! as Json,
+      componentMap: { 'root::instruction': 'answer better' },
+      metadata: {
+        baselineScore: result.baselineScore!,
+        baselineScores: result.baselineScores! as Json,
+        bestScore: result.bestScore,
+        candidatesExplored: 2,
+      },
+    },
+  });
+})();
+
+// An actual student fails its original validation, then succeeds during
+// bootstrap and seeded validation. This distinguishes the original baseline
+// from the post-bootstrap score through the real helper evaluation path.
+await (async () => {
+  const program = ax('question:string -> answer:string');
+  const responses = [
+    { content: 'Answer: incomplete', finish_reason: 'length' },
+    { content: 'Answer: incomplete', finish_reason: 'length' },
+    ...Array.from({ length: 3 }, () => ({
+      content: 'Answer: ok',
+      finish_reason: 'stop',
+    })),
+  ];
+  let calls = 0;
+  const client = new AxMockAIService({
+    chatResponse: async () => {
+      const response = responses[calls++];
+      if (!response)
+        throw new Error(
+          'baseline-helper-improves-after-bootstrap: unexpected request'
+        );
+      return {
+        results: [
+          {
+            index: 0,
+            content: response.content,
+            finishReason: response.finish_reason as 'stop' | 'length',
+          },
+        ],
+      };
+    },
+  });
+  const train = [
+    { question: 'training-only-0', answer: 'ok' },
+    { question: 'training-only-1', answer: 'ok' },
+  ];
+  const validation = [
+    { question: 'held-out-0', answer: 'ok' },
+    { question: 'held-out-1', answer: 'ok' },
+  ];
+  const options = {
+    numTrials: 0,
+    maxMetricCalls: 4,
+    bootstrap: { maxRounds: 1, maxExamples: 1, maxDemos: 1 },
+  };
+  const result = await optimizeProgram(
+    program,
+    train,
+    ({ prediction }) => (prediction.answer === 'ok' ? 1 : 0),
+    {
+      ...options,
+      studentAI: client,
+      teacherAI: client,
+      validationExamples: validation,
+    }
+  );
+  if (calls !== 5 || result.baselineScore !== 0 || result.bestScore !== 1)
+    throw new Error(
+      'baseline-helper-improves-after-bootstrap: expected original 0, seeded 1, and five calls'
+    );
+  writeFixture('baseline-helper-improves-after-bootstrap', {
+    kind: 'optimize',
+    operation: 'helper',
+    program: 'axgen',
+    signature: 'question:string -> answer:string',
+    dataset: train.map(({ question }) => ({
+      input: { question },
+      expectedOutput: { answer: 'ok' },
+    })),
+    responses,
+    optimize_options: {
+      ...options,
+      validationExamples: validation.map(({ question }) => ({
+        input: { question },
+        expectedOutput: { answer: 'ok' },
+      })),
+    },
+    expected_demo_count: 1,
+    expected_artifact_subset: {
+      baselineScore: result.baselineScore!,
+      baselineScores: result.baselineScores! as Json,
+      metadata: {
+        baselineScore: result.baselineScore!,
+        baselineScores: result.baselineScores! as Json,
+        bestScore: result.bestScore,
+        totalMetricCalls: 4,
+        bootstrapMetricCalls: 1,
+        totalCalls: 5,
+      },
+    },
+  });
 })();
 
 // --- playbook() evolve through the real reflector and curator programs ------

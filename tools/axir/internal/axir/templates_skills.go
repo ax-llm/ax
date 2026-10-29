@@ -564,6 +564,16 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.",
 		"Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.",
 	}
+	if spec.ID == "gepa" || spec.ID == "agent-optimize" {
+		guardrails = append(guardrails,
+			"GEPA returns baselineScore and baselineScores at the artifact top level and in metadata, measured before bootstrap or component changes. Compare metadata.bestScore with baselineScore; the original candidate need not remain on the Pareto frontier.",
+			"Baseline and seeded validation use the same capped held-out subset and selection scalarization. Both consume maxMetricCalls. Bootstrap generation has separate limits; metadata.bootstrapMetricCalls plus metadata.totalMetricCalls equals metadata.totalCalls. Without new demos, reuse the baseline evaluation.",
+			"Bootstrap demos contain only fresh training inputs and outputs; never recover demos from a retained validation or inactive-child trace tree.",
+		)
+		if target == "rust" {
+			guardrails = append(guardrails, "Use optimize_with_client(&mut program, student.clone(), examples, options) with Rc<RefCell<Client>> for live student evaluation. The client-free optimize helper requires explicitly pre-scored tasks. Use AxGEPA with an evaluator closure for application-specific metrics.")
+		}
+	}
 	if target == "go" && spec.ID == "ai" {
 		guardrails = append(guardrails, "A provider can split a surrogate pair (an emoji, say) across stream chunks. AxGen streaming deltas and outputs join it, but a raw client `Stream` delta carries each half as its WTF-8 bytes, as TypeScript's raw deltas carry the lone surrogate. Join raw deltas with `JoinStreamText(text, delta)`: concatenating them with `+` leaves the two halves' bytes, which are not valid UTF-8, where the character belongs.")
 		guardrails = append(guardrails, "When decorating `AIClient`, forward `GetFeatures(model) map[string]Value` whenever the wrapped client implements it. AxGen otherwise falls back to permissive capabilities, which can select an unsupported structured-output rung.")
@@ -1295,7 +1305,7 @@ func skillOptimizeSnippet(target string) string {
 	case "go":
 		return readmeLines("engine := ax.NewGEPA(reflectionClient, nil)", "result := engine.Optimize(request, evaluator)")
 	case "rust":
-		return readmeLines("let engine = axllm::AxGEPA::new(reflection_client, options)?;", "let result = engine.optimize(request, evaluator)?;")
+		return readmeLines("let mut engine = axllm::AxGEPA::new().with_reflection_client(reflection_client);", "let result = engine.optimize(request, evaluator)?;", "let baseline = result[\"baselineScore\"].as_f64().unwrap();", "let delta = result[\"metadata\"][\"bestScore\"].as_f64().unwrap() - baseline;")
 	default:
 		return "Read optimizer examples in `examples/`."
 	}

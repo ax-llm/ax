@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:4aa6954efaf38dc2da3059d0561a6d9ebd701a823847f611fdb9631dd01b7b1d"
+      "digest": "sha256:05da17a3a9d3de71772cc070f6c2fa0b6115cf890fef3b685a507adc8261d316"
     },
     {
       "name": "ax-ai",
@@ -111,7 +111,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGEPA optimization code using @ax-llm/ax. Use when the user asks about AxGEPA, GEPA, Pareto optimization, multi-objective prompt tuning, reflective prompt evolution, validationExamples, maxMetricCalls, or optimizing a generator, flow, or agent tree.",
       "url": "ax-gepa/SKILL.md",
-      "digest": "sha256:ca6e9c2b8c49b34e371ee961eab295f7ee5f5cf54d0c73d30999bfaddafe0be9"
+      "digest": "sha256:33ab12d1e17d5860b24eb427421237694f11cb92fcd7e1131575ae651baa01a6"
     },
     {
       "name": "ax-refine",

@@ -1,0 +1,110 @@
+{
+  "components": [
+    {
+      "current": "",
+      "id": "root::instruction",
+      "kind": "instruction",
+      "owner": "root"
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "training-only-0"
+      },
+      "output": {
+        "answer": "ok"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "training-only-1"
+      },
+      "output": {
+        "answer": "ok"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "baselineScore": 0.15000000000000002,
+    "baselineScores": {
+      "score": 0.15000000000000002
+    },
+    "metadata": {
+      "baselineScore": 0.15000000000000002,
+      "baselineScores": {
+        "score": 0.15000000000000002
+      },
+      "bestScore": 0.15000000000000002,
+      "bootstrapMetricCalls": 1,
+      "totalCalls": 5,
+      "totalMetricCalls": 4
+    }
+  },
+  "expected_demo_count": 1,
+  "kind": "optimize",
+  "name": "baseline-helper-before-bootstrap",
+  "operation": "helper",
+  "optimize_options": {
+    "bootstrap": {
+      "maxDemos": 1,
+      "maxExamples": 1,
+      "maxRounds": 1
+    },
+    "maxMetricCalls": 4,
+    "numTrials": 0,
+    "validationExamples": [
+      {
+        "input": {
+          "question": "held-out-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.1
+      },
+      {
+        "input": {
+          "question": "held-out-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.2
+      }
+    ]
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -35,7 +35,7 @@ let out = helper.forward(&llm, inputs, None)?;
 
 - Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`, `AxAgent::streaming_forward`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`
-- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
+- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`, `optimize_with_client`
 
 ## Guardrails
 

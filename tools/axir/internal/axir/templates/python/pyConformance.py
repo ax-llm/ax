@@ -2390,6 +2390,8 @@ def _run_optimize(fixture):
             artifact = engine.optimize(build_gepa_request(), evaluator)
             if "expected_artifact_subset" in fixture:
                 _assert_subset(artifact, fixture["expected_artifact_subset"], "GEPA artifact")
+            if "expected_gepa_phases" in fixture:
+                _assert_equal([item.get("phase") for item in evaluator.evaluations], fixture["expected_gepa_phases"], "GEPA evaluation phases")
             if "expected_gepa_evaluations_subset" in fixture:
                 _assert_list_subset(evaluator.evaluations, fixture["expected_gepa_evaluations_subset"], "GEPA evaluations")
             if "expected_reflection_request_count" in fixture and len(reflection.requests) != fixture["expected_reflection_request_count"]:

@@ -1559,11 +1559,15 @@ class AxGEPA : public OptimizerEngine {
   Value optimize(Value request) override;
   Value optimize(Value request, OptimizerEvaluator* evaluator) override;
 
+  // Internal cache used by optimize() to retain the pre-bootstrap evaluation.
+  const Value& baseline_evaluation() const { return baseline_evaluation_; }
+
  private:
   AIClient* reflection_client_;
   Value options_;
   uint32_t rng_state_;
   Value selector_state_;
+  Value baseline_evaluation_;
   double rand();
 };
 

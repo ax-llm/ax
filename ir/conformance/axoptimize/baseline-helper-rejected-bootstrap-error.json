@@ -1,0 +1,107 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "training-only-0"
+      },
+      "output": {
+        "answer": "ok"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "training-only-1"
+      },
+      "output": {
+        "answer": "ok"
+      },
+      "score": 1
+    }
+  ],
+  "expected_error_contains": "No demonstrations found. Either provide more examples or improve the existing ones.",
+  "kind": "optimize",
+  "name": "baseline-helper-rejected-bootstrap-error",
+  "operation": "helper",
+  "optimize_options": {
+    "bootstrap": {
+      "maxExamples": 1,
+      "maxRounds": 1,
+      "qualityThreshold": 1.1
+    },
+    "maxMetricCalls": 2,
+    "numTrials": 0,
+    "validationExamples": [
+      {
+        "input": {
+          "question": "held-out-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.1
+      },
+      {
+        "input": {
+          "question": "held-out-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.2
+      }
+    ]
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -17,6 +17,10 @@ import type {
   AxProgrammable,
   AxProgramTrace,
 } from '../types.js';
+import {
+  freshBootstrapTraces,
+  snapshotBootstrapTraces,
+} from './bootstrapTraces.js';
 
 // Define model config interface
 interface ModelConfig {
@@ -125,6 +129,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
             maxRetries: 1,
           };
 
+          const previousTraces = snapshotBootstrapTraces(program.getTraces());
           res = await program.forward(aiService, ex as IN, forwardOptions);
 
           // Estimate token usage if cost monitoring is enabled
@@ -140,7 +145,10 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
           });
           const success = score >= this.qualityThreshold;
           if (success) {
-            this.traces = [...this.traces, ...program.getTraces()];
+            this.traces = [
+              ...this.traces,
+              ...freshBootstrapTraces(previousTraces, program.getTraces()),
+            ];
             this.stats.successfulDemos++;
           }
         } catch (error) {

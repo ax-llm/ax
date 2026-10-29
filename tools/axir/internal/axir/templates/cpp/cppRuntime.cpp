@@ -7022,9 +7022,7 @@ Value AxBootstrapFewShot::optimize(Value request, OptimizerEvaluator* evaluator)
         if (rows.empty()) continue;
         if (gepa_num(Core::get(rows[0], "scalar", Value(0)), 0) >= threshold) {
           accepted.insert(example_key);
-          Value traces = Value::array();
-          Core::append(traces, Core::get(rows[0], "prediction", Core::get(rows[0], "input", Value::object())));
-          Core::append(demos, object({{"programId", "root"}, {"traces", traces}}));
+          Core::append(demos, Core::_optimization_bootstrap_demo(rows[0]));
         }
       }
     }
@@ -7074,7 +7072,7 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   int minibatch_size = std::max(1, gepa_int(Core::get(options, "minibatchSize", Core::get(options, "minibatch_size", Value(20))), 20));
   int early_stop = std::max(1, gepa_int(Core::get(options, "earlyStoppingTrials", Core::get(options, "early_stopping_trials", Value(5))), 5));
   double min_improvement = gepa_num(Core::get(options, "minImprovementThreshold", Core::get(options, "min_improvement_threshold", Value(0))), 0.0);
-  int pareto_size = std::min(1000, std::max(1, gepa_int(Core::get(options, "paretoSetSize", Core::get(options, "pareto_set_size", Value(std::max(10, std::min(200, minibatch_size * 3))))), 10)));
+  int pareto_size = gepa_int(Core::_gepa_pareto_set_size(options), 60);
   double tie_eps = gepa_num(Core::get(options, "tieEpsilon", Core::get(options, "tie_epsilon", Value(0))), 0.0);
   Value base_cfg = gepa_current_map(components);
   std::vector<Value> pareto_set(validation.begin(), validation.begin() + std::min(validation.size(), static_cast<size_t>(pareto_size)));
@@ -7092,22 +7090,28 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   }
 
   int total_calls = 0;
-  auto evaluate = [&](Value cfg, const std::vector<Value>& examples, const std::string& phase, bool required, bool capture) -> Value {
-    if (total_calls + static_cast<int>(examples.size()) > max_calls) {
-      if (required) throw AxError("runtime", "AxGEPA: options.maxMetricCalls=" + std::to_string(max_calls) + " is too small to evaluate the initial Pareto set; need at least " + std::to_string(examples.size()) + " metric calls");
+  Value active_demos = Value::array();
+  auto evaluate = [&](Value cfg, const std::vector<Value>& examples, const std::string& phase, bool required, bool capture, int* separate_calls = nullptr, int separate_limit = 0) -> Value {
+    int& calls = separate_calls == nullptr ? total_calls : *separate_calls;
+    int limit = separate_calls == nullptr ? max_calls : separate_limit;
+    if (calls + static_cast<int>(examples.size()) > limit) {
+      if (required) throw AxError("runtime", "AxGEPA: options.maxMetricCalls=" + std::to_string(limit) + " is too small for " + phase + "; need at least " + std::to_string(calls + examples.size()) + " metric calls");
       return Value();
     }
     Value eval_options = Value::object();
     Core::set(eval_options, "dataset", gepa_dataset_for(examples));
     Core::set(eval_options, "phase", Value(phase));
     Core::set(eval_options, "captureTraces", Value(capture));
+    if (!Core::iter(active_demos).empty()) Core::set(eval_options, "demos", active_demos);
     Value result = evaluator->evaluate(cfg, eval_options);
-    total_calls += static_cast<int>(gepa_num(Core::get(result, "count", Value(static_cast<int>(examples.size()))), examples.size()));
+    int count = static_cast<int>(gepa_num(Core::get(result, "count", Value(static_cast<int>(examples.size()))), examples.size()));
+    calls += count;
     Value rows = Core::get(result, "rows", Value::array());
     Value scalars = Value::array();
     for (const auto& row : Core::iter(rows)) Core::append(scalars, Core::get(row, "scalar", Value(0)));
     Value out = Value::object();
     Core::set(out, "rows", rows);
+    Core::set(out, "count", count);
     Core::set(out, "avgScores", gepa_avg_vec(rows));
     Core::set(out, "avg", Core::get(result, "avg", Value(0)));
     Core::set(out, "sum", Core::get(result, "sum", Value(0)));
@@ -7115,7 +7119,13 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
     return out;
   };
 
-  Value demos = Value::array();
+  Value baseline_eval = Core::get(options, "_baselineEvaluation", Value());
+  if (baseline_eval.is_null()) baseline_eval = evaluate(base_cfg, pareto_set, "baseline evaluation", true, false);
+  else total_calls = gepa_int(Core::get(baseline_eval, "count", static_cast<int>(pareto_set.size())), static_cast<int>(pareto_set.size()));
+  baseline_evaluation_ = baseline_eval;
+  Value baseline_report = Core::_gepa_baseline_report(baseline_eval, options);
+  int bootstrap_calls = gepa_int(Core::get(options, "_bootstrapMetricCalls", 0), 0);
+  Value demos = Core::get(options, "_bootstrapDemos", Value::array());
   if (Core::truthy(Core::get(options, "bootstrap", Value(false)))) {
     Value bootstrap = Core::get(options, "bootstrap", Value::object());
     double threshold = gepa_num(Core::get(bootstrap, "scoreThreshold", Core::get(bootstrap, "score_threshold", Value(0.8))), 0.8);
@@ -7124,17 +7134,12 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
     int boot_calls = 0;
     for (const auto& example : train) {
       if (boot_calls >= max_boot_calls || static_cast<int>(Core::iter(demos).size()) >= max_demos) break;
-      Value boot_eval = evaluate(base_cfg, std::vector<Value>{example}, "bootstrap", false, false);
+      Value boot_eval = evaluate(base_cfg, std::vector<Value>{example}, "bootstrap", false, false, &bootstrap_calls, max_boot_calls);
       boot_calls += 1;
       if (boot_eval.is_null()) break;
       std::vector<Value> rows = Core::iter(Core::get(boot_eval, "rows", Value::array()));
       if (!rows.empty() && gepa_num(Core::get(rows[0], "scalar", Value(0)), 0.0) >= threshold) {
-        Value demo = Value::object();
-        Core::set(demo, "programId", Value("root"));
-        Value traces = Value::array();
-        Core::append(traces, Core::get(rows[0], "prediction", Core::get(rows[0], "input", Value::object())));
-        Core::set(demo, "traces", traces);
-        Core::append(demos, demo);
+        Core::append(demos, Core::_optimization_bootstrap_demo(rows[0]));
       }
     }
   }
@@ -7143,7 +7148,8 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   Value reflection_chat_options = Core::map_merge(Value::object(), gepa_teacher_options(options));
   Core::set(reflection_chat_options, "stream", false);
 
-  Value base_eval = evaluate(base_cfg, pareto_set, "initial Pareto evaluation", true, false);
+  active_demos = demos;
+  Value base_eval = Core::iter(demos).empty() ? baseline_eval : evaluate(base_cfg, pareto_set, "bootstrapped Pareto evaluation", true, false);
   std::vector<GepCandidate> candidates{{base_cfg, Core::get(base_eval, "avgScores", Value::object()), -1}};
   std::vector<std::vector<double>> per_instance;
   std::vector<double> base_scalars;
@@ -7298,7 +7304,10 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   Core::set(metadata, "selectorState", selector_state_);
   Core::set(metadata, "paretoFront", front);
   Core::set(metadata, "bestScore", Value(best_score == -1e100 ? 0.0 : best_score));
+  metadata = Core::map_merge(metadata, baseline_report);
   Core::set(metadata, "totalMetricCalls", Value(total_calls));
+  Core::set(metadata, "bootstrapMetricCalls", Value(bootstrap_calls));
+  Core::set(metadata, "totalCalls", Value(total_calls + bootstrap_calls));
   Core::set(metadata, "candidatesExplored", Value(static_cast<int>(candidates.size())));
   Value report = Value::object();
   Core::set(report, "summary", Value("GEPA Multi-Objective Optimization Complete"));
@@ -7312,6 +7321,7 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
   Core::set(artifact, "optimizerName", Value("GEPA"));
   Core::set(artifact, "optimizerVersion", Value(version()));
+  artifact = Core::map_merge(artifact, baseline_report);
   Core::set(artifact, "componentMap", candidates[static_cast<size_t>(best_idx)].cfg);
   Core::set(artifact, "demos", demos);
   Core::set(artifact, "metadata", metadata);
@@ -8306,6 +8316,8 @@ AxPlaybook playbook(AxGen& program, AIClient& student, Value options, AIClient* 
 }
 
 Value AxGen::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
+  Value demos = Core::get(options, "demos", Value::array());
+  if (!Core::iter(demos).empty()) set_demos(demos);
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
   Value rows = Value::array();
   Value original = Core::_optimization_component_current_map(get_optimizable_components());
@@ -8809,6 +8821,8 @@ AxFlow& AxFlow::apply_optimization(Value artifact) {
   return apply_optimized_components(Core::get(map, "componentMap", Value::object()));
 }
 Value AxFlow::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
+  Value demos = Core::get(options, "demos", Value::array());
+  if (!Core::iter(demos).empty()) set_demos(demos);
   return Core::_flow_evaluate_optimization(state_, Core::client_ref(client), std::move(dataset), std::move(candidate_map), std::move(options));
 }
 struct AxFlowOptimizerEvaluator : OptimizerEvaluator {
@@ -9509,15 +9523,31 @@ template <typename Program>
 static Value optimize_impl(Program& program, AIClient& student, Value dataset, Value options, AIClient* teacher) {
   AIClient* reflection = teacher == nullptr ? &student : teacher;
   Value bootstrap_setting = Core::get(options, "bootstrap", Value(static_cast<bool>(Core::iter(dataset).size() <= 8)));
+  Value normalized = Core::_normalize_optimization_dataset(dataset);
+  Value train = Core::get(normalized, "train", Value::array());
+  bootstrap_setting = Core::get(options, "bootstrap", Value(Core::iter(train).size() <= 8));
+  Value validation = Core::get(options, "validationExamples", Core::get(options, "validation_examples", Core::get(normalized, "validation", Value::array())));
+  if (Core::iter(validation).empty()) validation = train;
+  Value gepa_options = optimize_set_common_gepa_options(options);
+  Core::set(gepa_options, "maxMetricCalls", Core::_gepa_helper_metric_budget(options, static_cast<int>(Core::iter(validation).size()), optimize_bootstrap_enabled(bootstrap_setting)));
   Value demos = Value::array();
+  int bootstrap_calls = 0;
   if (optimize_bootstrap_enabled(bootstrap_setting)) {
+    Value baseline_options = Core::map_merge(Value::object(), gepa_options);
+    Core::set(baseline_options, "numTrials", 0);
+    AxGEPA baseline(reflection, baseline_options);
+    program.optimize_with(baseline, student, dataset, baseline_options);
+    Core::set(gepa_options, "_baselineEvaluation", baseline.baseline_evaluation());
     Value bootstrap_options = optimize_set_apply_false(optimize_options_merge(options, bootstrap_setting));
     AxBootstrapFewShot bootstrap(bootstrap_options);
     Value bootstrap_artifact = program.optimize_with(bootstrap, *reflection, dataset, bootstrap_options);
     demos = Core::get(bootstrap_artifact, "demos", Value::array());
+    if (Core::iter(demos).empty()) throw AxError("runtime", "No demonstrations found. Either provide more examples or improve the existing ones.");
+    bootstrap_calls = gepa_int(Core::get(Core::get(bootstrap_artifact, "metadata", Value::object()), "totalMetricCalls", 0), 0);
     if (!Core::iter(demos).empty()) optimize_apply_demos(program, demos);
   }
-  Value gepa_options = optimize_set_common_gepa_options(options);
+  Core::set(gepa_options, "_bootstrapDemos", demos);
+  Core::set(gepa_options, "_bootstrapMetricCalls", bootstrap_calls);
   AxGEPA gepa(reflection, gepa_options);
   Value artifact = program.optimize_with(gepa, student, dataset, gepa_options);
   if (!Core::iter(demos).empty()) Core::set(artifact, "demos", demos);

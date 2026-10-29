@@ -3208,8 +3208,10 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["optimize_options"]; !ok {
 				t.Fatalf("%s missing optimize_options", file)
 			}
-			if _, ok := fixture["expected_artifact_subset"]; !ok {
-				t.Fatalf("%s missing expected_artifact_subset", file)
+			_, hasArtifact := fixture["expected_artifact_subset"]
+			expectedError, _ := fixture["expected_error_contains"].(string)
+			if !hasArtifact && strings.TrimSpace(expectedError) == "" {
+				t.Fatalf("%s missing helper artifact or error expectation", file)
 			}
 		case "eval":
 			if _, ok := fixture["responses"]; !ok {

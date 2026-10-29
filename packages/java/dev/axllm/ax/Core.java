@@ -22870,7 +22870,8 @@ final class Core {
 
   static Object _scalarize_optimization_scores(Object scores, Object options) {
     axirCoverageMark("_scalarize_optimization_scores");
-    Object metric_key = Core.get(options, "paretoMetricKey", "");
+    Object metric_key_snake = Core.get(options, "pareto_metric_key", "");
+    Object metric_key = Core.get(options, "paretoMetricKey", metric_key_snake);
     Object has_metric = Core.ne(metric_key, "");
     if (Core.truthy(has_metric)) {
       Object picked = Core.get(scores, metric_key, 0);
@@ -22891,19 +22892,6 @@ final class Core {
     }
     Object avg = Core.div(sum, count);
     return avg;
-  }
-
-  static Object _optimization_action_name_matches(Object expected, Object call) {
-    axirCoverageMark("_optimization_action_name_matches");
-    Object qualified = Core.get(call, "qualifiedName", "");
-    Object name = Core.get(call, "name", "");
-    Object qualified_match = Core.eq(qualified, expected);
-    Object name_match = Core.eq(name, expected);
-    Object dot_expected = Core.add(".", expected);
-    Object suffix_match = Core.stringEndsWith(qualified, dot_expected);
-    Object direct_match = Core.or(qualified_match, name_match);
-    Object any_match = Core.or(direct_match, suffix_match);
-    return any_match;
   }
 
   static Object _stream_strip_leading_fence_impl(Object text) {
@@ -22957,56 +22945,48 @@ final class Core {
     return stripped;
   }
 
+  static Object _gepa_baseline_report(Object evaluation, Object options) {
+    axirCoverageMark("_gepa_baseline_report");
+    Object empty = new java.util.ArrayList<Object>();
+    Object rows = Core.get(evaluation, "rows", empty);
+    Object sums = new java.util.LinkedHashMap<String, Object>();
+    Object counts = new java.util.LinkedHashMap<String, Object>();
+    for (Object row : Core.iter(rows)) {
+      Object raw = Core.get(row, "scores", 0);
+      Object scores = Core._normalize_optimization_metric_scores(raw);
+      Object keys = Core.mapKeys(scores);
+      for (Object key : Core.iter(keys)) {
+        Object value = Core.get(scores, key, null);
+        Object number = Core.typeIs(value, "number");
+        if (Core.truthy(number)) {
+          Object sum = Core.get(sums, key, 0);
+          Object count = Core.get(counts, key, 0);
+          Object sum_next = Core.add(sum, value);
+          Object count_next = Core.add(count, 1);
+          Core.set(sums, key, sum_next);
+          Core.set(counts, key, count_next);
+        }
+      }
+    }
+    Object averages = new java.util.LinkedHashMap<String, Object>();
+    Object objective_keys = Core.mapKeys(sums);
+    for (Object objective : Core.iter(objective_keys)) {
+      Object total = Core.get(sums, objective, null);
+      Object n = Core.get(counts, objective, null);
+      Object average = Core.div(total, n);
+      Core.set(averages, objective, average);
+    }
+    Object scalar = Core._scalarize_optimization_scores(averages, options);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "baselineScores", averages);
+    Core.set(out, "baselineScore", scalar);
+    return out;
+  }
+
   static Object _date_datetime_format_error_impl() {
     axirCoverageMark("_date_datetime_format_error_impl");
     Object error = Core.runtimeError("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.");
     return error;
-  }
-
-  static Object _adjust_optimization_score_for_actions(Object score, Object task, Object prediction) {
-    axirCoverageMark("_adjust_optimization_score_for_actions");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object function_calls = Core.get(prediction, "functionCalls", empty_list);
-    Object expected_actions = Core.get(task, "expectedActions", empty_list);
-    Object forbidden_actions = Core.get(task, "forbiddenActions", empty_list);
-    Object adjusted = score;
-    Object expected_count = Core.len(expected_actions);
-    Object has_expected = Core.gt(expected_count, 0);
-    if (Core.truthy(has_expected)) {
-      Object matched = 0;
-      for (Object expected : Core.iter(expected_actions)) {
-        Object found = Boolean.FALSE;
-        for (Object call : Core.iter(function_calls)) {
-          Object call_matches = Core._optimization_action_name_matches(expected, call);
-          if (Core.truthy(call_matches)) {
-            found = Boolean.TRUE;
-          }
-        }
-        if (Core.truthy(found)) {
-          Object matched_next = Core.add(matched, 1);
-          matched = matched_next;
-        }
-      }
-      Object ratio = Core.div(matched, expected_count);
-      Object half_ratio = Core.mul(0.5, ratio);
-      Object factor = Core.add(0.5, half_ratio);
-      Object adjusted_next = Core.mul(adjusted, factor);
-      adjusted = adjusted_next;
-    }
-    for (Object forbidden : Core.iter(forbidden_actions)) {
-      Object bad_found = Boolean.FALSE;
-      for (Object call : Core.iter(function_calls)) {
-        Object bad_match = Core._optimization_action_name_matches(forbidden, call);
-        if (Core.truthy(bad_match)) {
-          bad_found = Boolean.TRUE;
-        }
-      }
-      if (Core.truthy(bad_found)) {
-        Object penalized = Core.mul(adjusted, 0.2);
-        adjusted = penalized;
-      }
-    }
-    return adjusted;
   }
 
   static Object _date_values_error_impl() {
@@ -23050,6 +23030,23 @@ final class Core {
       throw Core.asRuntime(calendar_error);
     }
     return parts;
+  }
+
+  static Object _optimization_bootstrap_demo(Object row) {
+    axirCoverageMark("_optimization_bootstrap_demo");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object task = Core.get(row, "input", empty);
+    Object input = Core.get(task, "input", task);
+    Object prediction = Core.get(row, "prediction", empty);
+    Object output_fallback = Core.get(prediction, "output", prediction);
+    Object output = Core.get(prediction, "finalOutput", output_fallback);
+    Object trace = Core.mapMerge(input, output);
+    Object traces = new java.util.ArrayList<Object>();
+    Core.append(traces, trace);
+    Object demo = new java.util.LinkedHashMap<String, Object>();
+    Core.set(demo, "programId", "root");
+    Core.set(demo, "traces", traces);
+    return demo;
   }
 
   static Object _evidence_decode_one_impl(Object typ, Object raw, Object context, Object path) {
@@ -23373,6 +23370,37 @@ final class Core {
     return bundle;
   }
 
+  static Object _gepa_pareto_set_size(Object options) {
+    axirCoverageMark("_gepa_pareto_set_size");
+    Object snake = Core.get(options, "pareto_set_size", 0);
+    Object size = Core.get(options, "paretoSetSize", snake);
+    Object explicit = Core.gt(size, 0);
+    if (Core.truthy(explicit)) {
+      Object rounded = Core.mathFloor(size);
+      Object small = Core.lt(rounded, 5);
+      if (Core.truthy(small)) {
+        return 5;
+      }
+      Object large = Core.gt(rounded, 1000);
+      if (Core.truthy(large)) {
+        return 1000;
+      }
+      return rounded;
+    }
+    Object mini_snake = Core.get(options, "minibatch_size", 20);
+    Object mini = Core.get(options, "minibatchSize", mini_snake);
+    Object default_size = Core.mul(mini, 3);
+    Object too_small = Core.lt(default_size, 10);
+    if (Core.truthy(too_small)) {
+      return 10;
+    }
+    Object too_large = Core.gt(default_size, 200);
+    if (Core.truthy(too_large)) {
+      return 200;
+    }
+    return default_size;
+  }
+
   static Object _date_abbreviation_offset_impl(Object units, Object start, Object end, Object zone) {
     axirCoverageMark("_date_abbreviation_offset_impl");
     Object none = Core.none();
@@ -23490,6 +23518,44 @@ final class Core {
     return items;
   }
 
+  static Object _gepa_helper_metric_budget(Object options, Object validation_count, Object bootstrap) {
+    axirCoverageMark("_gepa_helper_metric_budget");
+    Object none = Core.none();
+    Object snake = Core.get(options, "max_metric_calls", none);
+    Object explicit = Core.get(options, "maxMetricCalls", snake);
+    Object supplied = Core.isNotNone(explicit);
+    if (Core.truthy(supplied)) {
+      return explicit;
+    }
+    Object cap = Core._gepa_pareto_set_size(options);
+    Object count = validation_count;
+    Object capped = Core.gt(count, cap);
+    if (Core.truthy(capped)) {
+      count = cap;
+    }
+    if (Core.truthy(bootstrap)) {
+      count = Core.mul(count, 2);
+    }
+    Object minimum = Core.lt(count, 100);
+    if (Core.truthy(minimum)) {
+      return 100;
+    }
+    return count;
+  }
+
+  static Object _optimization_action_name_matches(Object expected, Object call) {
+    axirCoverageMark("_optimization_action_name_matches");
+    Object qualified = Core.get(call, "qualifiedName", "");
+    Object name = Core.get(call, "name", "");
+    Object qualified_match = Core.eq(qualified, expected);
+    Object name_match = Core.eq(name, expected);
+    Object dot_expected = Core.add(".", expected);
+    Object suffix_match = Core.stringEndsWith(qualified, dot_expected);
+    Object direct_match = Core.or(qualified_match, name_match);
+    Object any_match = Core.or(direct_match, suffix_match);
+    return any_match;
+  }
+
   static Object _date_zone_resolve_impl(Object units, Object start, Object end, Object zone, Object probe) {
     axirCoverageMark("_date_zone_resolve_impl");
     Object resolved = new java.util.LinkedHashMap<String, Object>();
@@ -23555,19 +23621,50 @@ final class Core {
     throw Core.asRuntime(missing_error);
   }
 
-  static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
-    axirCoverageMark("_build_optimization_eval_row");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "input", task);
-    Core.set(out, "prediction", prediction);
-    Core.set(out, "scores", scores);
-    Core.set(out, "scalar", scalar);
-    Core.set(out, "trace", trace);
-    Object has_error = Core.isNotNone(error);
-    if (Core.truthy(has_error)) {
-      Core.set(out, "error", error);
+  static Object _adjust_optimization_score_for_actions(Object score, Object task, Object prediction) {
+    axirCoverageMark("_adjust_optimization_score_for_actions");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object function_calls = Core.get(prediction, "functionCalls", empty_list);
+    Object expected_actions = Core.get(task, "expectedActions", empty_list);
+    Object forbidden_actions = Core.get(task, "forbiddenActions", empty_list);
+    Object adjusted = score;
+    Object expected_count = Core.len(expected_actions);
+    Object has_expected = Core.gt(expected_count, 0);
+    if (Core.truthy(has_expected)) {
+      Object matched = 0;
+      for (Object expected : Core.iter(expected_actions)) {
+        Object found = Boolean.FALSE;
+        for (Object call : Core.iter(function_calls)) {
+          Object call_matches = Core._optimization_action_name_matches(expected, call);
+          if (Core.truthy(call_matches)) {
+            found = Boolean.TRUE;
+          }
+        }
+        if (Core.truthy(found)) {
+          Object matched_next = Core.add(matched, 1);
+          matched = matched_next;
+        }
+      }
+      Object ratio = Core.div(matched, expected_count);
+      Object half_ratio = Core.mul(0.5, ratio);
+      Object factor = Core.add(0.5, half_ratio);
+      Object adjusted_next = Core.mul(adjusted, factor);
+      adjusted = adjusted_next;
     }
-    return out;
+    for (Object forbidden : Core.iter(forbidden_actions)) {
+      Object bad_found = Boolean.FALSE;
+      for (Object call : Core.iter(function_calls)) {
+        Object bad_match = Core._optimization_action_name_matches(forbidden, call);
+        if (Core.truthy(bad_match)) {
+          bad_found = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(bad_found)) {
+        Object penalized = Core.mul(adjusted, 0.2);
+        adjusted = penalized;
+      }
+    }
+    return adjusted;
   }
 
   static Object _stream_js_string_impl(Object value) {
@@ -23614,33 +23711,6 @@ final class Core {
       return joined;
     }
     return "[object Object]";
-  }
-
-  static Object _build_optimization_eval_result(Object rows, Object candidate_map, Object phase) {
-    axirCoverageMark("_build_optimization_eval_result");
-    Object sum = 0;
-    Object count = 0;
-    for (Object row : Core.iter(rows)) {
-      Object scalar = Core.get(row, "scalar", 0);
-      Object sum_next = Core.add(sum, scalar);
-      Object count_next = Core.add(count, 1);
-      sum = sum_next;
-      count = count_next;
-    }
-    Object avg = 0;
-    Object has_rows = Core.gt(count, 0);
-    if (Core.truthy(has_rows)) {
-      Object avg_next = Core.div(sum, count);
-      avg = avg_next;
-    }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "phase", phase);
-    Core.set(out, "candidateMap", candidate_map);
-    Core.set(out, "rows", rows);
-    Core.set(out, "sum", sum);
-    Core.set(out, "avg", avg);
-    Core.set(out, "count", count);
-    return out;
   }
 
   static Object chat_session_record_result(Object gen, Object state, Object call, Object result, Object ok, Object options) {
@@ -23737,69 +23807,6 @@ final class Core {
       throw Core.asRuntime(error);
     }
     return selected;
-  }
-
-  static Object _filter_optimization_components(Object components, Object target) {
-    axirCoverageMark("_filter_optimization_components");
-    Object out = new java.util.ArrayList<Object>();
-    Object is_list = Core.typeIs(target, "list");
-    Object is_all = Core.eq(target, "all");
-    Object is_actor = Core.eq(target, "actor");
-    Object is_responder = Core.eq(target, "responder");
-    Object is_flow = Core.eq(target, "flow");
-    for (Object component : Core.iter(components)) {
-      Object id = Core.get(component, "id", "");
-      Object kind = Core.get(component, "kind", "");
-      Object include = Boolean.FALSE;
-      if (Core.truthy(is_all)) {
-        include = Boolean.TRUE;
-      }
-      if (Core.truthy(is_list)) {
-        Object listed = Core.contains(target, id);
-        if (Core.truthy(listed)) {
-          include = Boolean.TRUE;
-        }
-      }
-      if (Core.truthy(is_actor)) {
-        Object actor_match = Core.stringEndsWith(id, ".actor");
-        Object actor_component_match = Core.contains(id, ".actor::");
-        Object actor_any_match = Core.or(actor_match, actor_component_match);
-        Object stage_instruction_match = Core.eq(id, "root::instruction");
-        actor_any_match = Core.or(actor_any_match, stage_instruction_match);
-        if (Core.truthy(actor_any_match)) {
-          include = Boolean.TRUE;
-        }
-      }
-      if (Core.truthy(is_responder)) {
-        Object responder_match = Core.stringEndsWith(id, ".responder");
-        Object responder_component_match = Core.contains(id, ".responder::");
-        Object responder_any_match = Core.or(responder_match, responder_component_match);
-        if (Core.truthy(responder_any_match)) {
-          include = Boolean.TRUE;
-        }
-      }
-      if (Core.truthy(is_flow)) {
-        Object flow_component = Core.eq(kind, "flow-graph");
-        if (Core.truthy(flow_component)) {
-          include = Boolean.TRUE;
-        }
-      }
-      Object explicit_match = Core.eq(target, id);
-      if (Core.truthy(explicit_match)) {
-        include = Boolean.TRUE;
-      }
-      if (Core.truthy(include)) {
-        Core.append(out, component);
-      }
-    }
-    Object count = Core.len(out);
-    Object empty = Core.eq(count, 0);
-    if (Core.truthy(empty)) {
-      Object message = Core.stringFormat("no optimizable components match target: {}", target);
-      Object error = Core.runtimeError(message);
-      throw Core.asRuntime(error);
-    }
-    return out;
   }
 
   static Object _regex_class_atom(Object s) {
@@ -24568,23 +24575,18 @@ final class Core {
     return output;
   }
 
-  static Object _build_optimizer_request(Object program_kind, Object components, Object dataset, Object options, Object trace) {
-    axirCoverageMark("_build_optimizer_request");
+  static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
+    axirCoverageMark("_build_optimization_eval_row");
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "contractVersion", "axir-optimize-contract-v1");
-    Core.set(out, "programKind", program_kind);
-    Core.set(out, "components", components);
-    Core.set(out, "dataset", dataset);
-    Core.set(out, "options", options);
+    Core.set(out, "input", task);
+    Core.set(out, "prediction", prediction);
+    Core.set(out, "scores", scores);
+    Core.set(out, "scalar", scalar);
     Core.set(out, "trace", trace);
-    Object evaluator = new java.util.LinkedHashMap<String, Object>();
-    Object methods = new java.util.ArrayList<Object>();
-    Core.append(methods, "evaluate");
-    Core.set(evaluator, "available", Boolean.TRUE);
-    Core.set(evaluator, "contractVersion", "axir-optimizer-evaluator-v1");
-    Core.set(evaluator, "evidenceContractVersion", "axir-optimizer-evidence-v1");
-    Core.set(evaluator, "methods", methods);
-    Core.set(out, "evaluator", evaluator);
+    Object has_error = Core.isNotNone(error);
+    if (Core.truthy(has_error)) {
+      Core.set(out, "error", error);
+    }
     return out;
   }
 
@@ -24639,6 +24641,33 @@ final class Core {
     return seconds;
   }
 
+  static Object _build_optimization_eval_result(Object rows, Object candidate_map, Object phase) {
+    axirCoverageMark("_build_optimization_eval_result");
+    Object sum = 0;
+    Object count = 0;
+    for (Object row : Core.iter(rows)) {
+      Object scalar = Core.get(row, "scalar", 0);
+      Object sum_next = Core.add(sum, scalar);
+      Object count_next = Core.add(count, 1);
+      sum = sum_next;
+      count = count_next;
+    }
+    Object avg = 0;
+    Object has_rows = Core.gt(count, 0);
+    if (Core.truthy(has_rows)) {
+      Object avg_next = Core.div(sum, count);
+      avg = avg_next;
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "phase", phase);
+    Core.set(out, "candidateMap", candidate_map);
+    Core.set(out, "rows", rows);
+    Core.set(out, "sum", sum);
+    Core.set(out, "avg", avg);
+    Core.set(out, "count", count);
+    return out;
+  }
+
   static Object _evidence_context_impl(Object response, Object client) {
     axirCoverageMark("_evidence_context_impl");
     Object trusted = Core.get(response, "decisionContext", null);
@@ -24659,35 +24688,6 @@ final class Core {
     Object context = new java.util.LinkedHashMap<String, Object>();
     Core.set(context, "provenance", provenance);
     return context;
-  }
-
-  static Object _prepare_optimizer_run(Object program_kind, Object components, Object dataset, Object options, Object trace, Object evaluator_available) {
-    axirCoverageMark("_prepare_optimizer_run");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object opts_missing = Core.isNone(options);
-    Object opts = options;
-    if (Core.truthy(opts_missing)) {
-      opts = empty_map;
-    }
-    Object normalized = Core._normalize_optimization_dataset(dataset);
-    Object target = Core.get(opts, "target", "all");
-    Object selected = Core._filter_optimization_components(components, target);
-    Object request_options = Core.mapMerge(empty_map, opts);
-    Core.mapDelete(request_options, "client");
-    Core.mapDelete(request_options, "ai");
-    Core.mapDelete(request_options, "engine");
-    Core.mapDelete(request_options, "optimizer");
-    Object request = Core._build_optimizer_request(program_kind, selected, normalized, request_options, trace);
-    Object evaluator = Core.get(request, "evaluator", null);
-    Core.set(evaluator, "available", evaluator_available);
-    Core.set(request, "evaluator", evaluator);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "components", components);
-    Core.set(out, "selectedComponents", selected);
-    Core.set(out, "dataset", normalized);
-    Core.set(out, "options", request_options);
-    Core.set(out, "request", request);
-    return out;
   }
 
   static Object _date_parts_in_zone_impl(Object zone, Object millis) {
@@ -24725,6 +24725,69 @@ final class Core {
     Object turns = new java.util.ArrayList<Object>();
     Core.set(state, "turns", turns);
     return state;
+  }
+
+  static Object _filter_optimization_components(Object components, Object target) {
+    axirCoverageMark("_filter_optimization_components");
+    Object out = new java.util.ArrayList<Object>();
+    Object is_list = Core.typeIs(target, "list");
+    Object is_all = Core.eq(target, "all");
+    Object is_actor = Core.eq(target, "actor");
+    Object is_responder = Core.eq(target, "responder");
+    Object is_flow = Core.eq(target, "flow");
+    for (Object component : Core.iter(components)) {
+      Object id = Core.get(component, "id", "");
+      Object kind = Core.get(component, "kind", "");
+      Object include = Boolean.FALSE;
+      if (Core.truthy(is_all)) {
+        include = Boolean.TRUE;
+      }
+      if (Core.truthy(is_list)) {
+        Object listed = Core.contains(target, id);
+        if (Core.truthy(listed)) {
+          include = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(is_actor)) {
+        Object actor_match = Core.stringEndsWith(id, ".actor");
+        Object actor_component_match = Core.contains(id, ".actor::");
+        Object actor_any_match = Core.or(actor_match, actor_component_match);
+        Object stage_instruction_match = Core.eq(id, "root::instruction");
+        actor_any_match = Core.or(actor_any_match, stage_instruction_match);
+        if (Core.truthy(actor_any_match)) {
+          include = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(is_responder)) {
+        Object responder_match = Core.stringEndsWith(id, ".responder");
+        Object responder_component_match = Core.contains(id, ".responder::");
+        Object responder_any_match = Core.or(responder_match, responder_component_match);
+        if (Core.truthy(responder_any_match)) {
+          include = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(is_flow)) {
+        Object flow_component = Core.eq(kind, "flow-graph");
+        if (Core.truthy(flow_component)) {
+          include = Boolean.TRUE;
+        }
+      }
+      Object explicit_match = Core.eq(target, id);
+      if (Core.truthy(explicit_match)) {
+        include = Boolean.TRUE;
+      }
+      if (Core.truthy(include)) {
+        Core.append(out, component);
+      }
+    }
+    Object count = Core.len(out);
+    Object empty = Core.eq(count, 0);
+    if (Core.truthy(empty)) {
+      Object message = Core.stringFormat("no optimizable components match target: {}", target);
+      Object error = Core.runtimeError(message);
+      throw Core.asRuntime(error);
+    }
+    return out;
   }
 
   static Object _regex_atom(Object s) {
@@ -24894,77 +24957,6 @@ final class Core {
     }
     Object t68 = Core._regex_literal(c);
     return t68;
-  }
-
-  static Object _normalize_optimizer_engine_response(Object response, Object engine_name, Object engine_version, Object components) {
-    axirCoverageMark("_normalize_optimizer_engine_response");
-    Object response_is_object = Core.typeIs(response, "object");
-    Object bad_response = Core.not(response_is_object);
-    if (Core.truthy(bad_response)) {
-      Object error = Core.runtimeError("optimizer engine must return an optimized artifact");
-      throw Core.asRuntime(error);
-    }
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object has_artifact = Core.mapContains(response, "artifact");
-    Object artifact_source = response;
-    if (Core.truthy(has_artifact)) {
-      Object artifact_value = Core.get(response, "artifact", null);
-      artifact_source = artifact_value;
-    }
-    Object artifact = Core.mapMerge(empty_map, artifact_source);
-    Object artifact_is_object = Core.typeIs(artifact, "object");
-    Object bad_artifact = Core.not(artifact_is_object);
-    if (Core.truthy(bad_artifact)) {
-      Object artifact_error = Core.runtimeError("optimizer engine must return an optimized artifact");
-      throw Core.asRuntime(artifact_error);
-    }
-    Object version = Core.get(artifact, "artifactVersion", null);
-    Object missing_version = Core.isNone(version);
-    if (Core.truthy(missing_version)) {
-      Core.set(artifact, "artifactVersion", "axir-optimized-artifact-v1");
-    }
-    Object name = Core.get(artifact, "optimizerName", null);
-    Object missing_name = Core.isNone(name);
-    if (Core.truthy(missing_name)) {
-      Core.set(artifact, "optimizerName", engine_name);
-    }
-    Object engine_ver = Core.get(artifact, "optimizerVersion", null);
-    Object missing_engine_ver = Core.isNone(engine_ver);
-    if (Core.truthy(missing_engine_ver)) {
-      Core.set(artifact, "optimizerVersion", engine_version);
-    }
-    Object component_map = Core.get(artifact, "componentMap", null);
-    Object missing_component_map = Core.isNone(component_map);
-    if (Core.truthy(missing_component_map)) {
-      Object snake_map = Core.get(artifact, "component_map", empty_map);
-      Core.set(artifact, "componentMap", snake_map);
-    }
-    Object metadata = Core.get(artifact, "metadata", null);
-    Object missing_metadata = Core.isNone(metadata);
-    if (Core.truthy(missing_metadata)) {
-      Object default_metadata = new java.util.LinkedHashMap<String, Object>();
-      Core.set(artifact, "metadata", default_metadata);
-    }
-    Object metadata_final = Core.get(artifact, "metadata", null);
-    Object provenance = Core.get(artifact, "provenance", null);
-    Object missing_provenance = Core.isNone(provenance);
-    if (Core.truthy(missing_provenance)) {
-      Object empty_provenance = new java.util.LinkedHashMap<String, Object>();
-      Object metadata_provenance = Core.get(metadata_final, "provenance", empty_provenance);
-      Core.set(artifact, "provenance", metadata_provenance);
-    }
-    Object evidence = Core.get(artifact, "evidence", null);
-    Object missing_evidence = Core.isNone(evidence);
-    if (Core.truthy(missing_evidence)) {
-      Object empty_evidence = new java.util.LinkedHashMap<String, Object>();
-      Object metadata_evidence = Core.get(metadata_final, "evidence", empty_evidence);
-      Core.set(artifact, "evidence", metadata_evidence);
-    }
-    Object validated = Core._validate_optimized_artifact(artifact, components);
-    Object map = Core.get(validated, "componentMap", null);
-    Object changed = Core._optimization_changed_components(components, map);
-    Core.set(validated, "changedComponents", changed);
-    return validated;
   }
 
   static Object _date_zone_offset_millis_impl(Object zone, Object millis) {
@@ -25145,72 +25137,23 @@ final class Core {
     return range_millis;
   }
 
-  static Object _build_optimizer_evidence_batch(Object eval_result, Object components) {
-    axirCoverageMark("_build_optimizer_evidence_batch");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object rows = Core.get(eval_result, "rows", empty_list);
-    Object outputs = new java.util.ArrayList<Object>();
-    Object scores = new java.util.ArrayList<Object>();
-    Object score_vectors = new java.util.ArrayList<Object>();
-    Object trajectories = new java.util.ArrayList<Object>();
-    for (Object row : Core.iter(rows)) {
-      Object prediction = Core.get(row, "prediction", empty_map);
-      Object output = Core.get(prediction, "output", prediction);
-      Core.append(outputs, output);
-      Object scalar = Core.get(row, "scalar", 0);
-      Core.append(scores, scalar);
-      Object vector = Core.get(row, "scores", empty_map);
-      Core.append(score_vectors, vector);
-      Object trajectory = new java.util.LinkedHashMap<String, Object>();
-      Object trace = Core.get(row, "trace", null);
-      Core.set(trajectory, "trace", trace);
-      Core.set(trajectory, "output", output);
-      Object row_error = Core.get(row, "error", null);
-      Object prediction_error = Core.get(prediction, "error", row_error);
-      Object has_error = Core.isNotNone(prediction_error);
-      if (Core.truthy(has_error)) {
-        Core.set(trajectory, "error", prediction_error);
-      }
-      Core.append(trajectories, trajectory);
-    }
-    Object reflective = new java.util.LinkedHashMap<String, Object>();
-    for (Object component : Core.iter(components)) {
-      Object id = Core.get(component, "id", "");
-      Object items = new java.util.ArrayList<Object>();
-      for (Object row : Core.iter(rows)) {
-        Object entry = new java.util.LinkedHashMap<String, Object>();
-        Object prediction = Core.get(row, "prediction", empty_map);
-        Object output = Core.get(prediction, "output", prediction);
-        Object scalar = Core.get(row, "scalar", 0);
-        Object trace = Core.get(row, "trace", null);
-        Core.set(entry, "score", scalar);
-        Core.set(entry, "output", output);
-        Core.set(entry, "trace", trace);
-        Object error = Core.get(row, "error", null);
-        Object has_error = Core.isNotNone(error);
-        if (Core.truthy(has_error)) {
-          Core.set(entry, "error", error);
-        }
-        Core.append(items, entry);
-      }
-      Core.set(reflective, id, items);
-    }
+  static Object _build_optimizer_request(Object program_kind, Object components, Object dataset, Object options, Object trace) {
+    axirCoverageMark("_build_optimizer_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "contractVersion", "axir-optimizer-evidence-v1");
-    Object candidate_map = Core.get(eval_result, "candidateMap", empty_map);
-    Core.set(out, "candidateMap", candidate_map);
-    Core.set(out, "outputs", outputs);
-    Core.set(out, "scores", scores);
-    Core.set(out, "scoreVectors", score_vectors);
-    Core.set(out, "trajectories", trajectories);
-    Object avg = Core.get(eval_result, "avg", 0);
-    Object sum = Core.get(eval_result, "sum", 0);
-    Object count = Core.get(eval_result, "count", 0);
-    Core.set(out, "avg", avg);
-    Core.set(out, "sum", sum);
-    Core.set(out, "count", count);
-    Core.set(out, "reflectiveDataset", reflective);
+    Core.set(out, "contractVersion", "axir-optimize-contract-v1");
+    Core.set(out, "programKind", program_kind);
+    Core.set(out, "components", components);
+    Core.set(out, "dataset", dataset);
+    Core.set(out, "options", options);
+    Core.set(out, "trace", trace);
+    Object evaluator = new java.util.LinkedHashMap<String, Object>();
+    Object methods = new java.util.ArrayList<Object>();
+    Core.append(methods, "evaluate");
+    Core.set(evaluator, "available", Boolean.TRUE);
+    Core.set(evaluator, "contractVersion", "axir-optimizer-evaluator-v1");
+    Core.set(evaluator, "evidenceContractVersion", "axir-optimizer-evidence-v1");
+    Core.set(evaluator, "methods", methods);
+    Core.set(out, "evaluator", evaluator);
     return out;
   }
 
@@ -25220,6 +25163,42 @@ final class Core {
     response = Core.mapMerge(response, empty);
     Core.set(response, "__session_response_id", id);
     return response;
+  }
+
+  static Object _prepare_optimizer_run(Object program_kind, Object components, Object dataset, Object options, Object trace, Object evaluator_available) {
+    axirCoverageMark("_prepare_optimizer_run");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object opts_missing = Core.isNone(options);
+    Object opts = options;
+    if (Core.truthy(opts_missing)) {
+      opts = empty_map;
+    }
+    Object normalized = Core._normalize_optimization_dataset(dataset);
+    Object validation_none = Core.none();
+    Object validation_snake = Core.get(opts, "validation_examples", validation_none);
+    Object validation_examples = Core.get(opts, "validationExamples", validation_snake);
+    Object has_validation_examples = Core.isNotNone(validation_examples);
+    if (Core.truthy(has_validation_examples)) {
+      Core.set(normalized, "validation", validation_examples);
+    }
+    Object target = Core.get(opts, "target", "all");
+    Object selected = Core._filter_optimization_components(components, target);
+    Object request_options = Core.mapMerge(empty_map, opts);
+    Core.mapDelete(request_options, "client");
+    Core.mapDelete(request_options, "ai");
+    Core.mapDelete(request_options, "engine");
+    Core.mapDelete(request_options, "optimizer");
+    Object request = Core._build_optimizer_request(program_kind, selected, normalized, request_options, trace);
+    Object evaluator = Core.get(request, "evaluator", null);
+    Core.set(evaluator, "available", evaluator_available);
+    Core.set(request, "evaluator", evaluator);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "components", components);
+    Core.set(out, "selectedComponents", selected);
+    Core.set(out, "dataset", normalized);
+    Core.set(out, "options", request_options);
+    Core.set(out, "request", request);
+    return out;
   }
 
   static Object chat_session_record_response(Object gen, Object state, Object request, Object completion) {
@@ -25319,6 +25298,77 @@ final class Core {
     Object message = Core.stringFormat("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank.", title, title, label);
     Object error = Core.validationError(message);
     return error;
+  }
+
+  static Object _normalize_optimizer_engine_response(Object response, Object engine_name, Object engine_version, Object components) {
+    axirCoverageMark("_normalize_optimizer_engine_response");
+    Object response_is_object = Core.typeIs(response, "object");
+    Object bad_response = Core.not(response_is_object);
+    if (Core.truthy(bad_response)) {
+      Object error = Core.runtimeError("optimizer engine must return an optimized artifact");
+      throw Core.asRuntime(error);
+    }
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object has_artifact = Core.mapContains(response, "artifact");
+    Object artifact_source = response;
+    if (Core.truthy(has_artifact)) {
+      Object artifact_value = Core.get(response, "artifact", null);
+      artifact_source = artifact_value;
+    }
+    Object artifact = Core.mapMerge(empty_map, artifact_source);
+    Object artifact_is_object = Core.typeIs(artifact, "object");
+    Object bad_artifact = Core.not(artifact_is_object);
+    if (Core.truthy(bad_artifact)) {
+      Object artifact_error = Core.runtimeError("optimizer engine must return an optimized artifact");
+      throw Core.asRuntime(artifact_error);
+    }
+    Object version = Core.get(artifact, "artifactVersion", null);
+    Object missing_version = Core.isNone(version);
+    if (Core.truthy(missing_version)) {
+      Core.set(artifact, "artifactVersion", "axir-optimized-artifact-v1");
+    }
+    Object name = Core.get(artifact, "optimizerName", null);
+    Object missing_name = Core.isNone(name);
+    if (Core.truthy(missing_name)) {
+      Core.set(artifact, "optimizerName", engine_name);
+    }
+    Object engine_ver = Core.get(artifact, "optimizerVersion", null);
+    Object missing_engine_ver = Core.isNone(engine_ver);
+    if (Core.truthy(missing_engine_ver)) {
+      Core.set(artifact, "optimizerVersion", engine_version);
+    }
+    Object component_map = Core.get(artifact, "componentMap", null);
+    Object missing_component_map = Core.isNone(component_map);
+    if (Core.truthy(missing_component_map)) {
+      Object snake_map = Core.get(artifact, "component_map", empty_map);
+      Core.set(artifact, "componentMap", snake_map);
+    }
+    Object metadata = Core.get(artifact, "metadata", null);
+    Object missing_metadata = Core.isNone(metadata);
+    if (Core.truthy(missing_metadata)) {
+      Object default_metadata = new java.util.LinkedHashMap<String, Object>();
+      Core.set(artifact, "metadata", default_metadata);
+    }
+    Object metadata_final = Core.get(artifact, "metadata", null);
+    Object provenance = Core.get(artifact, "provenance", null);
+    Object missing_provenance = Core.isNone(provenance);
+    if (Core.truthy(missing_provenance)) {
+      Object empty_provenance = new java.util.LinkedHashMap<String, Object>();
+      Object metadata_provenance = Core.get(metadata_final, "provenance", empty_provenance);
+      Core.set(artifact, "provenance", metadata_provenance);
+    }
+    Object evidence = Core.get(artifact, "evidence", null);
+    Object missing_evidence = Core.isNone(evidence);
+    if (Core.truthy(missing_evidence)) {
+      Object empty_evidence = new java.util.LinkedHashMap<String, Object>();
+      Object metadata_evidence = Core.get(metadata_final, "evidence", empty_evidence);
+      Core.set(artifact, "evidence", metadata_evidence);
+    }
+    Object validated = Core._validate_optimized_artifact(artifact, components);
+    Object map = Core.get(validated, "componentMap", null);
+    Object changed = Core._optimization_changed_components(components, map);
+    Core.set(validated, "changedComponents", changed);
+    return validated;
   }
 
   static Object chat_session_step_limit_error(Object state) {
@@ -25687,24 +25737,6 @@ final class Core {
     return t73;
   }
 
-  static Object _ace_estimate_token_count(Object text) {
-    axirCoverageMark("_ace_estimate_token_count");
-    Object len = Core.len(text);
-    Object tokens = 0;
-    Object remaining = len;
-    while (Core.truthy(Boolean.TRUE)) {
-      Object done = Core.lte(remaining, 0);
-      if (Core.truthy(done)) {
-        break;
-      }
-      Object tokens_next = Core.add(tokens, 1);
-      tokens = tokens_next;
-      Object remaining_next = Core.add(remaining, -4);
-      remaining = remaining_next;
-    }
-    return tokens;
-  }
-
   static Object chat_session_completion(Object response, Object id) {
     axirCoverageMark("chat_session_completion");
     Object completion = Core.chat_response_to_completion(response);
@@ -25723,38 +25755,73 @@ final class Core {
     return work;
   }
 
-  static Object _ace_recompute_playbook_stats(Object playbook) {
-    axirCoverageMark("_ace_recompute_playbook_stats");
+  static Object _build_optimizer_evidence_batch(Object eval_result, Object components) {
+    axirCoverageMark("_build_optimizer_evidence_batch");
+    Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object bullet_count = 0;
-    Object helpful_count = 0;
-    Object harmful_count = 0;
-    Object token_estimate = 0;
-    Object section_lists = Core.mapValues(sections);
-    for (Object bullets : Core.iter(section_lists)) {
-      for (Object bullet : Core.iter(bullets)) {
-        Object bullet_count_next = Core.add(bullet_count, 1);
-        bullet_count = bullet_count_next;
-        Object helpful = Core.get(bullet, "helpfulCount", 0);
-        Object harmful = Core.get(bullet, "harmfulCount", 0);
-        Object helpful_count_next = Core.add(helpful_count, helpful);
-        helpful_count = helpful_count_next;
-        Object harmful_count_next = Core.add(harmful_count, harmful);
-        harmful_count = harmful_count_next;
-        Object content = Core.get(bullet, "content", "");
-        Object bullet_tokens = Core._ace_estimate_token_count(content);
-        Object token_estimate_next = Core.add(token_estimate, bullet_tokens);
-        token_estimate = token_estimate_next;
+    Object rows = Core.get(eval_result, "rows", empty_list);
+    Object outputs = new java.util.ArrayList<Object>();
+    Object scores = new java.util.ArrayList<Object>();
+    Object score_vectors = new java.util.ArrayList<Object>();
+    Object trajectories = new java.util.ArrayList<Object>();
+    for (Object row : Core.iter(rows)) {
+      Object prediction = Core.get(row, "prediction", empty_map);
+      Object output = Core.get(prediction, "output", prediction);
+      Core.append(outputs, output);
+      Object scalar = Core.get(row, "scalar", 0);
+      Core.append(scores, scalar);
+      Object vector = Core.get(row, "scores", empty_map);
+      Core.append(score_vectors, vector);
+      Object trajectory = new java.util.LinkedHashMap<String, Object>();
+      Object trace = Core.get(row, "trace", null);
+      Core.set(trajectory, "trace", trace);
+      Core.set(trajectory, "output", output);
+      Object row_error = Core.get(row, "error", null);
+      Object prediction_error = Core.get(prediction, "error", row_error);
+      Object has_error = Core.isNotNone(prediction_error);
+      if (Core.truthy(has_error)) {
+        Core.set(trajectory, "error", prediction_error);
       }
+      Core.append(trajectories, trajectory);
     }
-    Object stats = new java.util.LinkedHashMap<String, Object>();
-    Core.set(stats, "bulletCount", bullet_count);
-    Core.set(stats, "helpfulCount", helpful_count);
-    Core.set(stats, "harmfulCount", harmful_count);
-    Core.set(stats, "tokenEstimate", token_estimate);
-    Core.set(playbook, "stats", stats);
-    return playbook;
+    Object reflective = new java.util.LinkedHashMap<String, Object>();
+    for (Object component : Core.iter(components)) {
+      Object id = Core.get(component, "id", "");
+      Object items = new java.util.ArrayList<Object>();
+      for (Object row : Core.iter(rows)) {
+        Object entry = new java.util.LinkedHashMap<String, Object>();
+        Object prediction = Core.get(row, "prediction", empty_map);
+        Object output = Core.get(prediction, "output", prediction);
+        Object scalar = Core.get(row, "scalar", 0);
+        Object trace = Core.get(row, "trace", null);
+        Core.set(entry, "score", scalar);
+        Core.set(entry, "output", output);
+        Core.set(entry, "trace", trace);
+        Object error = Core.get(row, "error", null);
+        Object has_error = Core.isNotNone(error);
+        if (Core.truthy(has_error)) {
+          Core.set(entry, "error", error);
+        }
+        Core.append(items, entry);
+      }
+      Core.set(reflective, id, items);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "contractVersion", "axir-optimizer-evidence-v1");
+    Object candidate_map = Core.get(eval_result, "candidateMap", empty_map);
+    Core.set(out, "candidateMap", candidate_map);
+    Core.set(out, "outputs", outputs);
+    Core.set(out, "scores", scores);
+    Core.set(out, "scoreVectors", score_vectors);
+    Core.set(out, "trajectories", trajectories);
+    Object avg = Core.get(eval_result, "avg", 0);
+    Object sum = Core.get(eval_result, "sum", 0);
+    Object count = Core.get(eval_result, "count", 0);
+    Core.set(out, "avg", avg);
+    Core.set(out, "sum", sum);
+    Core.set(out, "count", count);
+    Core.set(out, "reflectiveDataset", reflective);
+    return out;
   }
 
   static Object chat_session_normalize_call(Object call) {
@@ -25868,26 +25935,6 @@ final class Core {
     return Boolean.FALSE;
   }
 
-  static Object _ace_empty_playbook(Object description, Object now) {
-    axirCoverageMark("_ace_empty_playbook");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "version", 1);
-    Object sections = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "sections", sections);
-    Object stats = new java.util.LinkedHashMap<String, Object>();
-    Core.set(stats, "bulletCount", 0);
-    Core.set(stats, "helpfulCount", 0);
-    Core.set(stats, "harmfulCount", 0);
-    Core.set(stats, "tokenEstimate", 0);
-    Core.set(out, "stats", stats);
-    Core.set(out, "updatedAt", now);
-    Object has_description = Core.truthyValue(description);
-    if (Core.truthy(has_description)) {
-      Core.set(out, "description", description);
-    }
-    return out;
-  }
-
   static Object chat_session_complete_call(Object state, Object id, Object result) {
     axirCoverageMark("chat_session_complete_call");
     Object terminal = Core.get(state, "terminal", Boolean.FALSE);
@@ -25911,63 +25958,6 @@ final class Core {
       return Boolean.TRUE;
     }
     return Boolean.FALSE;
-  }
-
-  static Object _ace_render_playbook(Object playbook) {
-    axirCoverageMark("_ace_render_playbook");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object description = Core.get(playbook, "description", null);
-    Object has_description = Core.truthyValue(description);
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object section_names = Core.mapKeys(sections);
-    Object bullet_count = 0;
-    for (Object section_name : Core.iter(section_names)) {
-      Object section_bullets = Core.get(sections, section_name, empty_list);
-      Object section_count = Core.len(section_bullets);
-      Object next_bullet_count = Core.add(bullet_count, section_count);
-      bullet_count = next_bullet_count;
-    }
-    Object has_bullets = Core.gt(bullet_count, 0);
-    Object no_bullets = Core.not(has_bullets);
-    Object no_description = Core.not(has_description);
-    Object empty_playbook = Core.and(no_bullets, no_description);
-    if (Core.truthy(empty_playbook)) {
-      return "";
-    }
-    Object header = "## Context Playbook\n";
-    if (Core.truthy(has_description)) {
-      Object trimmed_description = Core.stringTrim(description);
-      Object header_with_description = Core.stringFormat("## Context Playbook\n{}\n", trimmed_description);
-      header = header_with_description;
-    }
-    Object section_blocks = new java.util.ArrayList<Object>();
-    for (Object section_name : Core.iter(section_names)) {
-      Object bullets = Core.get(sections, section_name, null);
-      Object bullet_lines = new java.util.ArrayList<Object>();
-      for (Object bullet : Core.iter(bullets)) {
-        Object id = Core.get(bullet, "id", "");
-        Object content = Core.get(bullet, "content", "");
-        Object line = Core.stringFormat("- [{}] {}", id, content);
-        Core.append(bullet_lines, line);
-      }
-      Object body = Core.stringJoin("\n", bullet_lines);
-      Object has_body = Core.ne(body, "");
-      Object block = "";
-      if (Core.truthy(has_body)) {
-        Object block_with_body = Core.stringFormat("### {}\n{}", section_name, body);
-        block = block_with_body;
-      }
-      if (!Core.truthy(has_body)) {
-        Object block_empty = Core.stringFormat("### {}\n_(empty)_", section_name);
-        block = block_empty;
-      }
-      Core.append(section_blocks, block);
-    }
-    Object joined_sections = Core.stringJoin("\n\n", section_blocks);
-    Object combined = Core.stringFormat("{}\n{}", header, joined_sections);
-    Object result = Core.stringTrim(combined);
-    return result;
   }
 
   static Object _stream_convert_value_impl(Object field, Object value, Object required) {
@@ -26112,6 +26102,24 @@ final class Core {
     return Boolean.TRUE;
   }
 
+  static Object _ace_estimate_token_count(Object text) {
+    axirCoverageMark("_ace_estimate_token_count");
+    Object len = Core.len(text);
+    Object tokens = 0;
+    Object remaining = len;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.lte(remaining, 0);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object tokens_next = Core.add(tokens, 1);
+      tokens = tokens_next;
+      Object remaining_next = Core.add(remaining, -4);
+      remaining = remaining_next;
+    }
+    return tokens;
+  }
+
   static Object _date_range_keyword_impl(Object units, Object at, Object end) {
     axirCoverageMark("_date_range_keyword_impl");
     Object unit = Core.get(units, at, 0);
@@ -26158,56 +26166,44 @@ final class Core {
     return 0;
   }
 
-  static Object _ace_update_bullet_feedback(Object playbook, Object bullet_id, Object tag, Object now) {
-    axirCoverageMark("_ace_update_bullet_feedback");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object section_names = Core.mapKeys(sections);
-    Object found = Boolean.FALSE;
-    for (Object section_name : Core.iter(section_names)) {
-      Object already_found = found;
-      if (Core.truthy(already_found)) {
-        // empty
-      }
-      if (!Core.truthy(already_found)) {
-        Object bullets = Core.get(sections, section_name, null);
-        for (Object bullet : Core.iter(bullets)) {
-          Object current_id = Core.get(bullet, "id", "");
-          Object match = Core.eq(bullet_id, current_id);
-          Object still_open = Core.not(found);
-          if (Core.truthy(match)) {
-            if (Core.truthy(still_open)) {
-              Object is_helpful = Core.eq(tag, "helpful");
-              if (Core.truthy(is_helpful)) {
-                Object helpful = Core.get(bullet, "helpfulCount", 0);
-                Object helpful_next = Core.add(helpful, 1);
-                Core.set(bullet, "helpfulCount", helpful_next);
-              }
-              Object is_harmful = Core.eq(tag, "harmful");
-              if (Core.truthy(is_harmful)) {
-                Object harmful = Core.get(bullet, "harmfulCount", 0);
-                Object harmful_next = Core.add(harmful, 1);
-                Core.set(bullet, "harmfulCount", harmful_next);
-              }
-              Core.set(bullet, "updatedAt", now);
-              found = Boolean.TRUE;
-            }
-          }
-        }
-      }
-    }
-    Object did_find = found;
-    if (Core.truthy(did_find)) {
-      Object updated = Core._ace_recompute_playbook_stats(playbook);
-      return updated;
-    }
-    return playbook;
-  }
-
   static Object _set_examples(Object gen, Object examples) {
     axirCoverageMark("_set_examples");
     Core.set(gen, "examples", examples);
     return gen;
+  }
+
+  static Object _ace_recompute_playbook_stats(Object playbook) {
+    axirCoverageMark("_ace_recompute_playbook_stats");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object bullet_count = 0;
+    Object helpful_count = 0;
+    Object harmful_count = 0;
+    Object token_estimate = 0;
+    Object section_lists = Core.mapValues(sections);
+    for (Object bullets : Core.iter(section_lists)) {
+      for (Object bullet : Core.iter(bullets)) {
+        Object bullet_count_next = Core.add(bullet_count, 1);
+        bullet_count = bullet_count_next;
+        Object helpful = Core.get(bullet, "helpfulCount", 0);
+        Object harmful = Core.get(bullet, "harmfulCount", 0);
+        Object helpful_count_next = Core.add(helpful_count, helpful);
+        helpful_count = helpful_count_next;
+        Object harmful_count_next = Core.add(harmful_count, harmful);
+        harmful_count = harmful_count_next;
+        Object content = Core.get(bullet, "content", "");
+        Object bullet_tokens = Core._ace_estimate_token_count(content);
+        Object token_estimate_next = Core.add(token_estimate, bullet_tokens);
+        token_estimate = token_estimate_next;
+      }
+    }
+    Object stats = new java.util.LinkedHashMap<String, Object>();
+    Core.set(stats, "bulletCount", bullet_count);
+    Core.set(stats, "helpfulCount", helpful_count);
+    Core.set(stats, "harmfulCount", harmful_count);
+    Core.set(stats, "tokenEstimate", token_estimate);
+    Core.set(playbook, "stats", stats);
+    return playbook;
   }
 
   static Object _set_demos(Object gen, Object demos) {
@@ -26344,49 +26340,30 @@ final class Core {
     return messages;
   }
 
+  static Object _ace_empty_playbook(Object description, Object now) {
+    axirCoverageMark("_ace_empty_playbook");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "version", 1);
+    Object sections = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "sections", sections);
+    Object stats = new java.util.LinkedHashMap<String, Object>();
+    Core.set(stats, "bulletCount", 0);
+    Core.set(stats, "helpfulCount", 0);
+    Core.set(stats, "harmfulCount", 0);
+    Core.set(stats, "tokenEstimate", 0);
+    Core.set(out, "stats", stats);
+    Core.set(out, "updatedAt", now);
+    Object has_description = Core.truthyValue(description);
+    if (Core.truthy(has_description)) {
+      Core.set(out, "description", description);
+    }
+    return out;
+  }
+
   static Object _apply_field_processors(Object gen, Object output) {
     axirCoverageMark("_apply_field_processors");
     Object processed = Core.axgenApplyFieldProcessors(gen, output);
     return processed;
-  }
-
-  static Object _ace_dedupe_playbook(Object playbook) {
-    axirCoverageMark("_ace_dedupe_playbook");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object section_names = Core.mapKeys(sections);
-    for (Object section_name : Core.iter(section_names)) {
-      Object bullets = Core.get(sections, section_name, null);
-      Object seen = new java.util.LinkedHashMap<String, Object>();
-      Object unique = new java.util.ArrayList<Object>();
-      for (Object bullet : Core.iter(bullets)) {
-        Object content = Core.get(bullet, "content", "");
-        Object trimmed = Core.stringTrim(content);
-        Object key = Core.stringLower(trimmed);
-        Object has_existing = Core.mapContains(seen, key);
-        if (Core.truthy(has_existing)) {
-          Object existing = Core.get(seen, key, null);
-          Object existing_helpful = Core.get(existing, "helpfulCount", 0);
-          Object bullet_helpful = Core.get(bullet, "helpfulCount", 0);
-          Object merged_helpful = Core.add(existing_helpful, bullet_helpful);
-          Core.set(existing, "helpfulCount", merged_helpful);
-          Object existing_harmful = Core.get(existing, "harmfulCount", 0);
-          Object bullet_harmful = Core.get(bullet, "harmfulCount", 0);
-          Object merged_harmful = Core.add(existing_harmful, bullet_harmful);
-          Core.set(existing, "harmfulCount", merged_harmful);
-          Object bullet_updated_at = Core.get(bullet, "updatedAt", "");
-          Core.set(existing, "updatedAt", bullet_updated_at);
-        }
-        if (!Core.truthy(has_existing)) {
-          Core.set(seen, key, bullet);
-          Core.append(unique, bullet);
-        }
-      }
-      Core.set(sections, section_name, unique);
-    }
-    Core.set(playbook, "sections", sections);
-    Object recomputed = Core._ace_recompute_playbook_stats(playbook);
-    return recomputed;
   }
 
   static Object chat_session_native_wait(Object state) {
@@ -26432,6 +26409,63 @@ final class Core {
     }
     Object passed = Core.none();
     return passed;
+  }
+
+  static Object _ace_render_playbook(Object playbook) {
+    axirCoverageMark("_ace_render_playbook");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object description = Core.get(playbook, "description", null);
+    Object has_description = Core.truthyValue(description);
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object bullet_count = 0;
+    for (Object section_name : Core.iter(section_names)) {
+      Object section_bullets = Core.get(sections, section_name, empty_list);
+      Object section_count = Core.len(section_bullets);
+      Object next_bullet_count = Core.add(bullet_count, section_count);
+      bullet_count = next_bullet_count;
+    }
+    Object has_bullets = Core.gt(bullet_count, 0);
+    Object no_bullets = Core.not(has_bullets);
+    Object no_description = Core.not(has_description);
+    Object empty_playbook = Core.and(no_bullets, no_description);
+    if (Core.truthy(empty_playbook)) {
+      return "";
+    }
+    Object header = "## Context Playbook\n";
+    if (Core.truthy(has_description)) {
+      Object trimmed_description = Core.stringTrim(description);
+      Object header_with_description = Core.stringFormat("## Context Playbook\n{}\n", trimmed_description);
+      header = header_with_description;
+    }
+    Object section_blocks = new java.util.ArrayList<Object>();
+    for (Object section_name : Core.iter(section_names)) {
+      Object bullets = Core.get(sections, section_name, null);
+      Object bullet_lines = new java.util.ArrayList<Object>();
+      for (Object bullet : Core.iter(bullets)) {
+        Object id = Core.get(bullet, "id", "");
+        Object content = Core.get(bullet, "content", "");
+        Object line = Core.stringFormat("- [{}] {}", id, content);
+        Core.append(bullet_lines, line);
+      }
+      Object body = Core.stringJoin("\n", bullet_lines);
+      Object has_body = Core.ne(body, "");
+      Object block = "";
+      if (Core.truthy(has_body)) {
+        Object block_with_body = Core.stringFormat("### {}\n{}", section_name, body);
+        block = block_with_body;
+      }
+      if (!Core.truthy(has_body)) {
+        Object block_empty = Core.stringFormat("### {}\n_(empty)_", section_name);
+        block = block_empty;
+      }
+      Core.append(section_blocks, block);
+    }
+    Object joined_sections = Core.stringJoin("\n\n", section_blocks);
+    Object combined = Core.stringFormat("{}\n{}", header, joined_sections);
+    Object result = Core.stringTrim(combined);
+    return result;
   }
 
   static Object _regex_word(Object c) {
@@ -26786,87 +26820,6 @@ final class Core {
     return result;
   }
 
-  static Object _ace_prune_section_for_addition(Object section, Object protected_ids) {
-    axirCoverageMark("_ace_prune_section_for_addition");
-    Object candidate_index = -1;
-    Object candidate_net = 0;
-    Object candidate_helpful = 0;
-    Object candidate_recency = 0;
-    Object index = 0;
-    for (Object bullet : Core.iter(section)) {
-      Object id = Core.get(bullet, "id", "");
-      Object is_protected = Core.contains(protected_ids, id);
-      Object not_protected = Core.not(is_protected);
-      if (Core.truthy(not_protected)) {
-        Object helpful = Core.get(bullet, "helpfulCount", 0);
-        Object harmful = Core.get(bullet, "harmfulCount", 0);
-        Object harmful_weighted = Core.mul(harmful, 2);
-        Object negative_harmful = Core.mul(harmful_weighted, -1);
-        Object net_score = Core.add(helpful, negative_harmful);
-        Object created_at = Core.get(bullet, "createdAt", "");
-        Object recency = Core.get(bullet, "updatedAt", created_at);
-        Object no_candidate = Core.lt(candidate_index, 0);
-        if (Core.truthy(no_candidate)) {
-          candidate_index = index;
-          candidate_net = net_score;
-          candidate_helpful = helpful;
-          candidate_recency = recency;
-        }
-        if (!Core.truthy(no_candidate)) {
-          Object net_lower = Core.lt(net_score, candidate_net);
-          Object net_equal = Core.eq(net_score, candidate_net);
-          Object helpful_lower = Core.lt(helpful, candidate_helpful);
-          Object helpful_equal = Core.eq(helpful, candidate_helpful);
-          Object recency_lower = Core.lt(recency, candidate_recency);
-          Object is_worse = net_lower;
-          if (Core.truthy(net_equal)) {
-            if (Core.truthy(helpful_lower)) {
-              is_worse = Boolean.TRUE;
-            }
-            if (Core.truthy(helpful_equal)) {
-              if (Core.truthy(recency_lower)) {
-                is_worse = Boolean.TRUE;
-              }
-            }
-          }
-          if (Core.truthy(is_worse)) {
-            candidate_index = index;
-            candidate_net = net_score;
-            candidate_helpful = helpful;
-            candidate_recency = recency;
-          }
-        }
-      }
-      Object index_next = Core.add(index, 1);
-      index = index_next;
-    }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object has_candidate = Core.gte(candidate_index, 0);
-    Object new_section = new java.util.ArrayList<Object>();
-    if (Core.truthy(has_candidate)) {
-      Object pruned = Core.none();
-      Object cursor = 0;
-      for (Object bullet : Core.iter(section)) {
-        Object is_target = Core.eq(cursor, candidate_index);
-        if (Core.truthy(is_target)) {
-          pruned = bullet;
-        }
-        if (!Core.truthy(is_target)) {
-          Core.append(new_section, bullet);
-        }
-        Object cursor_next = Core.add(cursor, 1);
-        cursor = cursor_next;
-      }
-      Core.set(out, "pruned", pruned);
-      Core.set(out, "section", new_section);
-      return out;
-    }
-    Object null_pruned = Core.none();
-    Core.set(out, "pruned", null_pruned);
-    Core.set(out, "section", section);
-    return out;
-  }
-
   static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
     axirCoverageMark("_append_assertion_retry_messages");
     Object updated_messages = Core._append_validation_retry_messages_impl(messages, response, error);
@@ -27017,6 +26970,52 @@ final class Core {
     return should_continue;
   }
 
+  static Object _ace_update_bullet_feedback(Object playbook, Object bullet_id, Object tag, Object now) {
+    axirCoverageMark("_ace_update_bullet_feedback");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object found = Boolean.FALSE;
+    for (Object section_name : Core.iter(section_names)) {
+      Object already_found = found;
+      if (Core.truthy(already_found)) {
+        // empty
+      }
+      if (!Core.truthy(already_found)) {
+        Object bullets = Core.get(sections, section_name, null);
+        for (Object bullet : Core.iter(bullets)) {
+          Object current_id = Core.get(bullet, "id", "");
+          Object match = Core.eq(bullet_id, current_id);
+          Object still_open = Core.not(found);
+          if (Core.truthy(match)) {
+            if (Core.truthy(still_open)) {
+              Object is_helpful = Core.eq(tag, "helpful");
+              if (Core.truthy(is_helpful)) {
+                Object helpful = Core.get(bullet, "helpfulCount", 0);
+                Object helpful_next = Core.add(helpful, 1);
+                Core.set(bullet, "helpfulCount", helpful_next);
+              }
+              Object is_harmful = Core.eq(tag, "harmful");
+              if (Core.truthy(is_harmful)) {
+                Object harmful = Core.get(bullet, "harmfulCount", 0);
+                Object harmful_next = Core.add(harmful, 1);
+                Core.set(bullet, "harmfulCount", harmful_next);
+              }
+              Core.set(bullet, "updatedAt", now);
+              found = Boolean.TRUE;
+            }
+          }
+        }
+      }
+    }
+    Object did_find = found;
+    if (Core.truthy(did_find)) {
+      Object updated = Core._ace_recompute_playbook_stats(playbook);
+      return updated;
+    }
+    return playbook;
+  }
+
   static Object _parse_output_impl(Object content) {
     axirCoverageMark("_parse_output_impl");
     Object text = Core.stringTrim(content);
@@ -27055,174 +27054,43 @@ final class Core {
     return trimmed;
   }
 
-  static Object _ace_apply_curator_operations(Object playbook, Object operations, Object options, Object now) {
-    axirCoverageMark("_ace_apply_curator_operations");
+  static Object _ace_dedupe_playbook(Object playbook) {
+    axirCoverageMark("_ace_dedupe_playbook");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object opts = options;
-    Object opts_missing = Core.isNone(options);
-    if (Core.truthy(opts_missing)) {
-      opts = empty_map;
-    }
-    Object allow_dynamic = Core.get(opts, "allowDynamicSections", Boolean.TRUE);
-    Object enable_auto_prune = Core.get(opts, "enableAutoPrune", Boolean.FALSE);
-    Object has_max = Core.mapContains(opts, "maxSectionSize");
-    Object max_section_size = Core.get(opts, "maxSectionSize", 0);
-    Object protected_ids = Core.get(opts, "protectedBulletIds", empty_list);
-    Object updated_bullets = new java.util.ArrayList<Object>();
-    Object auto_removed = new java.util.ArrayList<Object>();
     Object sections = Core.get(playbook, "sections", empty_map);
-    Object operation_index = 0;
-    for (Object op : Core.iter(operations)) {
-      Object section_name = Core.get(op, "section", "");
-      Object has_section_name = Core.ne(section_name, "");
-      if (Core.truthy(has_section_name)) {
-        Object section_exists = Core.mapContains(sections, section_name);
-        Object missing_section = Core.not(section_exists);
-        if (Core.truthy(missing_section)) {
-          if (Core.truthy(allow_dynamic)) {
-            Object new_section_list = new java.util.ArrayList<Object>();
-            Core.set(sections, section_name, new_section_list);
-          }
+    Object section_names = Core.mapKeys(sections);
+    for (Object section_name : Core.iter(section_names)) {
+      Object bullets = Core.get(sections, section_name, null);
+      Object seen = new java.util.LinkedHashMap<String, Object>();
+      Object unique = new java.util.ArrayList<Object>();
+      for (Object bullet : Core.iter(bullets)) {
+        Object content = Core.get(bullet, "content", "");
+        Object trimmed = Core.stringTrim(content);
+        Object key = Core.stringLower(trimmed);
+        Object has_existing = Core.mapContains(seen, key);
+        if (Core.truthy(has_existing)) {
+          Object existing = Core.get(seen, key, null);
+          Object existing_helpful = Core.get(existing, "helpfulCount", 0);
+          Object bullet_helpful = Core.get(bullet, "helpfulCount", 0);
+          Object merged_helpful = Core.add(existing_helpful, bullet_helpful);
+          Core.set(existing, "helpfulCount", merged_helpful);
+          Object existing_harmful = Core.get(existing, "harmfulCount", 0);
+          Object bullet_harmful = Core.get(bullet, "harmfulCount", 0);
+          Object merged_harmful = Core.add(existing_harmful, bullet_harmful);
+          Core.set(existing, "harmfulCount", merged_harmful);
+          Object bullet_updated_at = Core.get(bullet, "updatedAt", "");
+          Core.set(existing, "updatedAt", bullet_updated_at);
         }
-        Object section_now_exists = Core.mapContains(sections, section_name);
-        if (Core.truthy(section_now_exists)) {
-          Object section = Core.get(sections, section_name, null);
-          Object op_type = Core.get(op, "type", "");
-          Object is_add = Core.eq(op_type, "ADD");
-          if (Core.truthy(is_add)) {
-            Object raw_content = Core.get(op, "content", "");
-            Object content = Core.stringTrim(raw_content);
-            Object has_content = Core.ne(content, "");
-            if (Core.truthy(has_content)) {
-              Object section_len = Core.len(section);
-              Object at_capacity_raw = Core.gte(section_len, max_section_size);
-              Object at_capacity = Boolean.FALSE;
-              if (Core.truthy(has_max)) {
-                if (Core.truthy(at_capacity_raw)) {
-                  at_capacity = Boolean.TRUE;
-                }
-              }
-              Object proceed = Boolean.TRUE;
-              if (Core.truthy(at_capacity)) {
-                if (Core.truthy(enable_auto_prune)) {
-                  Object prune_result = Core._ace_prune_section_for_addition(section, protected_ids);
-                  Object pruned = Core.get(prune_result, "pruned", null);
-                  Object has_pruned = Core.isNotNone(pruned);
-                  if (Core.truthy(has_pruned)) {
-                    Object pruned_section = Core.get(prune_result, "section", null);
-                    section = pruned_section;
-                    Core.set(sections, section_name, section);
-                    Object pruned_id = Core.get(pruned, "id", "");
-                    Core.append(updated_bullets, pruned_id);
-                    Object removal = new java.util.LinkedHashMap<String, Object>();
-                    Core.set(removal, "type", "REMOVE");
-                    Core.set(removal, "section", section_name);
-                    Core.set(removal, "bulletId", pruned_id);
-                    Object pruned_metadata = Core.get(pruned, "metadata", empty_map);
-                    Object removal_metadata = Core.mapMerge(empty_map, pruned_metadata);
-                    Core.set(removal_metadata, "autoPruned", Boolean.TRUE);
-                    Core.set(removal_metadata, "removedAt", now);
-                    Core.set(removal, "metadata", removal_metadata);
-                    Core.append(auto_removed, removal);
-                  }
-                  if (!Core.truthy(has_pruned)) {
-                    proceed = Boolean.FALSE;
-                  }
-                }
-                if (!Core.truthy(enable_auto_prune)) {
-                  proceed = Boolean.FALSE;
-                }
-              }
-              if (Core.truthy(proceed)) {
-                Object op_bullet_id = Core.get(op, "bulletId", null);
-                Object has_bullet_id = Core.isNotNone(op_bullet_id);
-                Object bullet_id = op_bullet_id;
-                Object missing_bullet_id = Core.not(has_bullet_id);
-                if (Core.truthy(missing_bullet_id)) {
-                  Object bullet_id_prefix = Core.stringFormat("{}-{}-{}", section_name, now, section_len);
-                  bullet_id = Core.stringFormat("{}-{}", bullet_id_prefix, operation_index);
-                }
-                Object bullet = new java.util.LinkedHashMap<String, Object>();
-                Core.set(bullet, "id", bullet_id);
-                Core.set(bullet, "section", section_name);
-                Core.set(bullet, "content", content);
-                Core.set(bullet, "helpfulCount", 0);
-                Core.set(bullet, "harmfulCount", 0);
-                Core.set(bullet, "createdAt", now);
-                Core.set(bullet, "updatedAt", now);
-                Object op_metadata = Core.get(op, "metadata", null);
-                Object has_metadata = Core.isNotNone(op_metadata);
-                if (Core.truthy(has_metadata)) {
-                  Object bullet_metadata = Core.mapMerge(empty_map, op_metadata);
-                  Core.set(bullet, "metadata", bullet_metadata);
-                }
-                Core.append(section, bullet);
-                Core.set(sections, section_name, section);
-                Core.append(updated_bullets, bullet_id);
-              }
-            }
-          }
-          Object is_update = Core.eq(op_type, "UPDATE");
-          if (Core.truthy(is_update)) {
-            Object target_id = Core.get(op, "bulletId", null);
-            for (Object bullet : Core.iter(section)) {
-              Object candidate_bullet_id = Core.get(bullet, "id", "");
-              Object bullet_match = Core.eq(candidate_bullet_id, target_id);
-              if (Core.truthy(bullet_match)) {
-                Object op_content = Core.get(op, "content", null);
-                Object content_is_string = Core.typeIs(op_content, "string");
-                if (Core.truthy(content_is_string)) {
-                  Core.set(bullet, "content", op_content);
-                }
-                Core.set(bullet, "updatedAt", now);
-                Object op_metadata_update = Core.get(op, "metadata", null);
-                Object has_metadata_update = Core.isNotNone(op_metadata_update);
-                if (Core.truthy(has_metadata_update)) {
-                  Object existing_metadata = Core.get(bullet, "metadata", empty_map);
-                  Object merged_metadata = Core.mapMerge(existing_metadata, op_metadata_update);
-                  Core.set(bullet, "metadata", merged_metadata);
-                }
-                Object bullet_id_update = Core.get(bullet, "id", "");
-                Core.append(updated_bullets, bullet_id_update);
-              }
-            }
-          }
-          Object is_remove = Core.eq(op_type, "REMOVE");
-          if (Core.truthy(is_remove)) {
-            Object remove_id = Core.get(op, "bulletId", null);
-            Object kept = new java.util.ArrayList<Object>();
-            Object none_value = Core.none();
-            Object removed_id = none_value;
-            for (Object bullet : Core.iter(section)) {
-              Object remove_candidate_id = Core.get(bullet, "id", "");
-              Object bullet_remove_match = Core.eq(remove_candidate_id, remove_id);
-              if (Core.truthy(bullet_remove_match)) {
-                removed_id = remove_candidate_id;
-              }
-              if (!Core.truthy(bullet_remove_match)) {
-                Core.append(kept, bullet);
-              }
-            }
-            Core.set(sections, section_name, kept);
-            Object did_remove = Core.isNotNone(removed_id);
-            if (Core.truthy(did_remove)) {
-              Core.append(updated_bullets, removed_id);
-            }
-          }
+        if (!Core.truthy(has_existing)) {
+          Core.set(seen, key, bullet);
+          Core.append(unique, bullet);
         }
       }
-      Object next_operation_index = Core.add(operation_index, 1);
-      operation_index = next_operation_index;
+      Core.set(sections, section_name, unique);
     }
     Core.set(playbook, "sections", sections);
     Object recomputed = Core._ace_recompute_playbook_stats(playbook);
-    Core.set(recomputed, "updatedAt", now);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "playbook", recomputed);
-    Core.set(out, "updatedBulletIds", updated_bullets);
-    Core.set(out, "autoRemoved", auto_removed);
-    return out;
+    return recomputed;
   }
 
   static Object _parse_json_string_value(Object value) {
@@ -27522,6 +27390,87 @@ final class Core {
     return cursor;
   }
 
+  static Object _ace_prune_section_for_addition(Object section, Object protected_ids) {
+    axirCoverageMark("_ace_prune_section_for_addition");
+    Object candidate_index = -1;
+    Object candidate_net = 0;
+    Object candidate_helpful = 0;
+    Object candidate_recency = 0;
+    Object index = 0;
+    for (Object bullet : Core.iter(section)) {
+      Object id = Core.get(bullet, "id", "");
+      Object is_protected = Core.contains(protected_ids, id);
+      Object not_protected = Core.not(is_protected);
+      if (Core.truthy(not_protected)) {
+        Object helpful = Core.get(bullet, "helpfulCount", 0);
+        Object harmful = Core.get(bullet, "harmfulCount", 0);
+        Object harmful_weighted = Core.mul(harmful, 2);
+        Object negative_harmful = Core.mul(harmful_weighted, -1);
+        Object net_score = Core.add(helpful, negative_harmful);
+        Object created_at = Core.get(bullet, "createdAt", "");
+        Object recency = Core.get(bullet, "updatedAt", created_at);
+        Object no_candidate = Core.lt(candidate_index, 0);
+        if (Core.truthy(no_candidate)) {
+          candidate_index = index;
+          candidate_net = net_score;
+          candidate_helpful = helpful;
+          candidate_recency = recency;
+        }
+        if (!Core.truthy(no_candidate)) {
+          Object net_lower = Core.lt(net_score, candidate_net);
+          Object net_equal = Core.eq(net_score, candidate_net);
+          Object helpful_lower = Core.lt(helpful, candidate_helpful);
+          Object helpful_equal = Core.eq(helpful, candidate_helpful);
+          Object recency_lower = Core.lt(recency, candidate_recency);
+          Object is_worse = net_lower;
+          if (Core.truthy(net_equal)) {
+            if (Core.truthy(helpful_lower)) {
+              is_worse = Boolean.TRUE;
+            }
+            if (Core.truthy(helpful_equal)) {
+              if (Core.truthy(recency_lower)) {
+                is_worse = Boolean.TRUE;
+              }
+            }
+          }
+          if (Core.truthy(is_worse)) {
+            candidate_index = index;
+            candidate_net = net_score;
+            candidate_helpful = helpful;
+            candidate_recency = recency;
+          }
+        }
+      }
+      Object index_next = Core.add(index, 1);
+      index = index_next;
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object has_candidate = Core.gte(candidate_index, 0);
+    Object new_section = new java.util.ArrayList<Object>();
+    if (Core.truthy(has_candidate)) {
+      Object pruned = Core.none();
+      Object cursor = 0;
+      for (Object bullet : Core.iter(section)) {
+        Object is_target = Core.eq(cursor, candidate_index);
+        if (Core.truthy(is_target)) {
+          pruned = bullet;
+        }
+        if (!Core.truthy(is_target)) {
+          Core.append(new_section, bullet);
+        }
+        Object cursor_next = Core.add(cursor, 1);
+        cursor = cursor_next;
+      }
+      Core.set(out, "pruned", pruned);
+      Core.set(out, "section", new_section);
+      return out;
+    }
+    Object null_pruned = Core.none();
+    Core.set(out, "pruned", null_pruned);
+    Core.set(out, "section", section);
+    return out;
+  }
+
   static Object _date_space_impl(Object unit) {
     axirCoverageMark("_date_space_impl");
     Object tab_low = Core.gte(unit, 9);
@@ -27698,6 +27647,176 @@ final class Core {
     Object lower = Core.and(lower_low, lower_high);
     Object letter = Core.or(upper, lower);
     return letter;
+  }
+
+  static Object _ace_apply_curator_operations(Object playbook, Object operations, Object options, Object now) {
+    axirCoverageMark("_ace_apply_curator_operations");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object opts = options;
+    Object opts_missing = Core.isNone(options);
+    if (Core.truthy(opts_missing)) {
+      opts = empty_map;
+    }
+    Object allow_dynamic = Core.get(opts, "allowDynamicSections", Boolean.TRUE);
+    Object enable_auto_prune = Core.get(opts, "enableAutoPrune", Boolean.FALSE);
+    Object has_max = Core.mapContains(opts, "maxSectionSize");
+    Object max_section_size = Core.get(opts, "maxSectionSize", 0);
+    Object protected_ids = Core.get(opts, "protectedBulletIds", empty_list);
+    Object updated_bullets = new java.util.ArrayList<Object>();
+    Object auto_removed = new java.util.ArrayList<Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object operation_index = 0;
+    for (Object op : Core.iter(operations)) {
+      Object section_name = Core.get(op, "section", "");
+      Object has_section_name = Core.ne(section_name, "");
+      if (Core.truthy(has_section_name)) {
+        Object section_exists = Core.mapContains(sections, section_name);
+        Object missing_section = Core.not(section_exists);
+        if (Core.truthy(missing_section)) {
+          if (Core.truthy(allow_dynamic)) {
+            Object new_section_list = new java.util.ArrayList<Object>();
+            Core.set(sections, section_name, new_section_list);
+          }
+        }
+        Object section_now_exists = Core.mapContains(sections, section_name);
+        if (Core.truthy(section_now_exists)) {
+          Object section = Core.get(sections, section_name, null);
+          Object op_type = Core.get(op, "type", "");
+          Object is_add = Core.eq(op_type, "ADD");
+          if (Core.truthy(is_add)) {
+            Object raw_content = Core.get(op, "content", "");
+            Object content = Core.stringTrim(raw_content);
+            Object has_content = Core.ne(content, "");
+            if (Core.truthy(has_content)) {
+              Object section_len = Core.len(section);
+              Object at_capacity_raw = Core.gte(section_len, max_section_size);
+              Object at_capacity = Boolean.FALSE;
+              if (Core.truthy(has_max)) {
+                if (Core.truthy(at_capacity_raw)) {
+                  at_capacity = Boolean.TRUE;
+                }
+              }
+              Object proceed = Boolean.TRUE;
+              if (Core.truthy(at_capacity)) {
+                if (Core.truthy(enable_auto_prune)) {
+                  Object prune_result = Core._ace_prune_section_for_addition(section, protected_ids);
+                  Object pruned = Core.get(prune_result, "pruned", null);
+                  Object has_pruned = Core.isNotNone(pruned);
+                  if (Core.truthy(has_pruned)) {
+                    Object pruned_section = Core.get(prune_result, "section", null);
+                    section = pruned_section;
+                    Core.set(sections, section_name, section);
+                    Object pruned_id = Core.get(pruned, "id", "");
+                    Core.append(updated_bullets, pruned_id);
+                    Object removal = new java.util.LinkedHashMap<String, Object>();
+                    Core.set(removal, "type", "REMOVE");
+                    Core.set(removal, "section", section_name);
+                    Core.set(removal, "bulletId", pruned_id);
+                    Object pruned_metadata = Core.get(pruned, "metadata", empty_map);
+                    Object removal_metadata = Core.mapMerge(empty_map, pruned_metadata);
+                    Core.set(removal_metadata, "autoPruned", Boolean.TRUE);
+                    Core.set(removal_metadata, "removedAt", now);
+                    Core.set(removal, "metadata", removal_metadata);
+                    Core.append(auto_removed, removal);
+                  }
+                  if (!Core.truthy(has_pruned)) {
+                    proceed = Boolean.FALSE;
+                  }
+                }
+                if (!Core.truthy(enable_auto_prune)) {
+                  proceed = Boolean.FALSE;
+                }
+              }
+              if (Core.truthy(proceed)) {
+                Object op_bullet_id = Core.get(op, "bulletId", null);
+                Object has_bullet_id = Core.isNotNone(op_bullet_id);
+                Object bullet_id = op_bullet_id;
+                Object missing_bullet_id = Core.not(has_bullet_id);
+                if (Core.truthy(missing_bullet_id)) {
+                  Object bullet_id_prefix = Core.stringFormat("{}-{}-{}", section_name, now, section_len);
+                  bullet_id = Core.stringFormat("{}-{}", bullet_id_prefix, operation_index);
+                }
+                Object bullet = new java.util.LinkedHashMap<String, Object>();
+                Core.set(bullet, "id", bullet_id);
+                Core.set(bullet, "section", section_name);
+                Core.set(bullet, "content", content);
+                Core.set(bullet, "helpfulCount", 0);
+                Core.set(bullet, "harmfulCount", 0);
+                Core.set(bullet, "createdAt", now);
+                Core.set(bullet, "updatedAt", now);
+                Object op_metadata = Core.get(op, "metadata", null);
+                Object has_metadata = Core.isNotNone(op_metadata);
+                if (Core.truthy(has_metadata)) {
+                  Object bullet_metadata = Core.mapMerge(empty_map, op_metadata);
+                  Core.set(bullet, "metadata", bullet_metadata);
+                }
+                Core.append(section, bullet);
+                Core.set(sections, section_name, section);
+                Core.append(updated_bullets, bullet_id);
+              }
+            }
+          }
+          Object is_update = Core.eq(op_type, "UPDATE");
+          if (Core.truthy(is_update)) {
+            Object target_id = Core.get(op, "bulletId", null);
+            for (Object bullet : Core.iter(section)) {
+              Object candidate_bullet_id = Core.get(bullet, "id", "");
+              Object bullet_match = Core.eq(candidate_bullet_id, target_id);
+              if (Core.truthy(bullet_match)) {
+                Object op_content = Core.get(op, "content", null);
+                Object content_is_string = Core.typeIs(op_content, "string");
+                if (Core.truthy(content_is_string)) {
+                  Core.set(bullet, "content", op_content);
+                }
+                Core.set(bullet, "updatedAt", now);
+                Object op_metadata_update = Core.get(op, "metadata", null);
+                Object has_metadata_update = Core.isNotNone(op_metadata_update);
+                if (Core.truthy(has_metadata_update)) {
+                  Object existing_metadata = Core.get(bullet, "metadata", empty_map);
+                  Object merged_metadata = Core.mapMerge(existing_metadata, op_metadata_update);
+                  Core.set(bullet, "metadata", merged_metadata);
+                }
+                Object bullet_id_update = Core.get(bullet, "id", "");
+                Core.append(updated_bullets, bullet_id_update);
+              }
+            }
+          }
+          Object is_remove = Core.eq(op_type, "REMOVE");
+          if (Core.truthy(is_remove)) {
+            Object remove_id = Core.get(op, "bulletId", null);
+            Object kept = new java.util.ArrayList<Object>();
+            Object none_value = Core.none();
+            Object removed_id = none_value;
+            for (Object bullet : Core.iter(section)) {
+              Object remove_candidate_id = Core.get(bullet, "id", "");
+              Object bullet_remove_match = Core.eq(remove_candidate_id, remove_id);
+              if (Core.truthy(bullet_remove_match)) {
+                removed_id = remove_candidate_id;
+              }
+              if (!Core.truthy(bullet_remove_match)) {
+                Core.append(kept, bullet);
+              }
+            }
+            Core.set(sections, section_name, kept);
+            Object did_remove = Core.isNotNone(removed_id);
+            if (Core.truthy(did_remove)) {
+              Core.append(updated_bullets, removed_id);
+            }
+          }
+        }
+      }
+      Object next_operation_index = Core.add(operation_index, 1);
+      operation_index = next_operation_index;
+    }
+    Core.set(playbook, "sections", sections);
+    Object recomputed = Core._ace_recompute_playbook_stats(playbook);
+    Core.set(recomputed, "updatedAt", now);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "playbook", recomputed);
+    Core.set(out, "updatedBulletIds", updated_bullets);
+    Core.set(out, "autoRemoved", auto_removed);
+    return out;
   }
 
   static Object _stream_text_extract_impl(Object xstate, Object values, Object content, Object fields, Object options) {
@@ -27992,135 +28111,6 @@ final class Core {
       }
     }
     return out;
-  }
-
-  static Object _ace_is_noop_acknowledgment(Object content) {
-    axirCoverageMark("_ace_is_noop_acknowledgment");
-    Object lowered = Core.stringLower(content);
-    Object c = Core.stringTrim(lowered);
-    Object is_noop = Boolean.FALSE;
-    Object empty = Core.eq(c, "");
-    Object nonempty = Core.not(empty);
-    if (Core.truthy(nonempty)) {
-      Object markers = new java.util.ArrayList<Object>();
-      Core.append(markers, "no-op");
-      Core.append(markers, "noop");
-      for (Object marker : Core.iter(markers)) {
-        Object marker_hit = Core.stringStartsWith(c, marker);
-        if (Core.truthy(marker_hit)) {
-          is_noop = Boolean.TRUE;
-        }
-      }
-      Object subjects = new java.util.ArrayList<Object>();
-      Core.append(subjects, "no update");
-      Core.append(subjects, "no updates");
-      Core.append(subjects, "no change");
-      Core.append(subjects, "no changes");
-      Core.append(subjects, "no modification");
-      Core.append(subjects, "no modifications");
-      Core.append(subjects, "no edit");
-      Core.append(subjects, "no edits");
-      Core.append(subjects, "no revision");
-      Core.append(subjects, "no revisions");
-      Core.append(subjects, "no action");
-      Core.append(subjects, "no adjustment");
-      Core.append(subjects, "no adjustments");
-      Core.append(subjects, "no new");
-      Core.append(subjects, "no additional");
-      Core.append(subjects, "no further");
-      Object has_subject = Boolean.FALSE;
-      for (Object subject : Core.iter(subjects)) {
-        Object subject_hit = Core.contains(c, subject);
-        if (Core.truthy(subject_hit)) {
-          has_subject = Boolean.TRUE;
-        }
-      }
-      if (Core.truthy(has_subject)) {
-        Object qualifiers = new java.util.ArrayList<Object>();
-        Core.append(qualifiers, "needed");
-        Core.append(qualifiers, "required");
-        Core.append(qualifiers, "necessary");
-        Core.append(qualifiers, "warranted");
-        for (Object qualifier : Core.iter(qualifiers)) {
-          Object qualifier_hit = Core.contains(c, qualifier);
-          if (Core.truthy(qualifier_hit)) {
-            is_noop = Boolean.TRUE;
-          }
-        }
-      }
-      Object phrases = new java.util.ArrayList<Object>();
-      Core.append(phrases, "nothing to add");
-      Core.append(phrases, "nothing to change");
-      Core.append(phrases, "nothing to update");
-      Core.append(phrases, "nothing to modify");
-      Core.append(phrases, "nothing to revise");
-      Core.append(phrases, "nothing needs");
-      Core.append(phrases, "nothing further");
-      for (Object phrase : Core.iter(phrases)) {
-        Object phrase_hit = Core.contains(c, phrase);
-        if (Core.truthy(phrase_hit)) {
-          is_noop = Boolean.TRUE;
-        }
-      }
-      Object keep_prefixes = new java.util.ArrayList<Object>();
-      Core.append(keep_prefixes, "keep the existing");
-      Core.append(keep_prefixes, "leave the existing");
-      Core.append(keep_prefixes, "retain the existing");
-      Core.append(keep_prefixes, "preserve the existing");
-      Object has_keep_prefix = Boolean.FALSE;
-      for (Object keep_prefix : Core.iter(keep_prefixes)) {
-        Object keep_hit = Core.stringStartsWith(c, keep_prefix);
-        if (Core.truthy(keep_hit)) {
-          has_keep_prefix = Boolean.TRUE;
-        }
-      }
-      if (Core.truthy(has_keep_prefix)) {
-        Object stasis_list = new java.util.ArrayList<Object>();
-        Core.append(stasis_list, "unchanged");
-        Core.append(stasis_list, "as is");
-        Core.append(stasis_list, "as-is");
-        Core.append(stasis_list, "intact");
-        Core.append(stasis_list, "in place");
-        for (Object stasis : Core.iter(stasis_list)) {
-          Object stasis_hit = Core.contains(c, stasis);
-          if (Core.truthy(stasis_hit)) {
-            is_noop = Boolean.TRUE;
-          }
-        }
-      }
-      Object remains_list = new java.util.ArrayList<Object>();
-      Core.append(remains_list, "remains correct");
-      Core.append(remains_list, "remains unchanged");
-      Core.append(remains_list, "remains the same");
-      Core.append(remains_list, "remains valid");
-      Core.append(remains_list, "remains accurate");
-      Core.append(remains_list, "already correct");
-      Object has_remains = Boolean.FALSE;
-      for (Object remains : Core.iter(remains_list)) {
-        Object remains_hit = Core.contains(c, remains);
-        if (Core.truthy(remains_hit)) {
-          has_remains = Boolean.TRUE;
-        }
-      }
-      if (Core.truthy(has_remains)) {
-        Object referents = new java.util.ArrayList<Object>();
-        Core.append(referents, "existing");
-        Core.append(referents, "current");
-        Core.append(referents, "rule");
-        Core.append(referents, "guideline");
-        Core.append(referents, "guidance");
-        Core.append(referents, "playbook");
-        Core.append(referents, "bullet");
-        Core.append(referents, "entry");
-        for (Object referent : Core.iter(referents)) {
-          Object referent_hit = Core.contains(c, referent);
-          if (Core.truthy(referent_hit)) {
-            is_noop = Boolean.TRUE;
-          }
-        }
-      }
-    }
-    return is_noop;
   }
 
   static Object chat_session_close_state(Object state) {
@@ -29055,6 +29045,135 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
+  static Object _ace_is_noop_acknowledgment(Object content) {
+    axirCoverageMark("_ace_is_noop_acknowledgment");
+    Object lowered = Core.stringLower(content);
+    Object c = Core.stringTrim(lowered);
+    Object is_noop = Boolean.FALSE;
+    Object empty = Core.eq(c, "");
+    Object nonempty = Core.not(empty);
+    if (Core.truthy(nonempty)) {
+      Object markers = new java.util.ArrayList<Object>();
+      Core.append(markers, "no-op");
+      Core.append(markers, "noop");
+      for (Object marker : Core.iter(markers)) {
+        Object marker_hit = Core.stringStartsWith(c, marker);
+        if (Core.truthy(marker_hit)) {
+          is_noop = Boolean.TRUE;
+        }
+      }
+      Object subjects = new java.util.ArrayList<Object>();
+      Core.append(subjects, "no update");
+      Core.append(subjects, "no updates");
+      Core.append(subjects, "no change");
+      Core.append(subjects, "no changes");
+      Core.append(subjects, "no modification");
+      Core.append(subjects, "no modifications");
+      Core.append(subjects, "no edit");
+      Core.append(subjects, "no edits");
+      Core.append(subjects, "no revision");
+      Core.append(subjects, "no revisions");
+      Core.append(subjects, "no action");
+      Core.append(subjects, "no adjustment");
+      Core.append(subjects, "no adjustments");
+      Core.append(subjects, "no new");
+      Core.append(subjects, "no additional");
+      Core.append(subjects, "no further");
+      Object has_subject = Boolean.FALSE;
+      for (Object subject : Core.iter(subjects)) {
+        Object subject_hit = Core.contains(c, subject);
+        if (Core.truthy(subject_hit)) {
+          has_subject = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(has_subject)) {
+        Object qualifiers = new java.util.ArrayList<Object>();
+        Core.append(qualifiers, "needed");
+        Core.append(qualifiers, "required");
+        Core.append(qualifiers, "necessary");
+        Core.append(qualifiers, "warranted");
+        for (Object qualifier : Core.iter(qualifiers)) {
+          Object qualifier_hit = Core.contains(c, qualifier);
+          if (Core.truthy(qualifier_hit)) {
+            is_noop = Boolean.TRUE;
+          }
+        }
+      }
+      Object phrases = new java.util.ArrayList<Object>();
+      Core.append(phrases, "nothing to add");
+      Core.append(phrases, "nothing to change");
+      Core.append(phrases, "nothing to update");
+      Core.append(phrases, "nothing to modify");
+      Core.append(phrases, "nothing to revise");
+      Core.append(phrases, "nothing needs");
+      Core.append(phrases, "nothing further");
+      for (Object phrase : Core.iter(phrases)) {
+        Object phrase_hit = Core.contains(c, phrase);
+        if (Core.truthy(phrase_hit)) {
+          is_noop = Boolean.TRUE;
+        }
+      }
+      Object keep_prefixes = new java.util.ArrayList<Object>();
+      Core.append(keep_prefixes, "keep the existing");
+      Core.append(keep_prefixes, "leave the existing");
+      Core.append(keep_prefixes, "retain the existing");
+      Core.append(keep_prefixes, "preserve the existing");
+      Object has_keep_prefix = Boolean.FALSE;
+      for (Object keep_prefix : Core.iter(keep_prefixes)) {
+        Object keep_hit = Core.stringStartsWith(c, keep_prefix);
+        if (Core.truthy(keep_hit)) {
+          has_keep_prefix = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(has_keep_prefix)) {
+        Object stasis_list = new java.util.ArrayList<Object>();
+        Core.append(stasis_list, "unchanged");
+        Core.append(stasis_list, "as is");
+        Core.append(stasis_list, "as-is");
+        Core.append(stasis_list, "intact");
+        Core.append(stasis_list, "in place");
+        for (Object stasis : Core.iter(stasis_list)) {
+          Object stasis_hit = Core.contains(c, stasis);
+          if (Core.truthy(stasis_hit)) {
+            is_noop = Boolean.TRUE;
+          }
+        }
+      }
+      Object remains_list = new java.util.ArrayList<Object>();
+      Core.append(remains_list, "remains correct");
+      Core.append(remains_list, "remains unchanged");
+      Core.append(remains_list, "remains the same");
+      Core.append(remains_list, "remains valid");
+      Core.append(remains_list, "remains accurate");
+      Core.append(remains_list, "already correct");
+      Object has_remains = Boolean.FALSE;
+      for (Object remains : Core.iter(remains_list)) {
+        Object remains_hit = Core.contains(c, remains);
+        if (Core.truthy(remains_hit)) {
+          has_remains = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(has_remains)) {
+        Object referents = new java.util.ArrayList<Object>();
+        Core.append(referents, "existing");
+        Core.append(referents, "current");
+        Core.append(referents, "rule");
+        Core.append(referents, "guideline");
+        Core.append(referents, "guidance");
+        Core.append(referents, "playbook");
+        Core.append(referents, "bullet");
+        Core.append(referents, "entry");
+        for (Object referent : Core.iter(referents)) {
+          Object referent_hit = Core.contains(c, referent);
+          if (Core.truthy(referent_hit)) {
+            is_noop = Boolean.TRUE;
+          }
+        }
+      }
+    }
+    return is_noop;
+  }
+
   static Object _completion_call_to_chat_impl(Object call) {
     axirCoverageMark("_completion_call_to_chat_impl");
     Object id = Core.get(call, "id", null);
@@ -29079,148 +29198,6 @@ final class Core {
     }
     Object errors = Core._chat_session_argument_errors(schema, schema, arguments, "", 0);
     return errors;
-  }
-
-  static Object _ace_normalize_curator_operations(Object operations) {
-    axirCoverageMark("_ace_normalize_curator_operations");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object has_operations = Core.isNotNone(operations);
-    Object missing = Core.not(has_operations);
-    if (Core.truthy(missing)) {
-      return empty_list;
-    }
-    Object is_list = Core.typeIs(operations, "list");
-    if (Core.truthy(is_list)) {
-      Object normalized = new java.util.ArrayList<Object>();
-      Object seen = new java.util.LinkedHashMap<String, Object>();
-      for (Object entry : Core.iter(operations)) {
-        Object is_object = Core.typeIs(entry, "object");
-        if (Core.truthy(is_object)) {
-          Object type_raw = Core.get(entry, "type", "ADD");
-          Object type_is_string = Core.typeIs(type_raw, "string");
-          Object type_lower = "add";
-          if (Core.truthy(type_is_string)) {
-            Object lowered = Core.stringLower(type_raw);
-            type_lower = lowered;
-          }
-          Object is_update = Core.eq(type_lower, "update");
-          Object is_remove = Core.eq(type_lower, "remove");
-          Object type = "ADD";
-          if (Core.truthy(is_update)) {
-            type = "UPDATE";
-          }
-          if (Core.truthy(is_remove)) {
-            type = "REMOVE";
-          }
-          Object section_raw = Core.get(entry, "section", "Guidelines");
-          Object section_is_string = Core.typeIs(section_raw, "string");
-          Object section = "Guidelines";
-          if (Core.truthy(section_is_string)) {
-            Object section_trimmed = Core.stringTrim(section_raw);
-            Object section_nonempty = Core.ne(section_trimmed, "");
-            if (Core.truthy(section_nonempty)) {
-              section = section_trimmed;
-            }
-          }
-          Object content_raw = Core.get(entry, "content", "");
-          Object content_is_string = Core.typeIs(content_raw, "string");
-          Object content = "";
-          if (Core.truthy(content_is_string)) {
-            Object content_trimmed = Core.stringTrim(content_raw);
-            content = content_trimmed;
-          }
-          Object not_remove = Core.ne(type, "REMOVE");
-          Object content_empty = Core.eq(content, "");
-          Object keep = Boolean.TRUE;
-          if (Core.truthy(not_remove)) {
-            if (Core.truthy(content_empty)) {
-              keep = Boolean.FALSE;
-            }
-          }
-          Object is_add_type = Core.eq(type, "ADD");
-          if (Core.truthy(is_add_type)) {
-            Object is_noop = Core._ace_is_noop_acknowledgment(content);
-            if (Core.truthy(is_noop)) {
-              keep = Boolean.FALSE;
-            }
-          }
-          if (Core.truthy(keep)) {
-            Object bullet_id_raw = Core.get(entry, "bulletId", null);
-            Object has_bullet_id_field = Core.isNotNone(bullet_id_raw);
-            Object bullet_id_source = bullet_id_raw;
-            if (Core.truthy(has_bullet_id_field)) {
-              // empty
-            }
-            if (!Core.truthy(has_bullet_id_field)) {
-              Object id_field = Core.get(entry, "id", null);
-              bullet_id_source = id_field;
-            }
-            Object bullet_id_is_string = Core.typeIs(bullet_id_source, "string");
-            Object none_value = Core.none();
-            Object bullet_id = none_value;
-            if (Core.truthy(bullet_id_is_string)) {
-              Object bullet_id_trimmed = Core.stringTrim(bullet_id_source);
-              Object bullet_id_nonempty = Core.ne(bullet_id_trimmed, "");
-              if (Core.truthy(bullet_id_nonempty)) {
-                bullet_id = bullet_id_trimmed;
-              }
-            }
-            Object bullet_id_key = "";
-            Object has_bullet_id = Core.isNotNone(bullet_id);
-            if (Core.truthy(has_bullet_id)) {
-              bullet_id_key = bullet_id;
-            }
-            Object key_a = Core.stringFormat("{}:{}", type, section);
-            Object key_b = Core.stringFormat("{}:{}", content, bullet_id_key);
-            Object key = Core.stringFormat("{}:{}", key_a, key_b);
-            Object already_seen = Core.mapContains(seen, key);
-            Object fresh = Core.not(already_seen);
-            if (Core.truthy(fresh)) {
-              Core.set(seen, key, Boolean.TRUE);
-              Object normalized_entry = new java.util.LinkedHashMap<String, Object>();
-              Core.set(normalized_entry, "type", type);
-              Core.set(normalized_entry, "section", section);
-              if (Core.truthy(not_remove)) {
-                Core.set(normalized_entry, "content", content);
-              }
-              if (Core.truthy(has_bullet_id)) {
-                Core.set(normalized_entry, "bulletId", bullet_id);
-              }
-              Object metadata_raw = Core.get(entry, "metadata", null);
-              Object metadata_is_object = Core.typeIs(metadata_raw, "object");
-              if (Core.truthy(metadata_is_object)) {
-                Object empty_metadata = new java.util.LinkedHashMap<String, Object>();
-                Object metadata_copy = Core.mapMerge(empty_metadata, metadata_raw);
-                Core.set(normalized_entry, "metadata", metadata_copy);
-              }
-              Core.append(normalized, normalized_entry);
-            }
-          }
-        }
-      }
-      return normalized;
-    }
-    Object is_string = Core.typeIs(operations, "string");
-    if (Core.truthy(is_string)) {
-      Object parsed = Core.jsonParse(operations);
-      Object parsed_is_none = Core.isNone(parsed);
-      if (Core.truthy(parsed_is_none)) {
-        return empty_list;
-      }
-      Object normalized_from_string = Core._ace_normalize_curator_operations(parsed);
-      return normalized_from_string;
-    }
-    Object is_object = Core.typeIs(operations, "object");
-    if (Core.truthy(is_object)) {
-      Object inner = Core.get(operations, "operations", null);
-      Object has_inner = Core.isNotNone(inner);
-      if (Core.truthy(has_inner)) {
-        Object normalized_from_object = Core._ace_normalize_curator_operations(inner);
-        return normalized_from_object;
-      }
-      return empty_list;
-    }
-    return empty_list;
   }
 
   static Object chat_session_tool_argument_error(Object name, Object schema, Object arguments) {
@@ -29606,6 +29583,148 @@ final class Core {
     return values;
   }
 
+  static Object _ace_normalize_curator_operations(Object operations) {
+    axirCoverageMark("_ace_normalize_curator_operations");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object has_operations = Core.isNotNone(operations);
+    Object missing = Core.not(has_operations);
+    if (Core.truthy(missing)) {
+      return empty_list;
+    }
+    Object is_list = Core.typeIs(operations, "list");
+    if (Core.truthy(is_list)) {
+      Object normalized = new java.util.ArrayList<Object>();
+      Object seen = new java.util.LinkedHashMap<String, Object>();
+      for (Object entry : Core.iter(operations)) {
+        Object is_object = Core.typeIs(entry, "object");
+        if (Core.truthy(is_object)) {
+          Object type_raw = Core.get(entry, "type", "ADD");
+          Object type_is_string = Core.typeIs(type_raw, "string");
+          Object type_lower = "add";
+          if (Core.truthy(type_is_string)) {
+            Object lowered = Core.stringLower(type_raw);
+            type_lower = lowered;
+          }
+          Object is_update = Core.eq(type_lower, "update");
+          Object is_remove = Core.eq(type_lower, "remove");
+          Object type = "ADD";
+          if (Core.truthy(is_update)) {
+            type = "UPDATE";
+          }
+          if (Core.truthy(is_remove)) {
+            type = "REMOVE";
+          }
+          Object section_raw = Core.get(entry, "section", "Guidelines");
+          Object section_is_string = Core.typeIs(section_raw, "string");
+          Object section = "Guidelines";
+          if (Core.truthy(section_is_string)) {
+            Object section_trimmed = Core.stringTrim(section_raw);
+            Object section_nonempty = Core.ne(section_trimmed, "");
+            if (Core.truthy(section_nonempty)) {
+              section = section_trimmed;
+            }
+          }
+          Object content_raw = Core.get(entry, "content", "");
+          Object content_is_string = Core.typeIs(content_raw, "string");
+          Object content = "";
+          if (Core.truthy(content_is_string)) {
+            Object content_trimmed = Core.stringTrim(content_raw);
+            content = content_trimmed;
+          }
+          Object not_remove = Core.ne(type, "REMOVE");
+          Object content_empty = Core.eq(content, "");
+          Object keep = Boolean.TRUE;
+          if (Core.truthy(not_remove)) {
+            if (Core.truthy(content_empty)) {
+              keep = Boolean.FALSE;
+            }
+          }
+          Object is_add_type = Core.eq(type, "ADD");
+          if (Core.truthy(is_add_type)) {
+            Object is_noop = Core._ace_is_noop_acknowledgment(content);
+            if (Core.truthy(is_noop)) {
+              keep = Boolean.FALSE;
+            }
+          }
+          if (Core.truthy(keep)) {
+            Object bullet_id_raw = Core.get(entry, "bulletId", null);
+            Object has_bullet_id_field = Core.isNotNone(bullet_id_raw);
+            Object bullet_id_source = bullet_id_raw;
+            if (Core.truthy(has_bullet_id_field)) {
+              // empty
+            }
+            if (!Core.truthy(has_bullet_id_field)) {
+              Object id_field = Core.get(entry, "id", null);
+              bullet_id_source = id_field;
+            }
+            Object bullet_id_is_string = Core.typeIs(bullet_id_source, "string");
+            Object none_value = Core.none();
+            Object bullet_id = none_value;
+            if (Core.truthy(bullet_id_is_string)) {
+              Object bullet_id_trimmed = Core.stringTrim(bullet_id_source);
+              Object bullet_id_nonempty = Core.ne(bullet_id_trimmed, "");
+              if (Core.truthy(bullet_id_nonempty)) {
+                bullet_id = bullet_id_trimmed;
+              }
+            }
+            Object bullet_id_key = "";
+            Object has_bullet_id = Core.isNotNone(bullet_id);
+            if (Core.truthy(has_bullet_id)) {
+              bullet_id_key = bullet_id;
+            }
+            Object key_a = Core.stringFormat("{}:{}", type, section);
+            Object key_b = Core.stringFormat("{}:{}", content, bullet_id_key);
+            Object key = Core.stringFormat("{}:{}", key_a, key_b);
+            Object already_seen = Core.mapContains(seen, key);
+            Object fresh = Core.not(already_seen);
+            if (Core.truthy(fresh)) {
+              Core.set(seen, key, Boolean.TRUE);
+              Object normalized_entry = new java.util.LinkedHashMap<String, Object>();
+              Core.set(normalized_entry, "type", type);
+              Core.set(normalized_entry, "section", section);
+              if (Core.truthy(not_remove)) {
+                Core.set(normalized_entry, "content", content);
+              }
+              if (Core.truthy(has_bullet_id)) {
+                Core.set(normalized_entry, "bulletId", bullet_id);
+              }
+              Object metadata_raw = Core.get(entry, "metadata", null);
+              Object metadata_is_object = Core.typeIs(metadata_raw, "object");
+              if (Core.truthy(metadata_is_object)) {
+                Object empty_metadata = new java.util.LinkedHashMap<String, Object>();
+                Object metadata_copy = Core.mapMerge(empty_metadata, metadata_raw);
+                Core.set(normalized_entry, "metadata", metadata_copy);
+              }
+              Core.append(normalized, normalized_entry);
+            }
+          }
+        }
+      }
+      return normalized;
+    }
+    Object is_string = Core.typeIs(operations, "string");
+    if (Core.truthy(is_string)) {
+      Object parsed = Core.jsonParse(operations);
+      Object parsed_is_none = Core.isNone(parsed);
+      if (Core.truthy(parsed_is_none)) {
+        return empty_list;
+      }
+      Object normalized_from_string = Core._ace_normalize_curator_operations(parsed);
+      return normalized_from_string;
+    }
+    Object is_object = Core.typeIs(operations, "object");
+    if (Core.truthy(is_object)) {
+      Object inner = Core.get(operations, "operations", null);
+      Object has_inner = Core.isNotNone(inner);
+      if (Core.truthy(has_inner)) {
+        Object normalized_from_object = Core._ace_normalize_curator_operations(inner);
+        return normalized_from_object;
+      }
+      return empty_list;
+    }
+    return empty_list;
+  }
+
   static Object _date_offset_minutes_impl(Object units, Object start, Object end) {
     axirCoverageMark("_date_offset_minutes_impl");
     Object none = Core.none();
@@ -29750,167 +29869,6 @@ final class Core {
     Core._stream_text_missed_fields_impl(values, content, fields);
     Core._stream_text_required_check_impl(values, fields);
     return null;
-  }
-
-  static Object _ace_locate_bullet_section(Object playbook, Object bullet_id) {
-    axirCoverageMark("_ace_locate_bullet_section");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object section_names = Core.mapKeys(sections);
-    Object none_value = Core.none();
-    Object found = none_value;
-    for (Object section_name : Core.iter(section_names)) {
-      Object already = Core.isNotNone(found);
-      Object still_open = Core.not(already);
-      if (Core.truthy(still_open)) {
-        Object bullets = Core.get(sections, section_name, null);
-        for (Object bullet : Core.iter(bullets)) {
-          Object open = Core.isNone(found);
-          if (Core.truthy(open)) {
-            Object current_id = Core.get(bullet, "id", "");
-            Object match = Core.eq(current_id, bullet_id);
-            if (Core.truthy(match)) {
-              Object hit = new java.util.LinkedHashMap<String, Object>();
-              Core.set(hit, "section", section_name);
-              Core.set(hit, "id", current_id);
-              found = hit;
-            }
-          }
-        }
-      }
-    }
-    return found;
-  }
-
-  static Object _ace_resolve_curator_operation_targets(Object operations, Object playbook, Object reflection, Object generator_output) {
-    axirCoverageMark("_ace_resolve_curator_operation_targets");
-    Object op_count = Core.len(operations);
-    Object is_empty = Core.eq(op_count, 0);
-    if (Core.truthy(is_empty)) {
-      return operations;
-    }
-    Object used_ids = new java.util.LinkedHashMap<String, Object>();
-    for (Object op : Core.iter(operations)) {
-      Object existing_bullet_id = Core.get(op, "bulletId", null);
-      Object has_existing = Core.isNotNone(existing_bullet_id);
-      if (Core.truthy(has_existing)) {
-        Object existing_is_string = Core.typeIs(existing_bullet_id, "string");
-        if (Core.truthy(existing_is_string)) {
-          Core.set(used_ids, existing_bullet_id, Boolean.TRUE);
-        }
-      }
-    }
-    Object section_queues = new java.util.LinkedHashMap<String, Object>();
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object reflection_present = Core.isNotNone(reflection);
-    if (Core.truthy(reflection_present)) {
-      Object bullet_tags = Core._ace_normalize_reflection_bullet_tags(reflection);
-      for (Object tag : Core.iter(bullet_tags)) {
-        Object tag_id = Core.get(tag, "id", null);
-        Object tag_value = Core.get(tag, "tag", null);
-        Object is_harmful = Core.eq(tag_value, "harmful");
-        Object already_used = Core.mapContains(used_ids, tag_id);
-        Object not_used = Core.not(already_used);
-        if (Core.truthy(not_used)) {
-          Object located = Core._ace_locate_bullet_section(playbook, tag_id);
-          Object located_found = Core.isNotNone(located);
-          if (Core.truthy(located_found)) {
-            Object located_section = Core.get(located, "section", null);
-            Object located_id = Core.get(located, "id", null);
-            Object priority = "primary";
-            if (Core.truthy(is_harmful)) {
-              priority = "harmful";
-            }
-            Object has_queue = Core.mapContains(section_queues, located_section);
-            Object missing_queue = Core.not(has_queue);
-            if (Core.truthy(missing_queue)) {
-              Object new_queue = new java.util.LinkedHashMap<String, Object>();
-              Object harmful_list = new java.util.ArrayList<Object>();
-              Core.set(new_queue, "harmful", harmful_list);
-              Object primary_list = new java.util.ArrayList<Object>();
-              Core.set(new_queue, "primary", primary_list);
-              Object generator_list = new java.util.ArrayList<Object>();
-              Core.set(new_queue, "generator", generator_list);
-              Core.set(section_queues, located_section, new_queue);
-            }
-            Object queue = Core.get(section_queues, located_section, null);
-            Object priority_list = Core.get(queue, priority, null);
-            Core.append(priority_list, located_id);
-            Core.set(queue, priority, priority_list);
-            Core.set(section_queues, located_section, queue);
-          }
-        }
-      }
-    }
-    Object generator_present = Core.isNotNone(generator_output);
-    if (Core.truthy(generator_present)) {
-      Object generator_bullet_ids = Core.get(generator_output, "bulletIds", empty_list);
-      for (Object bullet_id : Core.iter(generator_bullet_ids)) {
-        Object gen_id_is_string = Core.typeIs(bullet_id, "string");
-        if (Core.truthy(gen_id_is_string)) {
-          Object gen_already_used = Core.mapContains(used_ids, bullet_id);
-          Object gen_not_used = Core.not(gen_already_used);
-          if (Core.truthy(gen_not_used)) {
-            Object gen_located = Core._ace_locate_bullet_section(playbook, bullet_id);
-            Object gen_found = Core.isNotNone(gen_located);
-            if (Core.truthy(gen_found)) {
-              Object gen_section = Core.get(gen_located, "section", null);
-              Object gen_located_id = Core.get(gen_located, "id", null);
-              Object gen_has_queue = Core.mapContains(section_queues, gen_section);
-              Object gen_missing_queue = Core.not(gen_has_queue);
-              if (Core.truthy(gen_missing_queue)) {
-                Object gen_new_queue = new java.util.LinkedHashMap<String, Object>();
-                Object gen_harmful = new java.util.ArrayList<Object>();
-                Core.set(gen_new_queue, "harmful", gen_harmful);
-                Object gen_primary = new java.util.ArrayList<Object>();
-                Core.set(gen_new_queue, "primary", gen_primary);
-                Object gen_generator = new java.util.ArrayList<Object>();
-                Core.set(gen_new_queue, "generator", gen_generator);
-                Core.set(section_queues, gen_section, gen_new_queue);
-              }
-              Object gen_queue = Core.get(section_queues, gen_section, null);
-              Object gen_generator_list = Core.get(gen_queue, "generator", null);
-              Core.append(gen_generator_list, gen_located_id);
-              Core.set(gen_queue, "generator", gen_generator_list);
-              Core.set(section_queues, gen_section, gen_queue);
-            }
-          }
-        }
-      }
-    }
-    Object resolved = new java.util.ArrayList<Object>();
-    for (Object op : Core.iter(operations)) {
-      Object op_type = Core.get(op, "type", "");
-      Object op_is_update = Core.eq(op_type, "UPDATE");
-      Object op_is_remove = Core.eq(op_type, "REMOVE");
-      Object needs_target = Core.or(op_is_update, op_is_remove);
-      Object current_bullet_id = Core.get(op, "bulletId", null);
-      Object has_bullet_id = Core.isNotNone(current_bullet_id);
-      Object missing_bullet_id = Core.not(has_bullet_id);
-      Object empty_op = new java.util.LinkedHashMap<String, Object>();
-      Object resolved_op = Core.mapMerge(empty_op, op);
-      if (Core.truthy(needs_target)) {
-        if (Core.truthy(missing_bullet_id)) {
-          Object op_section = Core.get(op, "section", "");
-          Object candidate = Core._ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook);
-          Object candidate_found = Core.isNotNone(candidate);
-          if (Core.truthy(candidate_found)) {
-            Core.set(resolved_op, "bulletId", candidate);
-            Core.set(used_ids, candidate, Boolean.TRUE);
-          }
-        }
-      }
-      Object final_bullet_id = Core.get(resolved_op, "bulletId", null);
-      Object final_has_bullet_id = Core.isNotNone(final_bullet_id);
-      Object keep = Boolean.TRUE;
-      if (Core.truthy(needs_target)) {
-        keep = final_has_bullet_id;
-      }
-      if (Core.truthy(keep)) {
-        Core.append(resolved, resolved_op);
-      }
-    }
-    return resolved;
   }
 
   static Object _parse_output_fields_impl(Object content, Object fields) {
@@ -30126,6 +30084,36 @@ final class Core {
     return none;
   }
 
+  static Object _ace_locate_bullet_section(Object playbook, Object bullet_id) {
+    axirCoverageMark("_ace_locate_bullet_section");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object none_value = Core.none();
+    Object found = none_value;
+    for (Object section_name : Core.iter(section_names)) {
+      Object already = Core.isNotNone(found);
+      Object still_open = Core.not(already);
+      if (Core.truthy(still_open)) {
+        Object bullets = Core.get(sections, section_name, null);
+        for (Object bullet : Core.iter(bullets)) {
+          Object open = Core.isNone(found);
+          if (Core.truthy(open)) {
+            Object current_id = Core.get(bullet, "id", "");
+            Object match = Core.eq(current_id, bullet_id);
+            if (Core.truthy(match)) {
+              Object hit = new java.util.LinkedHashMap<String, Object>();
+              Core.set(hit, "section", section_name);
+              Core.set(hit, "id", current_id);
+              found = hit;
+            }
+          }
+        }
+      }
+    }
+    return found;
+  }
+
   static Object _date_js_json_string_impl(Object text) {
     axirCoverageMark("_date_js_json_string_impl");
     Object hex = "0123456789abcdef";
@@ -30275,36 +30263,135 @@ final class Core {
     return reserved;
   }
 
-  static Object _ace_normalize_reflection_bullet_tags(Object reflection) {
-    axirCoverageMark("_ace_normalize_reflection_bullet_tags");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object raw_bullet_tags = Core.get(reflection, "bulletTags", empty_list);
-    Object candidates = new java.util.ArrayList<Object>();
-    Object tags_is_list = Core.typeIs(raw_bullet_tags, "list");
-    if (Core.truthy(tags_is_list)) {
-      candidates = raw_bullet_tags;
+  static Object _ace_resolve_curator_operation_targets(Object operations, Object playbook, Object reflection, Object generator_output) {
+    axirCoverageMark("_ace_resolve_curator_operation_targets");
+    Object op_count = Core.len(operations);
+    Object is_empty = Core.eq(op_count, 0);
+    if (Core.truthy(is_empty)) {
+      return operations;
     }
-    if (!Core.truthy(tags_is_list)) {
-      Object tags_is_object = Core.typeIs(raw_bullet_tags, "object");
-      if (Core.truthy(tags_is_object)) {
-        Core.append(candidates, raw_bullet_tags);
-      }
-    }
-    Object normalized = new java.util.ArrayList<Object>();
-    for (Object tag : Core.iter(candidates)) {
-      Object tag_is_object = Core.typeIs(tag, "object");
-      if (Core.truthy(tag_is_object)) {
-        Object tag_id = Core.get(tag, "id", null);
-        Object tag_id_is_string = Core.typeIs(tag_id, "string");
-        Object tag_value = Core.get(tag, "tag", null);
-        Object tag_value_is_string = Core.typeIs(tag_value, "string");
-        Object valid_tag_shape = Core.and(tag_id_is_string, tag_value_is_string);
-        if (Core.truthy(valid_tag_shape)) {
-          Core.append(normalized, tag);
+    Object used_ids = new java.util.LinkedHashMap<String, Object>();
+    for (Object op : Core.iter(operations)) {
+      Object existing_bullet_id = Core.get(op, "bulletId", null);
+      Object has_existing = Core.isNotNone(existing_bullet_id);
+      if (Core.truthy(has_existing)) {
+        Object existing_is_string = Core.typeIs(existing_bullet_id, "string");
+        if (Core.truthy(existing_is_string)) {
+          Core.set(used_ids, existing_bullet_id, Boolean.TRUE);
         }
       }
     }
-    return normalized;
+    Object section_queues = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object reflection_present = Core.isNotNone(reflection);
+    if (Core.truthy(reflection_present)) {
+      Object bullet_tags = Core._ace_normalize_reflection_bullet_tags(reflection);
+      for (Object tag : Core.iter(bullet_tags)) {
+        Object tag_id = Core.get(tag, "id", null);
+        Object tag_value = Core.get(tag, "tag", null);
+        Object is_harmful = Core.eq(tag_value, "harmful");
+        Object already_used = Core.mapContains(used_ids, tag_id);
+        Object not_used = Core.not(already_used);
+        if (Core.truthy(not_used)) {
+          Object located = Core._ace_locate_bullet_section(playbook, tag_id);
+          Object located_found = Core.isNotNone(located);
+          if (Core.truthy(located_found)) {
+            Object located_section = Core.get(located, "section", null);
+            Object located_id = Core.get(located, "id", null);
+            Object priority = "primary";
+            if (Core.truthy(is_harmful)) {
+              priority = "harmful";
+            }
+            Object has_queue = Core.mapContains(section_queues, located_section);
+            Object missing_queue = Core.not(has_queue);
+            if (Core.truthy(missing_queue)) {
+              Object new_queue = new java.util.LinkedHashMap<String, Object>();
+              Object harmful_list = new java.util.ArrayList<Object>();
+              Core.set(new_queue, "harmful", harmful_list);
+              Object primary_list = new java.util.ArrayList<Object>();
+              Core.set(new_queue, "primary", primary_list);
+              Object generator_list = new java.util.ArrayList<Object>();
+              Core.set(new_queue, "generator", generator_list);
+              Core.set(section_queues, located_section, new_queue);
+            }
+            Object queue = Core.get(section_queues, located_section, null);
+            Object priority_list = Core.get(queue, priority, null);
+            Core.append(priority_list, located_id);
+            Core.set(queue, priority, priority_list);
+            Core.set(section_queues, located_section, queue);
+          }
+        }
+      }
+    }
+    Object generator_present = Core.isNotNone(generator_output);
+    if (Core.truthy(generator_present)) {
+      Object generator_bullet_ids = Core.get(generator_output, "bulletIds", empty_list);
+      for (Object bullet_id : Core.iter(generator_bullet_ids)) {
+        Object gen_id_is_string = Core.typeIs(bullet_id, "string");
+        if (Core.truthy(gen_id_is_string)) {
+          Object gen_already_used = Core.mapContains(used_ids, bullet_id);
+          Object gen_not_used = Core.not(gen_already_used);
+          if (Core.truthy(gen_not_used)) {
+            Object gen_located = Core._ace_locate_bullet_section(playbook, bullet_id);
+            Object gen_found = Core.isNotNone(gen_located);
+            if (Core.truthy(gen_found)) {
+              Object gen_section = Core.get(gen_located, "section", null);
+              Object gen_located_id = Core.get(gen_located, "id", null);
+              Object gen_has_queue = Core.mapContains(section_queues, gen_section);
+              Object gen_missing_queue = Core.not(gen_has_queue);
+              if (Core.truthy(gen_missing_queue)) {
+                Object gen_new_queue = new java.util.LinkedHashMap<String, Object>();
+                Object gen_harmful = new java.util.ArrayList<Object>();
+                Core.set(gen_new_queue, "harmful", gen_harmful);
+                Object gen_primary = new java.util.ArrayList<Object>();
+                Core.set(gen_new_queue, "primary", gen_primary);
+                Object gen_generator = new java.util.ArrayList<Object>();
+                Core.set(gen_new_queue, "generator", gen_generator);
+                Core.set(section_queues, gen_section, gen_new_queue);
+              }
+              Object gen_queue = Core.get(section_queues, gen_section, null);
+              Object gen_generator_list = Core.get(gen_queue, "generator", null);
+              Core.append(gen_generator_list, gen_located_id);
+              Core.set(gen_queue, "generator", gen_generator_list);
+              Core.set(section_queues, gen_section, gen_queue);
+            }
+          }
+        }
+      }
+    }
+    Object resolved = new java.util.ArrayList<Object>();
+    for (Object op : Core.iter(operations)) {
+      Object op_type = Core.get(op, "type", "");
+      Object op_is_update = Core.eq(op_type, "UPDATE");
+      Object op_is_remove = Core.eq(op_type, "REMOVE");
+      Object needs_target = Core.or(op_is_update, op_is_remove);
+      Object current_bullet_id = Core.get(op, "bulletId", null);
+      Object has_bullet_id = Core.isNotNone(current_bullet_id);
+      Object missing_bullet_id = Core.not(has_bullet_id);
+      Object empty_op = new java.util.LinkedHashMap<String, Object>();
+      Object resolved_op = Core.mapMerge(empty_op, op);
+      if (Core.truthy(needs_target)) {
+        if (Core.truthy(missing_bullet_id)) {
+          Object op_section = Core.get(op, "section", "");
+          Object candidate = Core._ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook);
+          Object candidate_found = Core.isNotNone(candidate);
+          if (Core.truthy(candidate_found)) {
+            Core.set(resolved_op, "bulletId", candidate);
+            Core.set(used_ids, candidate, Boolean.TRUE);
+          }
+        }
+      }
+      Object final_bullet_id = Core.get(resolved_op, "bulletId", null);
+      Object final_has_bullet_id = Core.isNotNone(final_bullet_id);
+      Object keep = Boolean.TRUE;
+      if (Core.truthy(needs_target)) {
+        keep = final_has_bullet_id;
+      }
+      if (Core.truthy(keep)) {
+        Core.append(resolved, resolved_op);
+      }
+    }
+    return resolved;
   }
 
   static Object _append_structured_output_retry_messages_impl(Object messages, Object response, Object call, Object error, Object stage) {
@@ -30475,71 +30562,6 @@ final class Core {
     }
     Core.set(xstate, "streamed_index", streamed);
     return deltas;
-  }
-
-  static Object _ace_dequeue_section_candidate(Object section_queues, Object section, Object used_ids, Object playbook) {
-    axirCoverageMark("_ace_dequeue_section_candidate");
-    Object none_value = Core.none();
-    Object picked = none_value;
-    Object has_queue = Core.mapContains(section_queues, section);
-    if (Core.truthy(has_queue)) {
-      Object queue = Core.get(section_queues, section, null);
-      Object empty_list = new java.util.ArrayList<Object>();
-      Object harmful_list = Core.get(queue, "harmful", empty_list);
-      for (Object candidate : Core.iter(harmful_list)) {
-        Object open = Core.isNone(picked);
-        if (Core.truthy(open)) {
-          Object used = Core.mapContains(used_ids, candidate);
-          Object not_used = Core.not(used);
-          if (Core.truthy(not_used)) {
-            picked = candidate;
-          }
-        }
-      }
-      Object primary_list = Core.get(queue, "primary", empty_list);
-      for (Object candidate : Core.iter(primary_list)) {
-        Object open = Core.isNone(picked);
-        if (Core.truthy(open)) {
-          Object used = Core.mapContains(used_ids, candidate);
-          Object not_used = Core.not(used);
-          if (Core.truthy(not_used)) {
-            picked = candidate;
-          }
-        }
-      }
-      Object generator_list = Core.get(queue, "generator", empty_list);
-      for (Object candidate : Core.iter(generator_list)) {
-        Object open = Core.isNone(picked);
-        if (Core.truthy(open)) {
-          Object used = Core.mapContains(used_ids, candidate);
-          Object not_used = Core.not(used);
-          if (Core.truthy(not_used)) {
-            picked = candidate;
-          }
-        }
-      }
-    }
-    Object still_open = Core.isNone(picked);
-    if (Core.truthy(still_open)) {
-      Object empty_map = new java.util.LinkedHashMap<String, Object>();
-      Object sections = Core.get(playbook, "sections", empty_map);
-      Object fallback_bullets = Core.get(sections, section, null);
-      Object fallback_present = Core.isNotNone(fallback_bullets);
-      if (Core.truthy(fallback_present)) {
-        for (Object bullet : Core.iter(fallback_bullets)) {
-          Object open = Core.isNone(picked);
-          if (Core.truthy(open)) {
-            Object bullet_id = Core.get(bullet, "id", "");
-            Object used = Core.mapContains(used_ids, bullet_id);
-            Object not_used = Core.not(used);
-            if (Core.truthy(not_used)) {
-              picked = bullet_id;
-            }
-          }
-        }
-      }
-    }
-    return picked;
   }
 
   static Object _with_output_thought_impl(Object output, Object field, Object prefix, Object thought) {
@@ -31227,6 +31249,38 @@ final class Core {
     return quotient;
   }
 
+  static Object _ace_normalize_reflection_bullet_tags(Object reflection) {
+    axirCoverageMark("_ace_normalize_reflection_bullet_tags");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object raw_bullet_tags = Core.get(reflection, "bulletTags", empty_list);
+    Object candidates = new java.util.ArrayList<Object>();
+    Object tags_is_list = Core.typeIs(raw_bullet_tags, "list");
+    if (Core.truthy(tags_is_list)) {
+      candidates = raw_bullet_tags;
+    }
+    if (!Core.truthy(tags_is_list)) {
+      Object tags_is_object = Core.typeIs(raw_bullet_tags, "object");
+      if (Core.truthy(tags_is_object)) {
+        Core.append(candidates, raw_bullet_tags);
+      }
+    }
+    Object normalized = new java.util.ArrayList<Object>();
+    for (Object tag : Core.iter(candidates)) {
+      Object tag_is_object = Core.typeIs(tag, "object");
+      if (Core.truthy(tag_is_object)) {
+        Object tag_id = Core.get(tag, "id", null);
+        Object tag_id_is_string = Core.typeIs(tag_id, "string");
+        Object tag_value = Core.get(tag, "tag", null);
+        Object tag_value_is_string = Core.typeIs(tag_value, "string");
+        Object valid_tag_shape = Core.and(tag_id_is_string, tag_value_is_string);
+        if (Core.truthy(valid_tag_shape)) {
+          Core.append(normalized, tag);
+        }
+      }
+    }
+    return normalized;
+  }
+
   static Object _regex_test(Object pattern, Object value) {
     axirCoverageMark("_regex_test");
     Object groups = Core.none();
@@ -31398,6 +31452,71 @@ final class Core {
     Core.set(marker, "in_array", in_array);
     Core.set(marker, "in_object", in_object);
     return marker;
+  }
+
+  static Object _ace_dequeue_section_candidate(Object section_queues, Object section, Object used_ids, Object playbook) {
+    axirCoverageMark("_ace_dequeue_section_candidate");
+    Object none_value = Core.none();
+    Object picked = none_value;
+    Object has_queue = Core.mapContains(section_queues, section);
+    if (Core.truthy(has_queue)) {
+      Object queue = Core.get(section_queues, section, null);
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object harmful_list = Core.get(queue, "harmful", empty_list);
+      for (Object candidate : Core.iter(harmful_list)) {
+        Object open = Core.isNone(picked);
+        if (Core.truthy(open)) {
+          Object used = Core.mapContains(used_ids, candidate);
+          Object not_used = Core.not(used);
+          if (Core.truthy(not_used)) {
+            picked = candidate;
+          }
+        }
+      }
+      Object primary_list = Core.get(queue, "primary", empty_list);
+      for (Object candidate : Core.iter(primary_list)) {
+        Object open = Core.isNone(picked);
+        if (Core.truthy(open)) {
+          Object used = Core.mapContains(used_ids, candidate);
+          Object not_used = Core.not(used);
+          if (Core.truthy(not_used)) {
+            picked = candidate;
+          }
+        }
+      }
+      Object generator_list = Core.get(queue, "generator", empty_list);
+      for (Object candidate : Core.iter(generator_list)) {
+        Object open = Core.isNone(picked);
+        if (Core.truthy(open)) {
+          Object used = Core.mapContains(used_ids, candidate);
+          Object not_used = Core.not(used);
+          if (Core.truthy(not_used)) {
+            picked = candidate;
+          }
+        }
+      }
+    }
+    Object still_open = Core.isNone(picked);
+    if (Core.truthy(still_open)) {
+      Object empty_map = new java.util.LinkedHashMap<String, Object>();
+      Object sections = Core.get(playbook, "sections", empty_map);
+      Object fallback_bullets = Core.get(sections, section, null);
+      Object fallback_present = Core.isNotNone(fallback_bullets);
+      if (Core.truthy(fallback_present)) {
+        for (Object bullet : Core.iter(fallback_bullets)) {
+          Object open = Core.isNone(picked);
+          if (Core.truthy(open)) {
+            Object bullet_id = Core.get(bullet, "id", "");
+            Object used = Core.mapContains(used_ids, bullet_id);
+            Object not_used = Core.not(used);
+            if (Core.truthy(not_used)) {
+              picked = bullet_id;
+            }
+          }
+        }
+      }
+    }
+    return picked;
   }
 
   static Object _date_civil_from_days_impl(Object days) {
@@ -32486,15 +32605,6 @@ final class Core {
     return null;
   }
 
-  static Object _parse_text_contract_output_impl(Object content, Object output_fields, Object strict_mode) {
-    axirCoverageMark("_parse_text_contract_output_impl");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object values = Core._stream_text_extract_values_impl(content, output_fields, strict_mode);
-    Core.set(out, "values", values);
-    Core.set(out, "extracted", Boolean.TRUE);
-    return out;
-  }
-
   static Object _stream_json_validate_value_impl(Object field, Object value, Object allow_missing) {
     axirCoverageMark("_stream_json_validate_value_impl");
     Object typ = Core.get(field, "type", null);
@@ -32584,6 +32694,15 @@ final class Core {
       }
     }
     return value;
+  }
+
+  static Object _parse_text_contract_output_impl(Object content, Object output_fields, Object strict_mode) {
+    axirCoverageMark("_parse_text_contract_output_impl");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object values = Core._stream_text_extract_values_impl(content, output_fields, strict_mode);
+    Core.set(out, "values", values);
+    Core.set(out, "extracted", Boolean.TRUE);
+    return out;
   }
 
   static Object _generate_failed_impl(Object error) {
@@ -32745,22 +32864,6 @@ final class Core {
     return message;
   }
 
-  static Object _caching_function_option_impl(Object gen, Object options) {
-    axirCoverageMark("_caching_function_option_impl");
-    Object empty = new java.util.LinkedHashMap<String, Object>();
-    Object call_options = Core.mapMerge(empty, options);
-    Object base_options = Core.get(gen, "options", empty);
-    Object run_options = Core.mapMerge(base_options, call_options);
-    Object control = Core.get(run_options, "control", null);
-    Object controlled = Core.isNotNone(control);
-    if (Core.truthy(controlled)) {
-      Object no_cache = Core.none();
-      return no_cache;
-    }
-    Object cache_fn = Core.axgenCachingFunction(gen, call_options);
-    return cache_fn;
-  }
-
   static Object _stream_json_select_fields_impl(Object fields, Object values) {
     axirCoverageMark("_stream_json_select_fields_impl");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -32780,6 +32883,22 @@ final class Core {
       }
     }
     return out;
+  }
+
+  static Object _caching_function_option_impl(Object gen, Object options) {
+    axirCoverageMark("_caching_function_option_impl");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object call_options = Core.mapMerge(empty, options);
+    Object base_options = Core.get(gen, "options", empty);
+    Object run_options = Core.mapMerge(base_options, call_options);
+    Object control = Core.get(run_options, "control", null);
+    Object controlled = Core.isNotNone(control);
+    if (Core.truthy(controlled)) {
+      Object no_cache = Core.none();
+      return no_cache;
+    }
+    Object cache_fn = Core.axgenCachingFunction(gen, call_options);
+    return cache_fn;
   }
 
   static Object _cache_key_impl(Object gen, Object values, Object options) {
@@ -35091,74 +35210,6 @@ final class Core {
     return out;
   }
 
-  static Object _map_optimization_judge_quality_to_score(Object quality) {
-    axirCoverageMark("_map_optimization_judge_quality_to_score");
-    Object normalized = Core.stringLower(quality);
-    Object is_excellent = Core.eq(normalized, "excellent");
-    if (Core.truthy(is_excellent)) {
-      return 1;
-    }
-    Object is_good = Core.eq(normalized, "good");
-    if (Core.truthy(is_good)) {
-      return 0.8;
-    }
-    Object is_acceptable = Core.eq(normalized, "acceptable");
-    if (Core.truthy(is_acceptable)) {
-      return 0.5;
-    }
-    Object is_poor = Core.eq(normalized, "poor");
-    if (Core.truthy(is_poor)) {
-      return 0.2;
-    }
-    Object is_unacceptable = Core.eq(normalized, "unacceptable");
-    if (Core.truthy(is_unacceptable)) {
-      return 0;
-    }
-    return 0.5;
-  }
-
-  static Object _build_optimization_judge_payload(Object task, Object prediction, Object criteria) {
-    axirCoverageMark("_build_optimization_judge_payload");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object task_input = Core.get(task, "input", task);
-    Core.set(out, "taskInput", task_input);
-    Object task_criteria = Core.get(task, "criteria", criteria);
-    Core.set(out, "criteria", task_criteria);
-    Object expected_output = Core.get(task, "expectedOutput", null);
-    Core.set(out, "expectedOutput", expected_output);
-    Object expected_actions = Core.get(task, "expectedActions", empty_list);
-    Core.set(out, "expectedActions", expected_actions);
-    Object forbidden_actions = Core.get(task, "forbiddenActions", empty_list);
-    Core.set(out, "forbiddenActions", forbidden_actions);
-    Object metadata = Core.get(task, "metadata", null);
-    Core.set(out, "metadata", metadata);
-    Object completion_type = Core.get(prediction, "completionType", "error");
-    Core.set(out, "completionType", completion_type);
-    Object clarification = Core.get(prediction, "clarification", null);
-    Core.set(out, "clarification", clarification);
-    Object final_output = Core.get(prediction, "output", prediction);
-    Core.set(out, "finalOutput", final_output);
-    Object guidance_log = Core.get(prediction, "guidanceLog", "");
-    Core.set(out, "guidanceLog", guidance_log);
-    Object action_log = Core.get(prediction, "actionLog", empty_list);
-    Core.set(out, "actionLog", action_log);
-    Object function_calls = Core.get(prediction, "functionCalls", empty_list);
-    Core.set(out, "functionCalls", function_calls);
-    Object tool_errors = Core.get(prediction, "toolErrors", empty_list);
-    Core.set(out, "toolErrors", tool_errors);
-    Object turn_count = Core.get(prediction, "turnCount", 0);
-    Core.set(out, "turnCount", turn_count);
-    Object usage = Core.get(prediction, "usage", empty_list);
-    Core.set(out, "usage", usage);
-    Object trace = Core.get(prediction, "trace", null);
-    Core.set(out, "trace", trace);
-    Object empty_failure_signals = new java.util.ArrayList<Object>();
-    Object failure_signals = Core.get(prediction, "failureSignals", empty_failure_signals);
-    Core.set(out, "failureSignals", failure_signals);
-    return out;
-  }
-
   static Object _agent_discoverable_doc_chars(Object callable_split) {
     axirCoverageMark("_agent_discoverable_doc_chars");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -35344,6 +35395,74 @@ final class Core {
     Core.set(out, "directRespondMode", direct_respond_mode);
     Core.set(out, "directRespondOnly", direct_respond_only);
     Core.set(out, "discoveryMode+skillsMode", combined_discovery_skills);
+    return out;
+  }
+
+  static Object _map_optimization_judge_quality_to_score(Object quality) {
+    axirCoverageMark("_map_optimization_judge_quality_to_score");
+    Object normalized = Core.stringLower(quality);
+    Object is_excellent = Core.eq(normalized, "excellent");
+    if (Core.truthy(is_excellent)) {
+      return 1;
+    }
+    Object is_good = Core.eq(normalized, "good");
+    if (Core.truthy(is_good)) {
+      return 0.8;
+    }
+    Object is_acceptable = Core.eq(normalized, "acceptable");
+    if (Core.truthy(is_acceptable)) {
+      return 0.5;
+    }
+    Object is_poor = Core.eq(normalized, "poor");
+    if (Core.truthy(is_poor)) {
+      return 0.2;
+    }
+    Object is_unacceptable = Core.eq(normalized, "unacceptable");
+    if (Core.truthy(is_unacceptable)) {
+      return 0;
+    }
+    return 0.5;
+  }
+
+  static Object _build_optimization_judge_payload(Object task, Object prediction, Object criteria) {
+    axirCoverageMark("_build_optimization_judge_payload");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object task_input = Core.get(task, "input", task);
+    Core.set(out, "taskInput", task_input);
+    Object task_criteria = Core.get(task, "criteria", criteria);
+    Core.set(out, "criteria", task_criteria);
+    Object expected_output = Core.get(task, "expectedOutput", null);
+    Core.set(out, "expectedOutput", expected_output);
+    Object expected_actions = Core.get(task, "expectedActions", empty_list);
+    Core.set(out, "expectedActions", expected_actions);
+    Object forbidden_actions = Core.get(task, "forbiddenActions", empty_list);
+    Core.set(out, "forbiddenActions", forbidden_actions);
+    Object metadata = Core.get(task, "metadata", null);
+    Core.set(out, "metadata", metadata);
+    Object completion_type = Core.get(prediction, "completionType", "error");
+    Core.set(out, "completionType", completion_type);
+    Object clarification = Core.get(prediction, "clarification", null);
+    Core.set(out, "clarification", clarification);
+    Object final_output = Core.get(prediction, "output", prediction);
+    Core.set(out, "finalOutput", final_output);
+    Object guidance_log = Core.get(prediction, "guidanceLog", "");
+    Core.set(out, "guidanceLog", guidance_log);
+    Object action_log = Core.get(prediction, "actionLog", empty_list);
+    Core.set(out, "actionLog", action_log);
+    Object function_calls = Core.get(prediction, "functionCalls", empty_list);
+    Core.set(out, "functionCalls", function_calls);
+    Object tool_errors = Core.get(prediction, "toolErrors", empty_list);
+    Core.set(out, "toolErrors", tool_errors);
+    Object turn_count = Core.get(prediction, "turnCount", 0);
+    Core.set(out, "turnCount", turn_count);
+    Object usage = Core.get(prediction, "usage", empty_list);
+    Core.set(out, "usage", usage);
+    Object trace = Core.get(prediction, "trace", null);
+    Core.set(out, "trace", trace);
+    Object empty_failure_signals = new java.util.ArrayList<Object>();
+    Object failure_signals = Core.get(prediction, "failureSignals", empty_failure_signals);
+    Core.set(out, "failureSignals", failure_signals);
     return out;
   }
 
@@ -35591,6 +35710,14 @@ final class Core {
     return registry;
   }
 
+  static Object _agent_context_policy_registry() {
+    axirCoverageMark("_agent_context_policy_registry");
+    Object registry = Core._agent_policy_vocabulary_registry();
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object context = Core.get(registry, "context_policy", empty_map);
+    return context;
+  }
+
   static Object _build_agent_eval_prediction(Object output, Object action_log, Object usage, Object trace) {
     axirCoverageMark("_build_agent_eval_prediction");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -35607,14 +35734,6 @@ final class Core {
     Core.set(out, "toolErrors", empty_list);
     Core.set(out, "turnCount", 0);
     return out;
-  }
-
-  static Object _agent_context_policy_registry() {
-    axirCoverageMark("_agent_context_policy_registry");
-    Object registry = Core._agent_policy_vocabulary_registry();
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object context = Core.get(registry, "context_policy", empty_map);
-    return context;
   }
 
   static Object _agent_context_policy_migration_error(Object key) {
@@ -36486,72 +36605,6 @@ final class Core {
     return out;
   }
 
-  static Object _agent_eval_marks(Object state) {
-    axirCoverageMark("_agent_eval_marks");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object log = Core.get(state, "action_log", empty_list);
-    Object traces = Core.get(state, "function_call_traces", empty_list);
-    Object log_count = Core.len(log);
-    Object trace_count = Core.len(traces);
-    Object marks = new java.util.LinkedHashMap<String, Object>();
-    Core.set(marks, "action_log", log_count);
-    Core.set(marks, "function_call_traces", trace_count);
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object stage_logs = Core.get(state, "stage_action_logs", empty_map);
-    Core.set(marks, "stage_action_logs", stage_logs);
-    Object fresh_stage_logs = new java.util.LinkedHashMap<String, Object>();
-    Core.set(state, "stage_action_logs", fresh_stage_logs);
-    return marks;
-  }
-
-  static Object _agent_eval_function_calls(Object traces) {
-    axirCoverageMark("_agent_eval_function_calls");
-    Object calls = new java.util.ArrayList<Object>();
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    for (Object trace : Core.iter(traces)) {
-      Object qualified = Core.get(trace, "qualified_name", "");
-      Object name = Core.get(trace, "name", "");
-      Object name_missing = Core.eq(name, "");
-      Object name_qualified = Core.eq(name, qualified);
-      Object derive_name = Core.or(name_missing, name_qualified);
-      if (Core.truthy(derive_name)) {
-        Object name_parts = Core.stringSplit(qualified, ".");
-        for (Object name_part : Core.iter(name_parts)) {
-          name = name_part;
-        }
-      }
-      Object arguments = Core.get(trace, "arguments", null);
-      Object result = Core.get(trace, "result", empty_map);
-      Object result_is_map = Core.typeIs(result, "object");
-      if (Core.truthy(result_is_map)) {
-        // empty
-      }
-      if (!Core.truthy(result_is_map)) {
-        result = empty_map;
-      }
-      Object status = Core.get(trace, "status", "ok");
-      Object call = new java.util.LinkedHashMap<String, Object>();
-      Core.set(call, "qualifiedName", qualified);
-      Core.set(call, "name", name);
-      Core.set(call, "arguments", arguments);
-      Object failed = Core.eq(status, "error");
-      if (Core.truthy(failed)) {
-        Object error = Core.get(result, "error", "unknown error");
-        Object error_text = Core.stringStr(error);
-        Core.set(call, "error", error_text);
-      }
-      if (!Core.truthy(failed)) {
-        Object value = Core.get(result, "value", null);
-        Object has_value = Core.isNotNone(value);
-        if (Core.truthy(has_value)) {
-          Core.set(call, "result", value);
-        }
-      }
-      Core.append(calls, call);
-    }
-    return calls;
-  }
-
   static Object _resolve_agent_executor_model_policy(Object options) {
     axirCoverageMark("_resolve_agent_executor_model_policy");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -36668,6 +36721,120 @@ final class Core {
     return out;
   }
 
+  static Object _agent_eval_marks(Object state) {
+    axirCoverageMark("_agent_eval_marks");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object log = Core.get(state, "action_log", empty_list);
+    Object traces = Core.get(state, "function_call_traces", empty_list);
+    Object log_count = Core.len(log);
+    Object trace_count = Core.len(traces);
+    Object marks = new java.util.LinkedHashMap<String, Object>();
+    Core.set(marks, "action_log", log_count);
+    Core.set(marks, "function_call_traces", trace_count);
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object stage_logs = Core.get(state, "stage_action_logs", empty_map);
+    Core.set(marks, "stage_action_logs", stage_logs);
+    Object fresh_stage_logs = new java.util.LinkedHashMap<String, Object>();
+    Core.set(state, "stage_action_logs", fresh_stage_logs);
+    return marks;
+  }
+
+  static Object _agent_eval_function_calls(Object traces) {
+    axirCoverageMark("_agent_eval_function_calls");
+    Object calls = new java.util.ArrayList<Object>();
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    for (Object trace : Core.iter(traces)) {
+      Object qualified = Core.get(trace, "qualified_name", "");
+      Object name = Core.get(trace, "name", "");
+      Object name_missing = Core.eq(name, "");
+      Object name_qualified = Core.eq(name, qualified);
+      Object derive_name = Core.or(name_missing, name_qualified);
+      if (Core.truthy(derive_name)) {
+        Object name_parts = Core.stringSplit(qualified, ".");
+        for (Object name_part : Core.iter(name_parts)) {
+          name = name_part;
+        }
+      }
+      Object arguments = Core.get(trace, "arguments", null);
+      Object result = Core.get(trace, "result", empty_map);
+      Object result_is_map = Core.typeIs(result, "object");
+      if (Core.truthy(result_is_map)) {
+        // empty
+      }
+      if (!Core.truthy(result_is_map)) {
+        result = empty_map;
+      }
+      Object status = Core.get(trace, "status", "ok");
+      Object call = new java.util.LinkedHashMap<String, Object>();
+      Core.set(call, "qualifiedName", qualified);
+      Core.set(call, "name", name);
+      Core.set(call, "arguments", arguments);
+      Object failed = Core.eq(status, "error");
+      if (Core.truthy(failed)) {
+        Object error = Core.get(result, "error", "unknown error");
+        Object error_text = Core.stringStr(error);
+        Core.set(call, "error", error_text);
+      }
+      if (!Core.truthy(failed)) {
+        Object value = Core.get(result, "value", null);
+        Object has_value = Core.isNotNone(value);
+        if (Core.truthy(has_value)) {
+          Core.set(call, "result", value);
+        }
+      }
+      Core.append(calls, call);
+    }
+    return calls;
+  }
+
+  static Object _select_agent_executor_model(Object policy, Object actor_model_state) {
+    axirCoverageMark("_select_agent_executor_model");
+    Object none = Core.none();
+    Object is_list = Core.typeIs(policy, "list");
+    if (Core.truthy(is_list)) {
+      // empty
+    }
+    if (!Core.truthy(is_list)) {
+      return none;
+    }
+    Object errors = Core.get(actor_model_state, "consecutiveErrorTurns", 0);
+    Object matched = Core.get(actor_model_state, "matchedNamespaces", null);
+    Object matched_is_list = Core.typeIs(matched, "list");
+    if (Core.truthy(matched_is_list)) {
+      // empty
+    }
+    if (!Core.truthy(matched_is_list)) {
+      matched = new java.util.ArrayList<Object>();
+    }
+    Object selected = Core.none();
+    for (Object entry : Core.iter(policy)) {
+      Object model = Core.get(entry, "model", "");
+      Object above = Core.get(entry, "aboveErrorTurns", null);
+      Object namespaces = Core.get(entry, "namespaces", null);
+      Object trigger = Boolean.FALSE;
+      Object has_above = Core.isNotNone(above);
+      if (Core.truthy(has_above)) {
+        Object error_trigger = Core.gte(errors, above);
+        if (Core.truthy(error_trigger)) {
+          trigger = Boolean.TRUE;
+        }
+      }
+      Object namespaces_is_list = Core.typeIs(namespaces, "list");
+      if (Core.truthy(namespaces_is_list)) {
+        for (Object namespace : Core.iter(namespaces)) {
+          Object namespace_match = Core.contains(matched, namespace);
+          if (Core.truthy(namespace_match)) {
+            trigger = Boolean.TRUE;
+          }
+        }
+      }
+      if (Core.truthy(trigger)) {
+        selected = model;
+      }
+    }
+    return selected;
+  }
+
   static Object _agent_eval_run(Object state, Object marks) {
     axirCoverageMark("_agent_eval_run");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -36747,96 +36914,6 @@ final class Core {
     Core.set(run, "turnCount", turn_count);
     Core.set(run, "failureSignals", signals);
     return run;
-  }
-
-  static Object _select_agent_executor_model(Object policy, Object actor_model_state) {
-    axirCoverageMark("_select_agent_executor_model");
-    Object none = Core.none();
-    Object is_list = Core.typeIs(policy, "list");
-    if (Core.truthy(is_list)) {
-      // empty
-    }
-    if (!Core.truthy(is_list)) {
-      return none;
-    }
-    Object errors = Core.get(actor_model_state, "consecutiveErrorTurns", 0);
-    Object matched = Core.get(actor_model_state, "matchedNamespaces", null);
-    Object matched_is_list = Core.typeIs(matched, "list");
-    if (Core.truthy(matched_is_list)) {
-      // empty
-    }
-    if (!Core.truthy(matched_is_list)) {
-      matched = new java.util.ArrayList<Object>();
-    }
-    Object selected = Core.none();
-    for (Object entry : Core.iter(policy)) {
-      Object model = Core.get(entry, "model", "");
-      Object above = Core.get(entry, "aboveErrorTurns", null);
-      Object namespaces = Core.get(entry, "namespaces", null);
-      Object trigger = Boolean.FALSE;
-      Object has_above = Core.isNotNone(above);
-      if (Core.truthy(has_above)) {
-        Object error_trigger = Core.gte(errors, above);
-        if (Core.truthy(error_trigger)) {
-          trigger = Boolean.TRUE;
-        }
-      }
-      Object namespaces_is_list = Core.typeIs(namespaces, "list");
-      if (Core.truthy(namespaces_is_list)) {
-        for (Object namespace : Core.iter(namespaces)) {
-          Object namespace_match = Core.contains(matched, namespace);
-          if (Core.truthy(namespace_match)) {
-            trigger = Boolean.TRUE;
-          }
-        }
-      }
-      if (Core.truthy(trigger)) {
-        selected = model;
-      }
-    }
-    return selected;
-  }
-
-  static Object _build_agent_run_prediction(Object state, Object marks, Object completion, Object usage, Object trace) {
-    axirCoverageMark("_build_agent_run_prediction");
-    Object run = Core._agent_eval_run(state, marks);
-    Object type = Core.get(completion, "type", "final");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "completionType", type);
-    Object is_final = Core.eq(type, "final");
-    if (Core.truthy(is_final)) {
-      Object output = Core.get(completion, "output", null);
-      Core.set(out, "output", output);
-      Core.set(out, "finalOutput", output);
-    }
-    Object is_clarification = Core.eq(type, "askClarification");
-    if (Core.truthy(is_clarification)) {
-      Object clarification = Core.get(completion, "clarification", null);
-      Core.set(out, "clarification", clarification);
-    }
-    Object tool_errors = Core.get(run, "toolErrors", null);
-    Object is_error = Core.eq(type, "error");
-    if (Core.truthy(is_error)) {
-      Object message = Core.get(completion, "message", "");
-      Object error = new java.util.LinkedHashMap<String, Object>();
-      Core.set(error, "message", message);
-      Core.set(out, "error", error);
-      Object error_tool_errors = new java.util.ArrayList<Object>();
-      Core.append(error_tool_errors, message);
-      tool_errors = error_tool_errors;
-    }
-    Object run_log = Core.get(run, "actionLog", null);
-    Core.set(out, "actionLog", run_log);
-    Core.set(out, "usage", usage);
-    Core.set(out, "trace", trace);
-    Object signals = Core.get(run, "failureSignals", null);
-    Core.set(out, "failureSignals", signals);
-    Object calls = Core.get(run, "functionCalls", null);
-    Core.set(out, "functionCalls", calls);
-    Core.set(out, "toolErrors", tool_errors);
-    Object turn_count = Core.get(run, "turnCount", null);
-    Core.set(out, "turnCount", turn_count);
-    return out;
   }
 
   static Object _agent_compute_effective_chat_budget(Object base_budget, Object fixed_overhead_chars) {
@@ -36942,6 +37019,48 @@ final class Core {
       return watch_id;
     }
     return ok_id;
+  }
+
+  static Object _build_agent_run_prediction(Object state, Object marks, Object completion, Object usage, Object trace) {
+    axirCoverageMark("_build_agent_run_prediction");
+    Object run = Core._agent_eval_run(state, marks);
+    Object type = Core.get(completion, "type", "final");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "completionType", type);
+    Object is_final = Core.eq(type, "final");
+    if (Core.truthy(is_final)) {
+      Object output = Core.get(completion, "output", null);
+      Core.set(out, "output", output);
+      Core.set(out, "finalOutput", output);
+    }
+    Object is_clarification = Core.eq(type, "askClarification");
+    if (Core.truthy(is_clarification)) {
+      Object clarification = Core.get(completion, "clarification", null);
+      Core.set(out, "clarification", clarification);
+    }
+    Object tool_errors = Core.get(run, "toolErrors", null);
+    Object is_error = Core.eq(type, "error");
+    if (Core.truthy(is_error)) {
+      Object message = Core.get(completion, "message", "");
+      Object error = new java.util.LinkedHashMap<String, Object>();
+      Core.set(error, "message", message);
+      Core.set(out, "error", error);
+      Object error_tool_errors = new java.util.ArrayList<Object>();
+      Core.append(error_tool_errors, message);
+      tool_errors = error_tool_errors;
+    }
+    Object run_log = Core.get(run, "actionLog", null);
+    Core.set(out, "actionLog", run_log);
+    Core.set(out, "usage", usage);
+    Core.set(out, "trace", trace);
+    Object signals = Core.get(run, "failureSignals", null);
+    Core.set(out, "failureSignals", signals);
+    Object calls = Core.get(run, "functionCalls", null);
+    Core.set(out, "functionCalls", calls);
+    Core.set(out, "toolErrors", tool_errors);
+    Object turn_count = Core.get(run, "turnCount", null);
+    Core.set(out, "turnCount", turn_count);
+    return out;
   }
 
   static Object _agent_render_context_pressure(Object pressure) {

@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/skill.tar.gz",
-      "digest": "sha256:a29189db54dc3d1fac0ee0c9452928127bdfa0772c480c144cc39a753fa2edf1"
+      "digest": "sha256:d2f50f42d4295f6733658247d73a4deaa353ab9b8cb78d43b7de1be534cd91b0"
     },
     {
       "name": "ax-cpp-ai",
@@ -83,7 +83,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-cpp-agent-optimize/SKILL.md",
-      "digest": "sha256:f912af46c4fd578480c3abbb20e60dc8649385f96dfa8f4cbad09ae1a808ed60"
+      "digest": "sha256:02de13f5fcd170388cab14745f58e34d5f40bc55f80a4e5f209947df418da73b"
     },
     {
       "name": "ax-cpp-agent-context",
@@ -97,7 +97,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-cpp-gepa/SKILL.md",
-      "digest": "sha256:106923daecacd5ba7e4f492eb80d9488b9c5f05e6c36036d7896e7a7e8c8e792"
+      "digest": "sha256:b65a65dee851778654190b072466755daf504cc0cd02b77050e529d2c6b96636"
     },
     {
       "name": "ax-cpp-refine",

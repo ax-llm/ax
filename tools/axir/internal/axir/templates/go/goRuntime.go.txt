@@ -9412,7 +9412,7 @@ func (b *AxBootstrapFewShot) Optimize(request map[string]Value, evaluator Optimi
 					row := asMap(rows[0])
 					if num(coreGet(row, "scalar", 0)) >= threshold {
 						accepted[exampleKey] = true
-						demos = append(demos, Object("programId", "root", "traces", Array(cloneValue(coreGet(row, "prediction", coreGet(row, "input", Object()))))))
+						demos = append(demos, mustCore(_optimization_bootstrap_demo(row)))
 					}
 				}
 			}
@@ -9435,10 +9435,26 @@ func Optimize(program AxProgram, examples Value, options map[string]Value) (Valu
 		if data == nil {
 			data = Array()
 		}
-		bootstrapSetting := coreGet(options, "bootstrap", len(asSlice(data)) <= 8)
-		evaluator := &axOptimizeDatasetEvaluator{Dataset: data, Options: options}
+		normalized := asMap(mustCore(_normalize_optimization_dataset(data)))
+		train := asSlice(coreGet(normalized, "train", Array()))
+		validation := asSlice(coreGet(options, "validationExamples", coreGet(options, "validation_examples", coreGet(normalized, "validation", Array()))))
+		if len(validation) == 0 { validation = train }
+		bootstrapSetting := coreGet(options, "bootstrap", len(train) <= 8)
+		studentClient, _ := student.(AIClient)
+		teacherClient, _ := teacher.(AIClient)
+		evaluator := &axOptimizeDatasetEvaluator{Dataset: data, Options: options, Program: program, Client: studentClient}
+		gepaOptions := cloneMap(options)
+		coreSet(gepaOptions, "bootstrap", false)
+		coreSet(gepaOptions, "maxMetricCalls", mustCore(_gepa_helper_metric_budget(options, len(validation), !isFalse(bootstrapSetting))))
+		coreSet(gepaOptions, "apply", false)
 		var demos Value = Array()
+		bootstrapCalls := 0
 		if !isFalse(bootstrapSetting) {
+			baselineOptions := cloneMap(gepaOptions)
+			coreSet(baselineOptions, "numTrials", 0)
+			baseline := NewGEPA(teacherClient, baselineOptions)
+			optimizeWithEngine(program, baseline, data, baselineOptions, evaluator)
+			coreSet(gepaOptions, "_baselineEvaluation", baseline.baselineEvaluation)
 			bootstrapOptions := cloneMap(options)
 			for key, value := range asMap(bootstrapSetting) {
 				if key != "__order" {
@@ -9447,16 +9463,15 @@ func Optimize(program AxProgram, examples Value, options map[string]Value) (Valu
 			}
 			coreSet(bootstrapOptions, "apply", false)
 			bootstrap := NewBootstrapFewShot(bootstrapOptions)
-			artifact := optimizeWithEngine(program, bootstrap, data, bootstrapOptions, evaluator)
+			teacherEvaluator := &axOptimizeDatasetEvaluator{Dataset: data, Options: bootstrapOptions, Program: program, Client: teacherClient}
+			artifact := optimizeWithEngine(program, bootstrap, data, bootstrapOptions, teacherEvaluator)
 			demos = coreGet(artifact, "demos", Array())
+			if len(asSlice(demos)) == 0 { panic(AxError{Category: "optimize", Message: "No demonstrations found. Either provide more examples or improve the existing ones."}) }
+			bootstrapCalls = int(num(coreGet(coreGet(artifact, "metadata", Object()), "totalMetricCalls", 0)))
 			applyProgramDemos(program, demos)
 		}
-		gepaOptions := cloneMap(options)
-		coreSet(gepaOptions, "bootstrap", false)
-		if coreGet(gepaOptions, "maxMetricCalls", nil) == nil && coreGet(gepaOptions, "max_metric_calls", nil) == nil {
-			coreSet(gepaOptions, "maxMetricCalls", 100)
-		}
-		coreSet(gepaOptions, "apply", false)
+		coreSet(gepaOptions, "_bootstrapDemos", demos)
+		coreSet(gepaOptions, "_bootstrapMetricCalls", bootstrapCalls)
 		reflection, _ := teacher.(AIClient)
 		gepa := NewGEPA(reflection, gepaOptions)
 		artifact := optimizeWithEngine(program, gepa, data, gepaOptions, evaluator)
@@ -9514,9 +9529,22 @@ func applyProgramDemos(program AxProgram, demos Value) {
 type axOptimizeDatasetEvaluator struct {
 	Dataset Value
 	Options map[string]Value
+	Program AxProgram
+	Client AIClient
 }
 
 func (e *axOptimizeDatasetEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value, error) {
+	if e.Client != nil {
+		opts := cloneMap(e.Options)
+		for key, value := range options { if key != "__order" { coreSet(opts, key, value) } }
+		if demos := coreGet(opts, "demos", nil); demos != nil { applyProgramDemos(e.Program, demos) }
+		dataset := coreGet(options, "dataset", e.Dataset)
+		switch program := e.Program.(type) {
+		case *AxGen: return safeValue(func() Value { return program.EvaluateOptimization(e.Client, dataset, candidateMap, opts) })
+		case *AxFlow: return safeValue(func() Value { return program.EvaluateOptimization(e.Client, dataset, candidateMap, opts) })
+		case *AxAgent: return safeValue(func() Value { return program.EvaluateOptimization(e.Client, dataset, candidateMap, opts) })
+		}
+	}
 	normalized := asMap(mustCore(_normalize_optimization_dataset(coreGet(options, "dataset", e.Dataset))))
 	rows := Array()
 	for _, rawTask := range asSlice(coreGet(normalized, "train", Array())) {
@@ -9533,6 +9561,7 @@ func (e *axOptimizeDatasetEvaluator) Evaluate(candidateMap map[string]Value, opt
 type AxGEPA struct {
 	Options          map[string]Value
 	ReflectionClient AIClient
+	baselineEvaluation Value
 }
 
 func NewGEPA(reflectionClient AIClient, options map[string]Value) *AxGEPA {
@@ -9579,10 +9608,7 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 	if minibatchSize <= 0 {
 		minibatchSize = 1
 	}
-	paretoSize := int(num(coreGet(options, "paretoSetSize", coreGet(options, "pareto_set_size", minibatchSize*3))))
-	if paretoSize <= 0 {
-		paretoSize = 1
-	}
+	paretoSize := int(num(mustCore(_gepa_pareto_set_size(options))))
 	if paretoSize > len(validation) {
 		paretoSize = len(validation)
 	}
@@ -9593,19 +9619,37 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 	baseCfg := gepaCurrentMap(components)
 	selectorState := gepaSelectorState(components, asMap(coreGet(options, "selectorState", coreGet(options, "selector_state", Object()))))
 	totalCalls := 0
-	demos := Array()
+	baselineEval := asMap(coreGet(options, "_baselineEvaluation", nil))
+	if baselineEval == nil || len(baselineEval) == 0 {
+		var nextCalls int
+		baselineEval, nextCalls = gepaEvaluate(evaluator, baseCfg, paretoSet, "baseline evaluation", maxCalls, 0, true)
+		totalCalls = nextCalls
+	} else {
+		totalCalls = int(num(coreGet(baselineEval, "count", len(paretoSet))))
+	}
+	g.baselineEvaluation = cloneValue(baselineEval)
+	baselineReport := asMap(mustCore(_gepa_baseline_report(baselineEval, options)))
+	bootstrapCalls := int(num(coreGet(options, "_bootstrapMetricCalls", 0)))
+	demos := asSlice(coreGet(options, "_bootstrapDemos", Array()))
 	if bootstrap := coreGet(options, "bootstrap", nil); bootstrap != nil && !isFalse(bootstrap) {
 		var nextCalls int
-		demos, nextCalls = g.gepaBootstrap(evaluator, baseCfg, train, asMap(bootstrap), totalCalls, maxCalls)
+		bootOptions := asMap(bootstrap)
+		bootLimit := int(num(coreGet(bootOptions, "maxBootstrapMetricCalls", coreGet(bootOptions, "max_bootstrap_metric_calls", min(len(train), 8)))))
+		if bootLimit < 1 { bootLimit = 1 }
+		demos, nextCalls = g.gepaBootstrap(evaluator, baseCfg, train, bootOptions, 0, bootLimit)
+		bootstrapCalls = nextCalls
+	}
+	if len(demos) > 0 {
+		evaluator = &gepaDemoEvaluator{inner: evaluator, demos: demos}
+	}
+	baseEval := baselineEval
+	if len(demos) > 0 {
+		var nextCalls int
+		baseEval, nextCalls = gepaEvaluate(evaluator, baseCfg, paretoSet, "bootstrapped Pareto evaluation", maxCalls, totalCalls, true)
 		totalCalls = nextCalls
 	}
-	if maxCalls <= len(paretoSet) {
-		panic(AxError{Category: "optimize", Message: fmt.Sprintf("AxGEPA: options.maxMetricCalls=%d is too small to evaluate the initial Pareto set; need at least %d metric calls", maxCalls, len(paretoSet))})
-	}
-	baseEval, nextCalls := gepaEvaluate(evaluator, baseCfg, paretoSet, "initial Pareto evaluation", maxCalls, totalCalls, true)
-	totalCalls = nextCalls
 	bestCfg := cloneMap(baseCfg)
-	bestScore := num(coreGet(baseEval, "avg", 0))
+	bestScore := num(coreGet(mustCore(_gepa_baseline_report(baseEval, options)), "baselineScore", 0))
 	candidatesExplored := 1
 	if numTrials > 0 {
 		if g.ReflectionClient == nil {
@@ -9641,7 +9685,7 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 					if validationOK {
 						totalCalls = int(num(coreGet(validationEval, "_totalCalls", totalCalls)))
 						bestCfg = cloneMap(proposed)
-						bestScore = num(coreGet(validationEval, "avg", coreGet(childEval, "avg", bestScore)))
+						bestScore = num(coreGet(mustCore(_gepa_baseline_report(validationEval, options)), "baselineScore", 0))
 						candidatesExplored = 2
 					}
 				}
@@ -9656,7 +9700,19 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 		coreSet(owners, id, owner)
 	}
 	metadata := Object("optimizer", "GEPA", "selectorState", selectorState, "bestScore", bestScore, "totalMetricCalls", totalCalls, "candidatesExplored", candidatesExplored, "report", Object("summary", "GEPA Multi-Objective Optimization Complete", "statistics", Object("totalEvaluations", totalCalls, "candidatesExplored", candidatesExplored, "converged", true), "paretoFrontier", Object("solutionCount", 1, "hypervolume", 0)))
-	return Object("artifactVersion", "axir-optimized-artifact-v1", "optimizerName", "GEPA", "optimizerVersion", "axir-gepa-v1", "componentMap", bestCfg, "demos", demos, "metadata", metadata, "evidence", Object("avg", bestScore, "count", len(paretoSet), "totalMetricCalls", totalCalls), "provenance", Object("sourceProgramKind", coreGet(request, "programKind", "unknown"), "componentOwners", owners))
+	coreSet(metadata, "bootstrapMetricCalls", bootstrapCalls)
+	coreSet(metadata, "totalCalls", totalCalls + bootstrapCalls)
+	for key, value := range baselineReport { if key != "__order" { coreSet(metadata, key, value) } }
+	artifact := Object("artifactVersion", "axir-optimized-artifact-v1", "optimizerName", "GEPA", "optimizerVersion", "axir-gepa-v1", "componentMap", bestCfg, "demos", demos, "metadata", metadata, "evidence", Object("avg", bestScore, "count", len(paretoSet), "totalMetricCalls", totalCalls), "provenance", Object("sourceProgramKind", coreGet(request, "programKind", "unknown"), "componentOwners", owners))
+	for key, value := range baselineReport { if key != "__order" { coreSet(artifact, key, value) } }
+	return artifact
+}
+
+type gepaDemoEvaluator struct { inner OptimizerEvaluator; demos Value }
+func (e *gepaDemoEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value, error) {
+	opts := cloneMap(options)
+	coreSet(opts, "demos", e.demos)
+	return e.inner.Evaluate(candidateMap, opts)
 }
 
 func gepaCurrentMap(components []Value) map[string]Value {
@@ -9681,7 +9737,7 @@ func gepaEvaluate(evaluator OptimizerEvaluator, cfg map[string]Value, examples [
 	needed := len(examples)
 	if totalCalls+needed > maxCalls {
 		if throw {
-			panic(AxError{Category: "optimize", Message: fmt.Sprintf("AxGEPA: options.maxMetricCalls=%d is too small to evaluate the initial Pareto set; need at least %d metric calls", maxCalls, needed)})
+			panic(AxError{Category: "optimize", Message: fmt.Sprintf("AxGEPA: options.maxMetricCalls=%d is too small for %s; need at least %d metric calls", maxCalls, phase, totalCalls+needed)})
 		}
 		return nil, totalCalls
 	}
@@ -9710,7 +9766,7 @@ func valuesToArray(values []Value) Value {
 func (g *AxGEPA) gepaBootstrap(evaluator OptimizerEvaluator, cfg map[string]Value, train []Value, options map[string]Value, totalCalls int, maxCalls int) ([]Value, int) {
 	threshold := num(coreGet(options, "scoreThreshold", coreGet(options, "score_threshold", 0.8)))
 	maxDemos := int(num(coreGet(options, "maxBootstrapDemos", coreGet(options, "max_bootstrap_demos", 4))))
-	maxBootCalls := int(num(coreGet(options, "maxBootstrapMetricCalls", coreGet(options, "max_bootstrap_metric_calls", len(train)))))
+	maxBootCalls := int(num(coreGet(options, "maxBootstrapMetricCalls", coreGet(options, "max_bootstrap_metric_calls", min(len(train), 8)))))
 	if maxDemos <= 0 {
 		maxDemos = 1
 	}
@@ -9735,7 +9791,7 @@ func (g *AxGEPA) gepaBootstrap(evaluator OptimizerEvaluator, cfg map[string]Valu
 		}
 		row := asMap(rows[0])
 		if num(coreGet(row, "scalar", 0)) >= threshold {
-			demos = append(demos, Object("programId", "root", "traces", Array(cloneValue(coreGet(row, "prediction", coreGet(row, "input", Object()))))))
+			demos = append(demos, mustCore(_optimization_bootstrap_demo(row)))
 		}
 	}
 	return demos, totalCalls
@@ -16698,6 +16754,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil {
 			assertListSubset(evaluator.Evaluations, expected, "GEPA evaluations")
 		}
+		if expected := coreGet(fixture, "expected_gepa_phases", nil); expected != nil {
+			phases := Array()
+			for _, evaluation := range asSlice(evaluator.Evaluations) { phases = append(phases, coreGet(evaluation, "phase", nil)) }
+			assertEqual(phases, expected, "GEPA evaluation phases")
+		}
 		if expected := coreGet(fixture, "expected_reflection_request_count", nil); expected != nil && len(reflection.Requests) != int(num(expected)) {
 			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d reflection requests, got %d", int(num(expected)), len(reflection.Requests))})
 		}
@@ -16730,7 +16791,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 			assertListSubset(evaluator.EvaluateOptions, expected, "BootstrapFewShot evaluate options")
 		}
 	case "helper":
-		artifact, err := Optimize(program, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "optimize_options", Object())))
+		helperOptions := cloneMap(asMap(coreGet(fixture, "optimize_options", Object())))
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array()))}
+		coreSet(helperOptions, "studentAI", client)
+		coreSet(helperOptions, "teacherAI", client)
+		artifact, err := Optimize(program, coreGet(fixture, "dataset", Array()), helperOptions)
 		if err != nil {
 			panic(err)
 		}

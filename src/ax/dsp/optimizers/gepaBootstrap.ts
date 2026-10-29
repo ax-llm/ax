@@ -13,6 +13,10 @@ import type {
   AxProgramTrace,
 } from '../types.js';
 import {
+  freshBootstrapTraces,
+  snapshotBootstrapTraces,
+} from './bootstrapTraces.js';
+import {
   type AxGEPAEvaluationState,
   normalizeGEPAScores,
   scalarizeGEPAScores,
@@ -89,6 +93,7 @@ export async function bootstrapGEPADemos<IN, OUT extends AxGenOut>(args: {
     args.applyConfig(args.cfg);
 
     try {
+      const previousTraces = snapshotBootstrapTraces(args.program.getTraces());
       const prediction = await args.program.forward(
         args.ai,
         example as IN,
@@ -112,7 +117,10 @@ export async function bootstrapGEPADemos<IN, OUT extends AxGenOut>(args: {
       }
 
       successfulRuns += 1;
-      const runTraces = args.program.getTraces();
+      const runTraces = freshBootstrapTraces(
+        previousTraces,
+        args.program.getTraces()
+      );
       for (const trace of runTraces) {
         if (collected.length >= args.options.maxBootstrapDemos) break;
         collected.push(trace);

@@ -37,7 +37,7 @@ pb.evolve(&examples, &mut metric_fn, &json!({}))?;
 
 ## Relevant API Surface
 
-- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
+- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`, `optimize_with_client`
 
 ## Guardrails
 

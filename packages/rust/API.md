@@ -844,13 +844,13 @@ let bootstrap = AxBootstrapFewShot::new(json!({"qualityThreshold": 0.7}));
 
 ### `AxGEPA`
 
-Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.
+GEPA engine with Core-owned reflection, Pareto and bootstrap behavior. Artifacts report original-program baselineScore/baselineScores at the top level and in metadata, independently of the final frontier.
 
 - Canonical Ax concept: `AxGEPA`
 - Kind: `type`
-- Form: `AxGEPA::new(reflection, options)`
+- Form: `AxGEPA::new().with_reflection_client(reflection)`
 - Returns: `optimizer engine`
-- Important options: reflection client, budget, metric, candidate count
+- Important options: reflection client, budget, metric, candidate count, baselineScore, baselineScores
 
 ```rust
 let engine = AxGEPA::new(reflection_client, json!({}));
@@ -875,6 +875,20 @@ Evaluator callback boundary used by generated optimizers.
 - Form: `OptimizerEvaluator::evaluate(request)`
 - Returns: `score/evidence result`
 - Important options: dataset rows, candidate map, evidence
+
+### `optimize_with_client`
+
+Run BootstrapFewShot and GEPA against a live student client. Reports the original baseline before bootstrap. The client-free optimize helper requires pre-scored tasks.
+
+- Canonical Ax concept: `optimize_with_client`
+- Kind: `function`
+- Form: `optimize_with_client(&mut program, Rc<RefCell<Client>>, examples, options)`
+- Returns: `AxResult<OptimizedArtifact>`
+- Important options: Rc<RefCell<Client>>, examples, validationExamples, bootstrap, maxMetricCalls
+
+```rust
+let artifact = optimize_with_client(&mut qa, student.clone(), train, json!({"maxMetricCalls": 100}))?;
+```
 
 
 ## Errors And Values

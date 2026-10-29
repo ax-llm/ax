@@ -509,6 +509,8 @@ class AxGen:
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         opts = options or {}
+        if opts.get("demos"):
+            self.set_demos(opts["demos"])
         normalized = _normalize_optimization_dataset(dataset or [])
         rows = []
         original = _optimization_component_current_map(self.get_optimizable_components())
@@ -4820,7 +4822,8 @@ def _normalize_optimization_metric_scores(raw: Any) -> Any:
 
 def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     _core_coverage_mark("_scalarize_optimization_scores")
-    metric_key = _core_get(options, "paretoMetricKey", "")
+    metric_key_snake = _core_get(options, "pareto_metric_key", "")
+    metric_key = _core_get(options, "paretoMetricKey", metric_key_snake)
     has_metric = _core_ne(metric_key, "")
     if has_metric:
         picked = _core_get(scores, metric_key, 0)
@@ -4842,19 +4845,6 @@ def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
         pass
     avg = _core_div(sum, count)
     return avg
-
-
-def _optimization_action_name_matches(expected: str, call: Any) -> bool:
-    _core_coverage_mark("_optimization_action_name_matches")
-    qualified = _core_get(call, "qualifiedName", "")
-    name = _core_get(call, "name", "")
-    qualified_match = _core_eq(qualified, expected)
-    name_match = _core_eq(name, expected)
-    dot_expected = _core_add(".", expected)
-    suffix_match = _core_string_ends_with(qualified, dot_expected)
-    direct_match = _core_or(qualified_match, name_match)
-    any_match = _core_or(direct_match, suffix_match)
-    return any_match
 
 
 def _stream_strip_leading_fence_impl(text: str) -> str:
@@ -4912,57 +4902,46 @@ def _stream_strip_leading_fence_impl(text: str) -> str:
     return stripped
 
 
+def _gepa_baseline_report(evaluation: Any, options: Any) -> Any:
+    _core_coverage_mark("_gepa_baseline_report")
+    empty = []
+    rows = _core_get(evaluation, "rows", empty)
+    sums = {}
+    counts = {}
+    for row in rows:
+        raw = _core_get(row, "scores", 0)
+        scores = _normalize_optimization_metric_scores(raw)
+        keys = _core_map_keys(scores)
+        for key in keys:
+            value = _core_get(scores, key, None)
+            number = _core_type_is(value, "number")
+            if number:
+                sum = _core_get(sums, key, 0)
+                count = _core_get(counts, key, 0)
+                sum_next = _core_add(sum, value)
+                count_next = _core_add(count, 1)
+                sums[key] = sum_next
+                counts[key] = count_next
+            else:
+                pass
+    averages = {}
+    objective_keys = _core_map_keys(sums)
+    for objective in objective_keys:
+        total = _core_get(sums, objective, None)
+        n = _core_get(counts, objective, None)
+        average = _core_div(total, n)
+        averages[objective] = average
+    scalar = _scalarize_optimization_scores(averages, options)
+    out = {}
+    out["baselineScores"] = averages
+    out["baselineScore"] = scalar
+    return out
+
+
 def _date_datetime_format_error_impl() -> Any:
     _core_coverage_mark("_date_datetime_format_error_impl")
     error = _core_runtime_error("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.")
     return error
-
-
-def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
-    _core_coverage_mark("_adjust_optimization_score_for_actions")
-    empty_list = []
-    function_calls = _core_get(prediction, "functionCalls", empty_list)
-    expected_actions = _core_get(task, "expectedActions", empty_list)
-    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
-    adjusted = score
-    expected_count = _core_len(expected_actions)
-    has_expected = _core_gt(expected_count, 0)
-    if has_expected:
-        matched = 0
-        for expected in expected_actions:
-            found = False
-            for call in function_calls:
-                call_matches = _optimization_action_name_matches(expected, call)
-                if call_matches:
-                    found = True
-                else:
-                    pass
-            if found:
-                matched_next = _core_add(matched, 1)
-                matched = matched_next
-            else:
-                pass
-        ratio = _core_div(matched, expected_count)
-        half_ratio = _core_mul(0.5, ratio)
-        factor = _core_add(0.5, half_ratio)
-        adjusted_next = _core_mul(adjusted, factor)
-        adjusted = adjusted_next
-    else:
-        pass
-    for forbidden in forbidden_actions:
-        bad_found = False
-        for call in function_calls:
-            bad_match = _optimization_action_name_matches(forbidden, call)
-            if bad_match:
-                bad_found = True
-            else:
-                pass
-        if bad_found:
-            penalized = _core_mul(adjusted, 0.2)
-            adjusted = penalized
-        else:
-            pass
-    return adjusted
 
 
 def _date_values_error_impl() -> Any:
@@ -5008,6 +4987,23 @@ def _date_datetime_parts_impl(prefix: Any) -> Any:
     else:
         pass
     return parts
+
+
+def _optimization_bootstrap_demo(row: Any) -> Any:
+    _core_coverage_mark("_optimization_bootstrap_demo")
+    empty = {}
+    task = _core_get(row, "input", empty)
+    input = _core_get(task, "input", task)
+    prediction = _core_get(row, "prediction", empty)
+    output_fallback = _core_get(prediction, "output", prediction)
+    output = _core_get(prediction, "finalOutput", output_fallback)
+    trace = _core_map_merge(input, output)
+    traces = []
+    traces.append(trace)
+    demo = {}
+    demo["programId"] = "root"
+    demo["traces"] = traces
+    return demo
 
 
 def _evidence_decode_one_impl(typ: FieldType, raw: Any, context: Any, path: str) -> Any:
@@ -5347,6 +5343,42 @@ def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, v
     return bundle
 
 
+def _gepa_pareto_set_size(options: Any) -> i64:
+    _core_coverage_mark("_gepa_pareto_set_size")
+    snake = _core_get(options, "pareto_set_size", 0)
+    size = _core_get(options, "paretoSetSize", snake)
+    explicit = _core_gt(size, 0)
+    if explicit:
+        rounded = _core_math_floor(size)
+        small = _core_lt(rounded, 5)
+        if small:
+            return 5
+        else:
+            pass
+        large = _core_gt(rounded, 1000)
+        if large:
+            return 1000
+        else:
+            pass
+        return rounded
+    else:
+        pass
+    mini_snake = _core_get(options, "minibatch_size", 20)
+    mini = _core_get(options, "minibatchSize", mini_snake)
+    default_size = _core_mul(mini, 3)
+    too_small = _core_lt(default_size, 10)
+    if too_small:
+        return 10
+    else:
+        pass
+    too_large = _core_gt(default_size, 200)
+    if too_large:
+        return 200
+    else:
+        pass
+    return default_size
+
+
 def _date_abbreviation_offset_impl(units: Any, start: Any, end: Any, zone: Any) -> Any:
     _core_coverage_mark("_date_abbreviation_offset_impl")
     none = _core_none()
@@ -5470,6 +5502,48 @@ def _stream_markdown_list_impl(input: str) -> list[Any]:
     return items
 
 
+def _gepa_helper_metric_budget(options: Any, validation_count: int, bootstrap: bool) -> i64:
+    _core_coverage_mark("_gepa_helper_metric_budget")
+    none = _core_none()
+    snake = _core_get(options, "max_metric_calls", none)
+    explicit = _core_get(options, "maxMetricCalls", snake)
+    supplied = _core_is_not_none(explicit)
+    if supplied:
+        return explicit
+    else:
+        pass
+    cap = _gepa_pareto_set_size(options)
+    count = validation_count
+    capped = _core_gt(count, cap)
+    if capped:
+        count = cap
+    else:
+        pass
+    if bootstrap:
+        count = _core_mul(count, 2)
+    else:
+        pass
+    minimum = _core_lt(count, 100)
+    if minimum:
+        return 100
+    else:
+        pass
+    return count
+
+
+def _optimization_action_name_matches(expected: str, call: Any) -> bool:
+    _core_coverage_mark("_optimization_action_name_matches")
+    qualified = _core_get(call, "qualifiedName", "")
+    name = _core_get(call, "name", "")
+    qualified_match = _core_eq(qualified, expected)
+    name_match = _core_eq(name, expected)
+    dot_expected = _core_add(".", expected)
+    suffix_match = _core_string_ends_with(qualified, dot_expected)
+    direct_match = _core_or(qualified_match, name_match)
+    any_match = _core_or(direct_match, suffix_match)
+    return any_match
+
+
 def _date_zone_resolve_impl(units: Any, start: Any, end: Any, zone: Any, probe: Any) -> Any:
     _core_coverage_mark("_date_zone_resolve_impl")
     resolved = {}
@@ -5533,20 +5607,51 @@ def _date_zone_resolve_impl(units: Any, start: Any, end: Any, zone: Any, probe: 
     raise missing_error
 
 
-def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
-    _core_coverage_mark("_build_optimization_eval_row")
-    out = {}
-    out["input"] = task
-    out["prediction"] = prediction
-    out["scores"] = scores
-    out["scalar"] = scalar
-    out["trace"] = trace
-    has_error = _core_is_not_none(error)
-    if has_error:
-        out["error"] = error
+def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
+    _core_coverage_mark("_adjust_optimization_score_for_actions")
+    empty_list = []
+    function_calls = _core_get(prediction, "functionCalls", empty_list)
+    expected_actions = _core_get(task, "expectedActions", empty_list)
+    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
+    adjusted = score
+    expected_count = _core_len(expected_actions)
+    has_expected = _core_gt(expected_count, 0)
+    if has_expected:
+        matched = 0
+        for expected in expected_actions:
+            found = False
+            for call in function_calls:
+                call_matches = _optimization_action_name_matches(expected, call)
+                if call_matches:
+                    found = True
+                else:
+                    pass
+            if found:
+                matched_next = _core_add(matched, 1)
+                matched = matched_next
+            else:
+                pass
+        ratio = _core_div(matched, expected_count)
+        half_ratio = _core_mul(0.5, ratio)
+        factor = _core_add(0.5, half_ratio)
+        adjusted_next = _core_mul(adjusted, factor)
+        adjusted = adjusted_next
     else:
         pass
-    return out
+    for forbidden in forbidden_actions:
+        bad_found = False
+        for call in function_calls:
+            bad_match = _optimization_action_name_matches(forbidden, call)
+            if bad_match:
+                bad_found = True
+            else:
+                pass
+        if bad_found:
+            penalized = _core_mul(adjusted, 0.2)
+            adjusted = penalized
+        else:
+            pass
+    return adjusted
 
 
 def _stream_js_string_impl(value: Any) -> str:
@@ -5600,33 +5705,6 @@ def _stream_js_string_impl(value: Any) -> str:
     else:
         pass
     return "[object Object]"
-
-
-def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
-    _core_coverage_mark("_build_optimization_eval_result")
-    sum = 0
-    count = 0
-    for row in rows:
-        scalar = _core_get(row, "scalar", 0)
-        sum_next = _core_add(sum, scalar)
-        count_next = _core_add(count, 1)
-        sum = sum_next
-        count = count_next
-    avg = 0
-    has_rows = _core_gt(count, 0)
-    if has_rows:
-        avg_next = _core_div(sum, count)
-        avg = avg_next
-    else:
-        pass
-    out = {}
-    out["phase"] = phase
-    out["candidateMap"] = candidate_map
-    out["rows"] = rows
-    out["sum"] = sum
-    out["avg"] = avg
-    out["count"] = count
-    return out
 
 
 def chat_session_record_result(gen: Any, state: Any, call: Any, result: Any, ok: bool, options: Any) -> bool:
@@ -5727,80 +5805,6 @@ def _select_sample_index(samples: list[Any], options: Any) -> number:
     else:
         pass
     return selected
-
-
-def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
-    _core_coverage_mark("_filter_optimization_components")
-    out = []
-    is_list = _core_type_is(target, "list")
-    is_all = _core_eq(target, "all")
-    is_actor = _core_eq(target, "actor")
-    is_responder = _core_eq(target, "responder")
-    is_flow = _core_eq(target, "flow")
-    for component in components:
-        id = _core_get(component, "id", "")
-        kind = _core_get(component, "kind", "")
-        include = False
-        if is_all:
-            include = True
-        else:
-            pass
-        if is_list:
-            listed = _core_contains(target, id)
-            if listed:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        if is_actor:
-            actor_match = _core_string_ends_with(id, ".actor")
-            actor_component_match = _core_contains(id, ".actor::")
-            actor_any_match = _core_or(actor_match, actor_component_match)
-            stage_instruction_match = _core_eq(id, "root::instruction")
-            actor_any_match = _core_or(actor_any_match, stage_instruction_match)
-            if actor_any_match:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        if is_responder:
-            responder_match = _core_string_ends_with(id, ".responder")
-            responder_component_match = _core_contains(id, ".responder::")
-            responder_any_match = _core_or(responder_match, responder_component_match)
-            if responder_any_match:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        if is_flow:
-            flow_component = _core_eq(kind, "flow-graph")
-            if flow_component:
-                include = True
-            else:
-                pass
-        else:
-            pass
-        explicit_match = _core_eq(target, id)
-        if explicit_match:
-            include = True
-        else:
-            pass
-        if include:
-            out.append(component)
-        else:
-            pass
-    count = _core_len(out)
-    empty = _core_eq(count, 0)
-    if empty:
-        message = _core_string_format("no optimizable components match target: {}", target)
-        error = _core_runtime_error(message)
-        raise error
-    else:
-        pass
-    return out
 
 
 def _regex_class_atom(s: Any) -> Any:
@@ -6587,23 +6591,19 @@ def chat_session_observe_output(gen: Any, state: Any, event: Any) -> Any:
     return output
 
 
-def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
-    _core_coverage_mark("_build_optimizer_request")
+def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
+    _core_coverage_mark("_build_optimization_eval_row")
     out = {}
-    out["contractVersion"] = "axir-optimize-contract-v1"
-    out["programKind"] = program_kind
-    out["components"] = components
-    out["dataset"] = dataset
-    out["options"] = options
+    out["input"] = task
+    out["prediction"] = prediction
+    out["scores"] = scores
+    out["scalar"] = scalar
     out["trace"] = trace
-    evaluator = {}
-    methods = []
-    methods.append("evaluate")
-    evaluator["available"] = True
-    evaluator["contractVersion"] = "axir-optimizer-evaluator-v1"
-    evaluator["evidenceContractVersion"] = "axir-optimizer-evidence-v1"
-    evaluator["methods"] = methods
-    out["evaluator"] = evaluator
+    has_error = _core_is_not_none(error)
+    if has_error:
+        out["error"] = error
+    else:
+        pass
     return out
 
 
@@ -6657,6 +6657,33 @@ def _date_zone_offset_seconds_impl(zone: Any, millis: Any) -> Any:
     return seconds
 
 
+def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
+    _core_coverage_mark("_build_optimization_eval_result")
+    sum = 0
+    count = 0
+    for row in rows:
+        scalar = _core_get(row, "scalar", 0)
+        sum_next = _core_add(sum, scalar)
+        count_next = _core_add(count, 1)
+        sum = sum_next
+        count = count_next
+    avg = 0
+    has_rows = _core_gt(count, 0)
+    if has_rows:
+        avg_next = _core_div(sum, count)
+        avg = avg_next
+    else:
+        pass
+    out = {}
+    out["phase"] = phase
+    out["candidateMap"] = candidate_map
+    out["rows"] = rows
+    out["sum"] = sum
+    out["avg"] = avg
+    out["count"] = count
+    return out
+
+
 def _evidence_context_impl(response: Any, client: Any) -> Any:
     _core_coverage_mark("_evidence_context_impl")
     trusted = _core_get(response, "decisionContext", None)
@@ -6679,36 +6706,6 @@ def _evidence_context_impl(response: Any, client: Any) -> Any:
     context = {}
     context["provenance"] = provenance
     return context
-
-
-def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
-    _core_coverage_mark("_prepare_optimizer_run")
-    empty_map = {}
-    opts_missing = _core_is_none(options)
-    opts = options
-    if opts_missing:
-        opts = empty_map
-    else:
-        pass
-    normalized = _normalize_optimization_dataset(dataset)
-    target = _core_get(opts, "target", "all")
-    selected = _filter_optimization_components(components, target)
-    request_options = _core_map_merge(empty_map, opts)
-    _core_map_delete(request_options, "client")
-    _core_map_delete(request_options, "ai")
-    _core_map_delete(request_options, "engine")
-    _core_map_delete(request_options, "optimizer")
-    request = _build_optimizer_request(program_kind, selected, normalized, request_options, trace)
-    evaluator = _core_get(request, "evaluator", None)
-    evaluator["available"] = evaluator_available
-    request["evaluator"] = evaluator
-    out = {}
-    out["components"] = components
-    out["selectedComponents"] = selected
-    out["dataset"] = normalized
-    out["options"] = request_options
-    out["request"] = request
-    return out
 
 
 def _date_parts_in_zone_impl(zone: Any, millis: Any) -> Any:
@@ -6747,6 +6744,80 @@ def chat_session_create_state(model: str, path: str, max_steps: Any) -> Any:
     turns = []
     state["turns"] = turns
     return state
+
+
+def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
+    _core_coverage_mark("_filter_optimization_components")
+    out = []
+    is_list = _core_type_is(target, "list")
+    is_all = _core_eq(target, "all")
+    is_actor = _core_eq(target, "actor")
+    is_responder = _core_eq(target, "responder")
+    is_flow = _core_eq(target, "flow")
+    for component in components:
+        id = _core_get(component, "id", "")
+        kind = _core_get(component, "kind", "")
+        include = False
+        if is_all:
+            include = True
+        else:
+            pass
+        if is_list:
+            listed = _core_contains(target, id)
+            if listed:
+                include = True
+            else:
+                pass
+        else:
+            pass
+        if is_actor:
+            actor_match = _core_string_ends_with(id, ".actor")
+            actor_component_match = _core_contains(id, ".actor::")
+            actor_any_match = _core_or(actor_match, actor_component_match)
+            stage_instruction_match = _core_eq(id, "root::instruction")
+            actor_any_match = _core_or(actor_any_match, stage_instruction_match)
+            if actor_any_match:
+                include = True
+            else:
+                pass
+        else:
+            pass
+        if is_responder:
+            responder_match = _core_string_ends_with(id, ".responder")
+            responder_component_match = _core_contains(id, ".responder::")
+            responder_any_match = _core_or(responder_match, responder_component_match)
+            if responder_any_match:
+                include = True
+            else:
+                pass
+        else:
+            pass
+        if is_flow:
+            flow_component = _core_eq(kind, "flow-graph")
+            if flow_component:
+                include = True
+            else:
+                pass
+        else:
+            pass
+        explicit_match = _core_eq(target, id)
+        if explicit_match:
+            include = True
+        else:
+            pass
+        if include:
+            out.append(component)
+        else:
+            pass
+    count = _core_len(out)
+    empty = _core_eq(count, 0)
+    if empty:
+        message = _core_string_format("no optimizable components match target: {}", target)
+        error = _core_runtime_error(message)
+        raise error
+    else:
+        pass
+    return out
 
 
 def _regex_atom(s: Any) -> Any:
@@ -6924,87 +6995,6 @@ def _regex_atom(s: Any) -> Any:
         pass
     t68 = _regex_literal(c)
     return t68
-
-
-def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine_version: str, components: Any) -> Any:
-    _core_coverage_mark("_normalize_optimizer_engine_response")
-    response_is_object = _core_type_is(response, "object")
-    bad_response = _core_not(response_is_object)
-    if bad_response:
-        error = _core_runtime_error("optimizer engine must return an optimized artifact")
-        raise error
-    else:
-        pass
-    empty_map = {}
-    has_artifact = _core_map_contains(response, "artifact")
-    artifact_source = response
-    if has_artifact:
-        artifact_value = _core_get(response, "artifact", None)
-        artifact_source = artifact_value
-    else:
-        pass
-    artifact = _core_map_merge(empty_map, artifact_source)
-    artifact_is_object = _core_type_is(artifact, "object")
-    bad_artifact = _core_not(artifact_is_object)
-    if bad_artifact:
-        artifact_error = _core_runtime_error("optimizer engine must return an optimized artifact")
-        raise artifact_error
-    else:
-        pass
-    version = _core_get(artifact, "artifactVersion", None)
-    missing_version = _core_is_none(version)
-    if missing_version:
-        artifact["artifactVersion"] = "axir-optimized-artifact-v1"
-    else:
-        pass
-    name = _core_get(artifact, "optimizerName", None)
-    missing_name = _core_is_none(name)
-    if missing_name:
-        artifact["optimizerName"] = engine_name
-    else:
-        pass
-    engine_ver = _core_get(artifact, "optimizerVersion", None)
-    missing_engine_ver = _core_is_none(engine_ver)
-    if missing_engine_ver:
-        artifact["optimizerVersion"] = engine_version
-    else:
-        pass
-    component_map = _core_get(artifact, "componentMap", None)
-    missing_component_map = _core_is_none(component_map)
-    if missing_component_map:
-        snake_map = _core_get(artifact, "component_map", empty_map)
-        artifact["componentMap"] = snake_map
-    else:
-        pass
-    metadata = _core_get(artifact, "metadata", None)
-    missing_metadata = _core_is_none(metadata)
-    if missing_metadata:
-        default_metadata = {}
-        artifact["metadata"] = default_metadata
-    else:
-        pass
-    metadata_final = _core_get(artifact, "metadata", None)
-    provenance = _core_get(artifact, "provenance", None)
-    missing_provenance = _core_is_none(provenance)
-    if missing_provenance:
-        empty_provenance = {}
-        metadata_provenance = _core_get(metadata_final, "provenance", empty_provenance)
-        artifact["provenance"] = metadata_provenance
-    else:
-        pass
-    evidence = _core_get(artifact, "evidence", None)
-    missing_evidence = _core_is_none(evidence)
-    if missing_evidence:
-        empty_evidence = {}
-        metadata_evidence = _core_get(metadata_final, "evidence", empty_evidence)
-        artifact["evidence"] = metadata_evidence
-    else:
-        pass
-    validated = _validate_optimized_artifact(artifact, components)
-    map = _core_get(validated, "componentMap", None)
-    changed = _optimization_changed_components(components, map)
-    validated["changedComponents"] = changed
-    return validated
 
 
 def _date_zone_offset_millis_impl(zone: Any, millis: Any) -> Any:
@@ -7200,71 +7190,23 @@ def _date_parse_range_impl(value: Any, kind: Any) -> Any:
     return range_millis
 
 
-def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
-    _core_coverage_mark("_build_optimizer_evidence_batch")
-    empty_list = []
-    empty_map = {}
-    rows = _core_get(eval_result, "rows", empty_list)
-    outputs = []
-    scores = []
-    score_vectors = []
-    trajectories = []
-    for row in rows:
-        prediction = _core_get(row, "prediction", empty_map)
-        output = _core_get(prediction, "output", prediction)
-        outputs.append(output)
-        scalar = _core_get(row, "scalar", 0)
-        scores.append(scalar)
-        vector = _core_get(row, "scores", empty_map)
-        score_vectors.append(vector)
-        trajectory = {}
-        trace = _core_get(row, "trace", None)
-        trajectory["trace"] = trace
-        trajectory["output"] = output
-        row_error = _core_get(row, "error", None)
-        prediction_error = _core_get(prediction, "error", row_error)
-        has_error = _core_is_not_none(prediction_error)
-        if has_error:
-            trajectory["error"] = prediction_error
-        else:
-            pass
-        trajectories.append(trajectory)
-    reflective = {}
-    for component in components:
-        id = _core_get(component, "id", "")
-        items = []
-        for row in rows:
-            entry = {}
-            prediction = _core_get(row, "prediction", empty_map)
-            output = _core_get(prediction, "output", prediction)
-            scalar = _core_get(row, "scalar", 0)
-            trace = _core_get(row, "trace", None)
-            entry["score"] = scalar
-            entry["output"] = output
-            entry["trace"] = trace
-            error = _core_get(row, "error", None)
-            has_error = _core_is_not_none(error)
-            if has_error:
-                entry["error"] = error
-            else:
-                pass
-            items.append(entry)
-        reflective[id] = items
+def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
+    _core_coverage_mark("_build_optimizer_request")
     out = {}
-    out["contractVersion"] = "axir-optimizer-evidence-v1"
-    candidate_map = _core_get(eval_result, "candidateMap", empty_map)
-    out["candidateMap"] = candidate_map
-    out["outputs"] = outputs
-    out["scores"] = scores
-    out["scoreVectors"] = score_vectors
-    out["trajectories"] = trajectories
-    avg = _core_get(eval_result, "avg", 0)
-    sum = _core_get(eval_result, "sum", 0)
-    count = _core_get(eval_result, "count", 0)
-    out["avg"] = avg
-    out["sum"] = sum
-    out["count"] = count
-    out["reflectiveDataset"] = reflective
+    out["contractVersion"] = "axir-optimize-contract-v1"
+    out["programKind"] = program_kind
+    out["components"] = components
+    out["dataset"] = dataset
+    out["options"] = options
+    out["trace"] = trace
+    evaluator = {}
+    methods = []
+    methods.append("evaluate")
+    evaluator["available"] = True
+    evaluator["contractVersion"] = "axir-optimizer-evaluator-v1"
+    evaluator["evidenceContractVersion"] = "axir-optimizer-evidence-v1"
+    evaluator["methods"] = methods
+    out["evaluator"] = evaluator
     return out
 
 
@@ -7274,6 +7216,44 @@ def chat_session_result(response: Any, id: str) -> Any:
     response = _core_map_merge(response, empty)
     response["__session_response_id"] = id
     return response
+
+
+def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
+    _core_coverage_mark("_prepare_optimizer_run")
+    empty_map = {}
+    opts_missing = _core_is_none(options)
+    opts = options
+    if opts_missing:
+        opts = empty_map
+    else:
+        pass
+    normalized = _normalize_optimization_dataset(dataset)
+    validation_none = _core_none()
+    validation_snake = _core_get(opts, "validation_examples", validation_none)
+    validation_examples = _core_get(opts, "validationExamples", validation_snake)
+    has_validation_examples = _core_is_not_none(validation_examples)
+    if has_validation_examples:
+        normalized["validation"] = validation_examples
+    else:
+        pass
+    target = _core_get(opts, "target", "all")
+    selected = _filter_optimization_components(components, target)
+    request_options = _core_map_merge(empty_map, opts)
+    _core_map_delete(request_options, "client")
+    _core_map_delete(request_options, "ai")
+    _core_map_delete(request_options, "engine")
+    _core_map_delete(request_options, "optimizer")
+    request = _build_optimizer_request(program_kind, selected, normalized, request_options, trace)
+    evaluator = _core_get(request, "evaluator", None)
+    evaluator["available"] = evaluator_available
+    request["evaluator"] = evaluator
+    out = {}
+    out["components"] = components
+    out["selectedComponents"] = selected
+    out["dataset"] = normalized
+    out["options"] = request_options
+    out["request"] = request
+    return out
 
 
 def chat_session_record_response(gen: Any, state: Any, request: Any, completion: Any) -> None:
@@ -7380,6 +7360,87 @@ def _stream_required_missing_error_impl(field: Any) -> error:
     message = _core_string_format("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank.", title, title, label)
     error = _core_validation_error(message)
     return error
+
+
+def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine_version: str, components: Any) -> Any:
+    _core_coverage_mark("_normalize_optimizer_engine_response")
+    response_is_object = _core_type_is(response, "object")
+    bad_response = _core_not(response_is_object)
+    if bad_response:
+        error = _core_runtime_error("optimizer engine must return an optimized artifact")
+        raise error
+    else:
+        pass
+    empty_map = {}
+    has_artifact = _core_map_contains(response, "artifact")
+    artifact_source = response
+    if has_artifact:
+        artifact_value = _core_get(response, "artifact", None)
+        artifact_source = artifact_value
+    else:
+        pass
+    artifact = _core_map_merge(empty_map, artifact_source)
+    artifact_is_object = _core_type_is(artifact, "object")
+    bad_artifact = _core_not(artifact_is_object)
+    if bad_artifact:
+        artifact_error = _core_runtime_error("optimizer engine must return an optimized artifact")
+        raise artifact_error
+    else:
+        pass
+    version = _core_get(artifact, "artifactVersion", None)
+    missing_version = _core_is_none(version)
+    if missing_version:
+        artifact["artifactVersion"] = "axir-optimized-artifact-v1"
+    else:
+        pass
+    name = _core_get(artifact, "optimizerName", None)
+    missing_name = _core_is_none(name)
+    if missing_name:
+        artifact["optimizerName"] = engine_name
+    else:
+        pass
+    engine_ver = _core_get(artifact, "optimizerVersion", None)
+    missing_engine_ver = _core_is_none(engine_ver)
+    if missing_engine_ver:
+        artifact["optimizerVersion"] = engine_version
+    else:
+        pass
+    component_map = _core_get(artifact, "componentMap", None)
+    missing_component_map = _core_is_none(component_map)
+    if missing_component_map:
+        snake_map = _core_get(artifact, "component_map", empty_map)
+        artifact["componentMap"] = snake_map
+    else:
+        pass
+    metadata = _core_get(artifact, "metadata", None)
+    missing_metadata = _core_is_none(metadata)
+    if missing_metadata:
+        default_metadata = {}
+        artifact["metadata"] = default_metadata
+    else:
+        pass
+    metadata_final = _core_get(artifact, "metadata", None)
+    provenance = _core_get(artifact, "provenance", None)
+    missing_provenance = _core_is_none(provenance)
+    if missing_provenance:
+        empty_provenance = {}
+        metadata_provenance = _core_get(metadata_final, "provenance", empty_provenance)
+        artifact["provenance"] = metadata_provenance
+    else:
+        pass
+    evidence = _core_get(artifact, "evidence", None)
+    missing_evidence = _core_is_none(evidence)
+    if missing_evidence:
+        empty_evidence = {}
+        metadata_evidence = _core_get(metadata_final, "evidence", empty_evidence)
+        artifact["evidence"] = metadata_evidence
+    else:
+        pass
+    validated = _validate_optimized_artifact(artifact, components)
+    map = _core_get(validated, "componentMap", None)
+    changed = _optimization_changed_components(components, map)
+    validated["changedComponents"] = changed
+    return validated
 
 
 def chat_session_step_limit_error(state: Any) -> error:
@@ -7776,24 +7837,6 @@ def _regex_quantifier(s: Any, child: Any) -> Any:
     return t73
 
 
-def _ace_estimate_token_count(text: str) -> i64:
-    _core_coverage_mark("_ace_estimate_token_count")
-    len = _core_len(text)
-    tokens = 0
-    remaining = len
-    while True:
-        done = _core_lte(remaining, 0)
-        if done:
-            break
-        else:
-            pass
-        tokens_next = _core_add(tokens, 1)
-        tokens = tokens_next
-        remaining_next = _core_add(remaining, -4)
-        remaining = remaining_next
-    return tokens
-
-
 def chat_session_completion(response: Any, id: str) -> Any:
     _core_coverage_mark("chat_session_completion")
     completion = chat_response_to_completion(response)
@@ -7812,36 +7855,72 @@ def chat_session_has_continuation_work(state: Any) -> bool:
     return work
 
 
-def _ace_recompute_playbook_stats(playbook: Any) -> Any:
-    _core_coverage_mark("_ace_recompute_playbook_stats")
+def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
+    _core_coverage_mark("_build_optimizer_evidence_batch")
+    empty_list = []
     empty_map = {}
-    sections = _core_get(playbook, "sections", empty_map)
-    bullet_count = 0
-    helpful_count = 0
-    harmful_count = 0
-    token_estimate = 0
-    section_lists = _core_map_values(sections)
-    for bullets in section_lists:
-        for bullet in bullets:
-            bullet_count_next = _core_add(bullet_count, 1)
-            bullet_count = bullet_count_next
-            helpful = _core_get(bullet, "helpfulCount", 0)
-            harmful = _core_get(bullet, "harmfulCount", 0)
-            helpful_count_next = _core_add(helpful_count, helpful)
-            helpful_count = helpful_count_next
-            harmful_count_next = _core_add(harmful_count, harmful)
-            harmful_count = harmful_count_next
-            content = _core_get(bullet, "content", "")
-            bullet_tokens = _ace_estimate_token_count(content)
-            token_estimate_next = _core_add(token_estimate, bullet_tokens)
-            token_estimate = token_estimate_next
-    stats = {}
-    stats["bulletCount"] = bullet_count
-    stats["helpfulCount"] = helpful_count
-    stats["harmfulCount"] = harmful_count
-    stats["tokenEstimate"] = token_estimate
-    playbook["stats"] = stats
-    return playbook
+    rows = _core_get(eval_result, "rows", empty_list)
+    outputs = []
+    scores = []
+    score_vectors = []
+    trajectories = []
+    for row in rows:
+        prediction = _core_get(row, "prediction", empty_map)
+        output = _core_get(prediction, "output", prediction)
+        outputs.append(output)
+        scalar = _core_get(row, "scalar", 0)
+        scores.append(scalar)
+        vector = _core_get(row, "scores", empty_map)
+        score_vectors.append(vector)
+        trajectory = {}
+        trace = _core_get(row, "trace", None)
+        trajectory["trace"] = trace
+        trajectory["output"] = output
+        row_error = _core_get(row, "error", None)
+        prediction_error = _core_get(prediction, "error", row_error)
+        has_error = _core_is_not_none(prediction_error)
+        if has_error:
+            trajectory["error"] = prediction_error
+        else:
+            pass
+        trajectories.append(trajectory)
+    reflective = {}
+    for component in components:
+        id = _core_get(component, "id", "")
+        items = []
+        for row in rows:
+            entry = {}
+            prediction = _core_get(row, "prediction", empty_map)
+            output = _core_get(prediction, "output", prediction)
+            scalar = _core_get(row, "scalar", 0)
+            trace = _core_get(row, "trace", None)
+            entry["score"] = scalar
+            entry["output"] = output
+            entry["trace"] = trace
+            error = _core_get(row, "error", None)
+            has_error = _core_is_not_none(error)
+            if has_error:
+                entry["error"] = error
+            else:
+                pass
+            items.append(entry)
+        reflective[id] = items
+    out = {}
+    out["contractVersion"] = "axir-optimizer-evidence-v1"
+    candidate_map = _core_get(eval_result, "candidateMap", empty_map)
+    out["candidateMap"] = candidate_map
+    out["outputs"] = outputs
+    out["scores"] = scores
+    out["scoreVectors"] = score_vectors
+    out["trajectories"] = trajectories
+    avg = _core_get(eval_result, "avg", 0)
+    sum = _core_get(eval_result, "sum", 0)
+    count = _core_get(eval_result, "count", 0)
+    out["avg"] = avg
+    out["sum"] = sum
+    out["count"] = count
+    out["reflectiveDataset"] = reflective
+    return out
 
 
 def chat_session_normalize_call(call: Any) -> Any:
@@ -7965,27 +8044,6 @@ def chat_session_defer_final_call(state: Any, call: Any) -> bool:
     return False
 
 
-def _ace_empty_playbook(description: Any, now: str) -> Any:
-    _core_coverage_mark("_ace_empty_playbook")
-    out = {}
-    out["version"] = 1
-    sections = {}
-    out["sections"] = sections
-    stats = {}
-    stats["bulletCount"] = 0
-    stats["helpfulCount"] = 0
-    stats["harmfulCount"] = 0
-    stats["tokenEstimate"] = 0
-    out["stats"] = stats
-    out["updatedAt"] = now
-    has_description = _core_truthy(description)
-    if has_description:
-        out["description"] = description
-    else:
-        pass
-    return out
-
-
 def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
     _core_coverage_mark("chat_session_complete_call")
     terminal = _core_get(state, "terminal", False)
@@ -8012,60 +8070,6 @@ def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
     else:
         pass
     return False
-
-
-def _ace_render_playbook(playbook: Any) -> str:
-    _core_coverage_mark("_ace_render_playbook")
-    empty_map = {}
-    empty_list = []
-    description = _core_get(playbook, "description", None)
-    has_description = _core_truthy(description)
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
-    bullet_count = 0
-    for section_name in section_names:
-        section_bullets = _core_get(sections, section_name, empty_list)
-        section_count = _core_len(section_bullets)
-        next_bullet_count = _core_add(bullet_count, section_count)
-        bullet_count = next_bullet_count
-    has_bullets = _core_gt(bullet_count, 0)
-    no_bullets = _core_not(has_bullets)
-    no_description = _core_not(has_description)
-    empty_playbook = _core_and(no_bullets, no_description)
-    if empty_playbook:
-        return ""
-    else:
-        pass
-    header = "## Context Playbook\n"
-    if has_description:
-        trimmed_description = str(description).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-        header_with_description = _core_string_format("## Context Playbook\n{}\n", trimmed_description)
-        header = header_with_description
-    else:
-        pass
-    section_blocks = []
-    for section_name in section_names:
-        bullets = _core_get(sections, section_name, None)
-        bullet_lines = []
-        for bullet in bullets:
-            id = _core_get(bullet, "id", "")
-            content = _core_get(bullet, "content", "")
-            line = _core_string_format("- [{}] {}", id, content)
-            bullet_lines.append(line)
-        body = _core_string_join("\n", bullet_lines)
-        has_body = _core_ne(body, "")
-        block = ""
-        if has_body:
-            block_with_body = _core_string_format("### {}\n{}", section_name, body)
-            block = block_with_body
-        else:
-            block_empty = _core_string_format("### {}\n_(empty)_", section_name)
-            block = block_empty
-        section_blocks.append(block)
-    joined_sections = _core_string_join("\n\n", section_blocks)
-    combined = _core_string_format("{}\n{}", header, joined_sections)
-    result = str(combined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    return result
 
 
 def _stream_convert_value_impl(field: Any, value: Any, required: bool) -> Any:
@@ -8229,6 +8233,24 @@ def chat_session_complete_response(state: Any, id: str) -> bool:
     return True
 
 
+def _ace_estimate_token_count(text: str) -> i64:
+    _core_coverage_mark("_ace_estimate_token_count")
+    len = _core_len(text)
+    tokens = 0
+    remaining = len
+    while True:
+        done = _core_lte(remaining, 0)
+        if done:
+            break
+        else:
+            pass
+        tokens_next = _core_add(tokens, 1)
+        tokens = tokens_next
+        remaining_next = _core_add(remaining, -4)
+        remaining = remaining_next
+    return tokens
+
+
 def _date_range_keyword_impl(units: Any, at: Any, end: Any) -> Any:
     _core_coverage_mark("_date_range_keyword_impl")
     unit = _core_get(units, at, 0)
@@ -8280,57 +8302,42 @@ def _date_range_keyword_impl(units: Any, at: Any, end: Any) -> Any:
     return 0
 
 
-def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
-    _core_coverage_mark("_ace_update_bullet_feedback")
-    empty_map = {}
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
-    found = False
-    for section_name in section_names:
-        already_found = found
-        if already_found:
-            pass
-        else:
-            bullets = _core_get(sections, section_name, None)
-            for bullet in bullets:
-                current_id = _core_get(bullet, "id", "")
-                match = _core_eq(bullet_id, current_id)
-                still_open = _core_not(found)
-                if match:
-                    if still_open:
-                        is_helpful = _core_eq(tag, "helpful")
-                        if is_helpful:
-                            helpful = _core_get(bullet, "helpfulCount", 0)
-                            helpful_next = _core_add(helpful, 1)
-                            bullet["helpfulCount"] = helpful_next
-                        else:
-                            pass
-                        is_harmful = _core_eq(tag, "harmful")
-                        if is_harmful:
-                            harmful = _core_get(bullet, "harmfulCount", 0)
-                            harmful_next = _core_add(harmful, 1)
-                            bullet["harmfulCount"] = harmful_next
-                        else:
-                            pass
-                        bullet["updatedAt"] = now
-                        found = True
-                    else:
-                        pass
-                else:
-                    pass
-    did_find = found
-    if did_find:
-        updated = _ace_recompute_playbook_stats(playbook)
-        return updated
-    else:
-        pass
-    return playbook
-
-
 def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
     _core_coverage_mark("_set_examples")
     gen["examples"] = examples
     return gen
+
+
+def _ace_recompute_playbook_stats(playbook: Any) -> Any:
+    _core_coverage_mark("_ace_recompute_playbook_stats")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    bullet_count = 0
+    helpful_count = 0
+    harmful_count = 0
+    token_estimate = 0
+    section_lists = _core_map_values(sections)
+    for bullets in section_lists:
+        for bullet in bullets:
+            bullet_count_next = _core_add(bullet_count, 1)
+            bullet_count = bullet_count_next
+            helpful = _core_get(bullet, "helpfulCount", 0)
+            harmful = _core_get(bullet, "harmfulCount", 0)
+            helpful_count_next = _core_add(helpful_count, helpful)
+            helpful_count = helpful_count_next
+            harmful_count_next = _core_add(harmful_count, harmful)
+            harmful_count = harmful_count_next
+            content = _core_get(bullet, "content", "")
+            bullet_tokens = _ace_estimate_token_count(content)
+            token_estimate_next = _core_add(token_estimate, bullet_tokens)
+            token_estimate = token_estimate_next
+    stats = {}
+    stats["bulletCount"] = bullet_count
+    stats["helpfulCount"] = helpful_count
+    stats["harmfulCount"] = harmful_count
+    stats["tokenEstimate"] = token_estimate
+    playbook["stats"] = stats
+    return playbook
 
 
 def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
@@ -8471,45 +8478,31 @@ def _render_demos(gen: AxGen) -> list[Any]:
     return messages
 
 
+def _ace_empty_playbook(description: Any, now: str) -> Any:
+    _core_coverage_mark("_ace_empty_playbook")
+    out = {}
+    out["version"] = 1
+    sections = {}
+    out["sections"] = sections
+    stats = {}
+    stats["bulletCount"] = 0
+    stats["helpfulCount"] = 0
+    stats["harmfulCount"] = 0
+    stats["tokenEstimate"] = 0
+    out["stats"] = stats
+    out["updatedAt"] = now
+    has_description = _core_truthy(description)
+    if has_description:
+        out["description"] = description
+    else:
+        pass
+    return out
+
+
 def _apply_field_processors(gen: AxGen, output: Any) -> Any:
     _core_coverage_mark("_apply_field_processors")
     processed = _core_axgen_apply_field_processors(gen, output)
     return processed
-
-
-def _ace_dedupe_playbook(playbook: Any) -> Any:
-    _core_coverage_mark("_ace_dedupe_playbook")
-    empty_map = {}
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
-    for section_name in section_names:
-        bullets = _core_get(sections, section_name, None)
-        seen = {}
-        unique = []
-        for bullet in bullets:
-            content = _core_get(bullet, "content", "")
-            trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-            key = _core_string_lower(trimmed)
-            has_existing = _core_map_contains(seen, key)
-            if has_existing:
-                existing = _core_get(seen, key, None)
-                existing_helpful = _core_get(existing, "helpfulCount", 0)
-                bullet_helpful = _core_get(bullet, "helpfulCount", 0)
-                merged_helpful = _core_add(existing_helpful, bullet_helpful)
-                existing["helpfulCount"] = merged_helpful
-                existing_harmful = _core_get(existing, "harmfulCount", 0)
-                bullet_harmful = _core_get(bullet, "harmfulCount", 0)
-                merged_harmful = _core_add(existing_harmful, bullet_harmful)
-                existing["harmfulCount"] = merged_harmful
-                bullet_updated_at = _core_get(bullet, "updatedAt", "")
-                existing["updatedAt"] = bullet_updated_at
-            else:
-                seen[key] = bullet
-                unique.append(bullet)
-        sections[section_name] = unique
-    playbook["sections"] = sections
-    recomputed = _ace_recompute_playbook_stats(playbook)
-    return recomputed
 
 
 def chat_session_native_wait(state: Any) -> bool:
@@ -8559,6 +8552,60 @@ def _run_assertions(gen: AxGen, output: Any) -> Any:
         pass
     passed = _core_none()
     return passed
+
+
+def _ace_render_playbook(playbook: Any) -> str:
+    _core_coverage_mark("_ace_render_playbook")
+    empty_map = {}
+    empty_list = []
+    description = _core_get(playbook, "description", None)
+    has_description = _core_truthy(description)
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    bullet_count = 0
+    for section_name in section_names:
+        section_bullets = _core_get(sections, section_name, empty_list)
+        section_count = _core_len(section_bullets)
+        next_bullet_count = _core_add(bullet_count, section_count)
+        bullet_count = next_bullet_count
+    has_bullets = _core_gt(bullet_count, 0)
+    no_bullets = _core_not(has_bullets)
+    no_description = _core_not(has_description)
+    empty_playbook = _core_and(no_bullets, no_description)
+    if empty_playbook:
+        return ""
+    else:
+        pass
+    header = "## Context Playbook\n"
+    if has_description:
+        trimmed_description = str(description).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        header_with_description = _core_string_format("## Context Playbook\n{}\n", trimmed_description)
+        header = header_with_description
+    else:
+        pass
+    section_blocks = []
+    for section_name in section_names:
+        bullets = _core_get(sections, section_name, None)
+        bullet_lines = []
+        for bullet in bullets:
+            id = _core_get(bullet, "id", "")
+            content = _core_get(bullet, "content", "")
+            line = _core_string_format("- [{}] {}", id, content)
+            bullet_lines.append(line)
+        body = _core_string_join("\n", bullet_lines)
+        has_body = _core_ne(body, "")
+        block = ""
+        if has_body:
+            block_with_body = _core_string_format("### {}\n{}", section_name, body)
+            block = block_with_body
+        else:
+            block_empty = _core_string_format("### {}\n_(empty)_", section_name)
+            block = block_empty
+        section_blocks.append(block)
+    joined_sections = _core_string_join("\n\n", section_blocks)
+    combined = _core_string_format("{}\n{}", header, joined_sections)
+    result = str(combined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    return result
 
 
 def _regex_word(c: Any) -> Any:
@@ -8931,88 +8978,6 @@ def chat_session_native_event(state: Any, event: Any) -> Any:
     return result
 
 
-def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
-    _core_coverage_mark("_ace_prune_section_for_addition")
-    candidate_index = -1
-    candidate_net = 0
-    candidate_helpful = 0
-    candidate_recency = 0
-    index = 0
-    for bullet in section:
-        id = _core_get(bullet, "id", "")
-        is_protected = _core_contains(protected_ids, id)
-        not_protected = _core_not(is_protected)
-        if not_protected:
-            helpful = _core_get(bullet, "helpfulCount", 0)
-            harmful = _core_get(bullet, "harmfulCount", 0)
-            harmful_weighted = _core_mul(harmful, 2)
-            negative_harmful = _core_mul(harmful_weighted, -1)
-            net_score = _core_add(helpful, negative_harmful)
-            created_at = _core_get(bullet, "createdAt", "")
-            recency = _core_get(bullet, "updatedAt", created_at)
-            no_candidate = _core_lt(candidate_index, 0)
-            if no_candidate:
-                candidate_index = index
-                candidate_net = net_score
-                candidate_helpful = helpful
-                candidate_recency = recency
-            else:
-                net_lower = _core_lt(net_score, candidate_net)
-                net_equal = _core_eq(net_score, candidate_net)
-                helpful_lower = _core_lt(helpful, candidate_helpful)
-                helpful_equal = _core_eq(helpful, candidate_helpful)
-                recency_lower = _core_lt(recency, candidate_recency)
-                is_worse = net_lower
-                if net_equal:
-                    if helpful_lower:
-                        is_worse = True
-                    else:
-                        pass
-                    if helpful_equal:
-                        if recency_lower:
-                            is_worse = True
-                        else:
-                            pass
-                    else:
-                        pass
-                else:
-                    pass
-                if is_worse:
-                    candidate_index = index
-                    candidate_net = net_score
-                    candidate_helpful = helpful
-                    candidate_recency = recency
-                else:
-                    pass
-        else:
-            pass
-        index_next = _core_add(index, 1)
-        index = index_next
-    out = {}
-    has_candidate = _core_gte(candidate_index, 0)
-    new_section = []
-    if has_candidate:
-        pruned = _core_none()
-        cursor = 0
-        for bullet in section:
-            is_target = _core_eq(cursor, candidate_index)
-            if is_target:
-                pruned = bullet
-            else:
-                new_section.append(bullet)
-            cursor_next = _core_add(cursor, 1)
-            cursor = cursor_next
-        out["pruned"] = pruned
-        out["section"] = new_section
-        return out
-    else:
-        pass
-    null_pruned = _core_none()
-    out["pruned"] = null_pruned
-    out["section"] = section
-    return out
-
-
 def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
     _core_coverage_mark("_append_assertion_retry_messages")
     updated_messages = _append_validation_retry_messages_impl(messages, response, error)
@@ -9181,6 +9146,53 @@ def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
     return should_continue
 
 
+def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
+    _core_coverage_mark("_ace_update_bullet_feedback")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    found = False
+    for section_name in section_names:
+        already_found = found
+        if already_found:
+            pass
+        else:
+            bullets = _core_get(sections, section_name, None)
+            for bullet in bullets:
+                current_id = _core_get(bullet, "id", "")
+                match = _core_eq(bullet_id, current_id)
+                still_open = _core_not(found)
+                if match:
+                    if still_open:
+                        is_helpful = _core_eq(tag, "helpful")
+                        if is_helpful:
+                            helpful = _core_get(bullet, "helpfulCount", 0)
+                            helpful_next = _core_add(helpful, 1)
+                            bullet["helpfulCount"] = helpful_next
+                        else:
+                            pass
+                        is_harmful = _core_eq(tag, "harmful")
+                        if is_harmful:
+                            harmful = _core_get(bullet, "harmfulCount", 0)
+                            harmful_next = _core_add(harmful, 1)
+                            bullet["harmfulCount"] = harmful_next
+                        else:
+                            pass
+                        bullet["updatedAt"] = now
+                        found = True
+                    else:
+                        pass
+                else:
+                    pass
+    did_find = found
+    if did_find:
+        updated = _ace_recompute_playbook_stats(playbook)
+        return updated
+    else:
+        pass
+    return playbook
+
+
 def _parse_output_impl(content: str) -> Any:
     _core_coverage_mark("_parse_output_impl")
     text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
@@ -9221,184 +9233,39 @@ def _date_js_trim_impl(text: Any) -> Any:
     return trimmed
 
 
-def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, now: str) -> Any:
-    _core_coverage_mark("_ace_apply_curator_operations")
+def _ace_dedupe_playbook(playbook: Any) -> Any:
+    _core_coverage_mark("_ace_dedupe_playbook")
     empty_map = {}
-    empty_list = []
-    opts = options
-    opts_missing = _core_is_none(options)
-    if opts_missing:
-        opts = empty_map
-    else:
-        pass
-    allow_dynamic = _core_get(opts, "allowDynamicSections", True)
-    enable_auto_prune = _core_get(opts, "enableAutoPrune", False)
-    has_max = _core_map_contains(opts, "maxSectionSize")
-    max_section_size = _core_get(opts, "maxSectionSize", 0)
-    protected_ids = _core_get(opts, "protectedBulletIds", empty_list)
-    updated_bullets = []
-    auto_removed = []
     sections = _core_get(playbook, "sections", empty_map)
-    operation_index = 0
-    for op in operations:
-        section_name = _core_get(op, "section", "")
-        has_section_name = _core_ne(section_name, "")
-        if has_section_name:
-            section_exists = _core_map_contains(sections, section_name)
-            missing_section = _core_not(section_exists)
-            if missing_section:
-                if allow_dynamic:
-                    new_section_list = []
-                    sections[section_name] = new_section_list
-                else:
-                    pass
+    section_names = _core_map_keys(sections)
+    for section_name in section_names:
+        bullets = _core_get(sections, section_name, None)
+        seen = {}
+        unique = []
+        for bullet in bullets:
+            content = _core_get(bullet, "content", "")
+            trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            key = _core_string_lower(trimmed)
+            has_existing = _core_map_contains(seen, key)
+            if has_existing:
+                existing = _core_get(seen, key, None)
+                existing_helpful = _core_get(existing, "helpfulCount", 0)
+                bullet_helpful = _core_get(bullet, "helpfulCount", 0)
+                merged_helpful = _core_add(existing_helpful, bullet_helpful)
+                existing["helpfulCount"] = merged_helpful
+                existing_harmful = _core_get(existing, "harmfulCount", 0)
+                bullet_harmful = _core_get(bullet, "harmfulCount", 0)
+                merged_harmful = _core_add(existing_harmful, bullet_harmful)
+                existing["harmfulCount"] = merged_harmful
+                bullet_updated_at = _core_get(bullet, "updatedAt", "")
+                existing["updatedAt"] = bullet_updated_at
             else:
-                pass
-            section_now_exists = _core_map_contains(sections, section_name)
-            if section_now_exists:
-                section = _core_get(sections, section_name, None)
-                op_type = _core_get(op, "type", "")
-                is_add = _core_eq(op_type, "ADD")
-                if is_add:
-                    raw_content = _core_get(op, "content", "")
-                    content = str(raw_content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                    has_content = _core_ne(content, "")
-                    if has_content:
-                        section_len = _core_len(section)
-                        at_capacity_raw = _core_gte(section_len, max_section_size)
-                        at_capacity = False
-                        if has_max:
-                            if at_capacity_raw:
-                                at_capacity = True
-                            else:
-                                pass
-                        else:
-                            pass
-                        proceed = True
-                        if at_capacity:
-                            if enable_auto_prune:
-                                prune_result = _ace_prune_section_for_addition(section, protected_ids)
-                                pruned = _core_get(prune_result, "pruned", None)
-                                has_pruned = _core_is_not_none(pruned)
-                                if has_pruned:
-                                    pruned_section = _core_get(prune_result, "section", None)
-                                    section = pruned_section
-                                    sections[section_name] = section
-                                    pruned_id = _core_get(pruned, "id", "")
-                                    updated_bullets.append(pruned_id)
-                                    removal = {}
-                                    removal["type"] = "REMOVE"
-                                    removal["section"] = section_name
-                                    removal["bulletId"] = pruned_id
-                                    pruned_metadata = _core_get(pruned, "metadata", empty_map)
-                                    removal_metadata = _core_map_merge(empty_map, pruned_metadata)
-                                    removal_metadata["autoPruned"] = True
-                                    removal_metadata["removedAt"] = now
-                                    removal["metadata"] = removal_metadata
-                                    auto_removed.append(removal)
-                                else:
-                                    proceed = False
-                            else:
-                                proceed = False
-                        else:
-                            pass
-                        if proceed:
-                            op_bullet_id = _core_get(op, "bulletId", None)
-                            has_bullet_id = _core_is_not_none(op_bullet_id)
-                            bullet_id = op_bullet_id
-                            missing_bullet_id = _core_not(has_bullet_id)
-                            if missing_bullet_id:
-                                bullet_id_prefix = _core_string_format("{}-{}-{}", section_name, now, section_len)
-                                bullet_id = _core_string_format("{}-{}", bullet_id_prefix, operation_index)
-                            else:
-                                pass
-                            bullet = {}
-                            bullet["id"] = bullet_id
-                            bullet["section"] = section_name
-                            bullet["content"] = content
-                            bullet["helpfulCount"] = 0
-                            bullet["harmfulCount"] = 0
-                            bullet["createdAt"] = now
-                            bullet["updatedAt"] = now
-                            op_metadata = _core_get(op, "metadata", None)
-                            has_metadata = _core_is_not_none(op_metadata)
-                            if has_metadata:
-                                bullet_metadata = _core_map_merge(empty_map, op_metadata)
-                                bullet["metadata"] = bullet_metadata
-                            else:
-                                pass
-                            section.append(bullet)
-                            sections[section_name] = section
-                            updated_bullets.append(bullet_id)
-                        else:
-                            pass
-                    else:
-                        pass
-                else:
-                    pass
-                is_update = _core_eq(op_type, "UPDATE")
-                if is_update:
-                    target_id = _core_get(op, "bulletId", None)
-                    for bullet in section:
-                        candidate_bullet_id = _core_get(bullet, "id", "")
-                        bullet_match = _core_eq(candidate_bullet_id, target_id)
-                        if bullet_match:
-                            op_content = _core_get(op, "content", None)
-                            content_is_string = _core_type_is(op_content, "string")
-                            if content_is_string:
-                                bullet["content"] = op_content
-                            else:
-                                pass
-                            bullet["updatedAt"] = now
-                            op_metadata_update = _core_get(op, "metadata", None)
-                            has_metadata_update = _core_is_not_none(op_metadata_update)
-                            if has_metadata_update:
-                                existing_metadata = _core_get(bullet, "metadata", empty_map)
-                                merged_metadata = _core_map_merge(existing_metadata, op_metadata_update)
-                                bullet["metadata"] = merged_metadata
-                            else:
-                                pass
-                            bullet_id_update = _core_get(bullet, "id", "")
-                            updated_bullets.append(bullet_id_update)
-                        else:
-                            pass
-                else:
-                    pass
-                is_remove = _core_eq(op_type, "REMOVE")
-                if is_remove:
-                    remove_id = _core_get(op, "bulletId", None)
-                    kept = []
-                    none_value = _core_none()
-                    removed_id = none_value
-                    for bullet in section:
-                        remove_candidate_id = _core_get(bullet, "id", "")
-                        bullet_remove_match = _core_eq(remove_candidate_id, remove_id)
-                        if bullet_remove_match:
-                            removed_id = remove_candidate_id
-                        else:
-                            kept.append(bullet)
-                    sections[section_name] = kept
-                    did_remove = _core_is_not_none(removed_id)
-                    if did_remove:
-                        updated_bullets.append(removed_id)
-                    else:
-                        pass
-                else:
-                    pass
-            else:
-                pass
-        else:
-            pass
-        next_operation_index = _core_add(operation_index, 1)
-        operation_index = next_operation_index
+                seen[key] = bullet
+                unique.append(bullet)
+        sections[section_name] = unique
     playbook["sections"] = sections
     recomputed = _ace_recompute_playbook_stats(playbook)
-    recomputed["updatedAt"] = now
-    out = {}
-    out["playbook"] = recomputed
-    out["updatedBulletIds"] = updated_bullets
-    out["autoRemoved"] = auto_removed
-    return out
+    return recomputed
 
 
 def _parse_json_string_value(value: Any) -> Any:
@@ -9727,6 +9594,88 @@ def _date_skip_space_impl(units: Any, start: Any, end: Any) -> Any:
     return cursor
 
 
+def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
+    _core_coverage_mark("_ace_prune_section_for_addition")
+    candidate_index = -1
+    candidate_net = 0
+    candidate_helpful = 0
+    candidate_recency = 0
+    index = 0
+    for bullet in section:
+        id = _core_get(bullet, "id", "")
+        is_protected = _core_contains(protected_ids, id)
+        not_protected = _core_not(is_protected)
+        if not_protected:
+            helpful = _core_get(bullet, "helpfulCount", 0)
+            harmful = _core_get(bullet, "harmfulCount", 0)
+            harmful_weighted = _core_mul(harmful, 2)
+            negative_harmful = _core_mul(harmful_weighted, -1)
+            net_score = _core_add(helpful, negative_harmful)
+            created_at = _core_get(bullet, "createdAt", "")
+            recency = _core_get(bullet, "updatedAt", created_at)
+            no_candidate = _core_lt(candidate_index, 0)
+            if no_candidate:
+                candidate_index = index
+                candidate_net = net_score
+                candidate_helpful = helpful
+                candidate_recency = recency
+            else:
+                net_lower = _core_lt(net_score, candidate_net)
+                net_equal = _core_eq(net_score, candidate_net)
+                helpful_lower = _core_lt(helpful, candidate_helpful)
+                helpful_equal = _core_eq(helpful, candidate_helpful)
+                recency_lower = _core_lt(recency, candidate_recency)
+                is_worse = net_lower
+                if net_equal:
+                    if helpful_lower:
+                        is_worse = True
+                    else:
+                        pass
+                    if helpful_equal:
+                        if recency_lower:
+                            is_worse = True
+                        else:
+                            pass
+                    else:
+                        pass
+                else:
+                    pass
+                if is_worse:
+                    candidate_index = index
+                    candidate_net = net_score
+                    candidate_helpful = helpful
+                    candidate_recency = recency
+                else:
+                    pass
+        else:
+            pass
+        index_next = _core_add(index, 1)
+        index = index_next
+    out = {}
+    has_candidate = _core_gte(candidate_index, 0)
+    new_section = []
+    if has_candidate:
+        pruned = _core_none()
+        cursor = 0
+        for bullet in section:
+            is_target = _core_eq(cursor, candidate_index)
+            if is_target:
+                pruned = bullet
+            else:
+                new_section.append(bullet)
+            cursor_next = _core_add(cursor, 1)
+            cursor = cursor_next
+        out["pruned"] = pruned
+        out["section"] = new_section
+        return out
+    else:
+        pass
+    null_pruned = _core_none()
+    out["pruned"] = null_pruned
+    out["section"] = section
+    return out
+
+
 def _date_space_impl(unit: Any) -> bool:
     _core_coverage_mark("_date_space_impl")
     tab_low = _core_gte(unit, 9)
@@ -9911,6 +9860,186 @@ def _date_ascii_letter_impl(unit: Any) -> bool:
     lower = _core_and(lower_low, lower_high)
     letter = _core_or(upper, lower)
     return letter
+
+
+def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, now: str) -> Any:
+    _core_coverage_mark("_ace_apply_curator_operations")
+    empty_map = {}
+    empty_list = []
+    opts = options
+    opts_missing = _core_is_none(options)
+    if opts_missing:
+        opts = empty_map
+    else:
+        pass
+    allow_dynamic = _core_get(opts, "allowDynamicSections", True)
+    enable_auto_prune = _core_get(opts, "enableAutoPrune", False)
+    has_max = _core_map_contains(opts, "maxSectionSize")
+    max_section_size = _core_get(opts, "maxSectionSize", 0)
+    protected_ids = _core_get(opts, "protectedBulletIds", empty_list)
+    updated_bullets = []
+    auto_removed = []
+    sections = _core_get(playbook, "sections", empty_map)
+    operation_index = 0
+    for op in operations:
+        section_name = _core_get(op, "section", "")
+        has_section_name = _core_ne(section_name, "")
+        if has_section_name:
+            section_exists = _core_map_contains(sections, section_name)
+            missing_section = _core_not(section_exists)
+            if missing_section:
+                if allow_dynamic:
+                    new_section_list = []
+                    sections[section_name] = new_section_list
+                else:
+                    pass
+            else:
+                pass
+            section_now_exists = _core_map_contains(sections, section_name)
+            if section_now_exists:
+                section = _core_get(sections, section_name, None)
+                op_type = _core_get(op, "type", "")
+                is_add = _core_eq(op_type, "ADD")
+                if is_add:
+                    raw_content = _core_get(op, "content", "")
+                    content = str(raw_content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                    has_content = _core_ne(content, "")
+                    if has_content:
+                        section_len = _core_len(section)
+                        at_capacity_raw = _core_gte(section_len, max_section_size)
+                        at_capacity = False
+                        if has_max:
+                            if at_capacity_raw:
+                                at_capacity = True
+                            else:
+                                pass
+                        else:
+                            pass
+                        proceed = True
+                        if at_capacity:
+                            if enable_auto_prune:
+                                prune_result = _ace_prune_section_for_addition(section, protected_ids)
+                                pruned = _core_get(prune_result, "pruned", None)
+                                has_pruned = _core_is_not_none(pruned)
+                                if has_pruned:
+                                    pruned_section = _core_get(prune_result, "section", None)
+                                    section = pruned_section
+                                    sections[section_name] = section
+                                    pruned_id = _core_get(pruned, "id", "")
+                                    updated_bullets.append(pruned_id)
+                                    removal = {}
+                                    removal["type"] = "REMOVE"
+                                    removal["section"] = section_name
+                                    removal["bulletId"] = pruned_id
+                                    pruned_metadata = _core_get(pruned, "metadata", empty_map)
+                                    removal_metadata = _core_map_merge(empty_map, pruned_metadata)
+                                    removal_metadata["autoPruned"] = True
+                                    removal_metadata["removedAt"] = now
+                                    removal["metadata"] = removal_metadata
+                                    auto_removed.append(removal)
+                                else:
+                                    proceed = False
+                            else:
+                                proceed = False
+                        else:
+                            pass
+                        if proceed:
+                            op_bullet_id = _core_get(op, "bulletId", None)
+                            has_bullet_id = _core_is_not_none(op_bullet_id)
+                            bullet_id = op_bullet_id
+                            missing_bullet_id = _core_not(has_bullet_id)
+                            if missing_bullet_id:
+                                bullet_id_prefix = _core_string_format("{}-{}-{}", section_name, now, section_len)
+                                bullet_id = _core_string_format("{}-{}", bullet_id_prefix, operation_index)
+                            else:
+                                pass
+                            bullet = {}
+                            bullet["id"] = bullet_id
+                            bullet["section"] = section_name
+                            bullet["content"] = content
+                            bullet["helpfulCount"] = 0
+                            bullet["harmfulCount"] = 0
+                            bullet["createdAt"] = now
+                            bullet["updatedAt"] = now
+                            op_metadata = _core_get(op, "metadata", None)
+                            has_metadata = _core_is_not_none(op_metadata)
+                            if has_metadata:
+                                bullet_metadata = _core_map_merge(empty_map, op_metadata)
+                                bullet["metadata"] = bullet_metadata
+                            else:
+                                pass
+                            section.append(bullet)
+                            sections[section_name] = section
+                            updated_bullets.append(bullet_id)
+                        else:
+                            pass
+                    else:
+                        pass
+                else:
+                    pass
+                is_update = _core_eq(op_type, "UPDATE")
+                if is_update:
+                    target_id = _core_get(op, "bulletId", None)
+                    for bullet in section:
+                        candidate_bullet_id = _core_get(bullet, "id", "")
+                        bullet_match = _core_eq(candidate_bullet_id, target_id)
+                        if bullet_match:
+                            op_content = _core_get(op, "content", None)
+                            content_is_string = _core_type_is(op_content, "string")
+                            if content_is_string:
+                                bullet["content"] = op_content
+                            else:
+                                pass
+                            bullet["updatedAt"] = now
+                            op_metadata_update = _core_get(op, "metadata", None)
+                            has_metadata_update = _core_is_not_none(op_metadata_update)
+                            if has_metadata_update:
+                                existing_metadata = _core_get(bullet, "metadata", empty_map)
+                                merged_metadata = _core_map_merge(existing_metadata, op_metadata_update)
+                                bullet["metadata"] = merged_metadata
+                            else:
+                                pass
+                            bullet_id_update = _core_get(bullet, "id", "")
+                            updated_bullets.append(bullet_id_update)
+                        else:
+                            pass
+                else:
+                    pass
+                is_remove = _core_eq(op_type, "REMOVE")
+                if is_remove:
+                    remove_id = _core_get(op, "bulletId", None)
+                    kept = []
+                    none_value = _core_none()
+                    removed_id = none_value
+                    for bullet in section:
+                        remove_candidate_id = _core_get(bullet, "id", "")
+                        bullet_remove_match = _core_eq(remove_candidate_id, remove_id)
+                        if bullet_remove_match:
+                            removed_id = remove_candidate_id
+                        else:
+                            kept.append(bullet)
+                    sections[section_name] = kept
+                    did_remove = _core_is_not_none(removed_id)
+                    if did_remove:
+                        updated_bullets.append(removed_id)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+        next_operation_index = _core_add(operation_index, 1)
+        operation_index = next_operation_index
+    playbook["sections"] = sections
+    recomputed = _ace_recompute_playbook_stats(playbook)
+    recomputed["updatedAt"] = now
+    out = {}
+    out["playbook"] = recomputed
+    out["updatedBulletIds"] = updated_bullets
+    out["autoRemoved"] = auto_removed
+    return out
 
 
 def _stream_text_extract_impl(xstate: Any, values: Any, content: str, fields: list[Any], options: Any) -> bool:
@@ -10219,139 +10348,6 @@ def _regex_capture_ids(n: Any) -> Any:
     else:
         pass
     return out
-
-
-def _ace_is_noop_acknowledgment(content: str) -> bool:
-    _core_coverage_mark("_ace_is_noop_acknowledgment")
-    lowered = _core_string_lower(content)
-    c = str(lowered).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    is_noop = False
-    empty = _core_eq(c, "")
-    nonempty = _core_not(empty)
-    if nonempty:
-        markers = []
-        markers.append("no-op")
-        markers.append("noop")
-        for marker in markers:
-            marker_hit = _core_string_starts_with(c, marker)
-            if marker_hit:
-                is_noop = True
-            else:
-                pass
-        subjects = []
-        subjects.append("no update")
-        subjects.append("no updates")
-        subjects.append("no change")
-        subjects.append("no changes")
-        subjects.append("no modification")
-        subjects.append("no modifications")
-        subjects.append("no edit")
-        subjects.append("no edits")
-        subjects.append("no revision")
-        subjects.append("no revisions")
-        subjects.append("no action")
-        subjects.append("no adjustment")
-        subjects.append("no adjustments")
-        subjects.append("no new")
-        subjects.append("no additional")
-        subjects.append("no further")
-        has_subject = False
-        for subject in subjects:
-            subject_hit = _core_contains(c, subject)
-            if subject_hit:
-                has_subject = True
-            else:
-                pass
-        if has_subject:
-            qualifiers = []
-            qualifiers.append("needed")
-            qualifiers.append("required")
-            qualifiers.append("necessary")
-            qualifiers.append("warranted")
-            for qualifier in qualifiers:
-                qualifier_hit = _core_contains(c, qualifier)
-                if qualifier_hit:
-                    is_noop = True
-                else:
-                    pass
-        else:
-            pass
-        phrases = []
-        phrases.append("nothing to add")
-        phrases.append("nothing to change")
-        phrases.append("nothing to update")
-        phrases.append("nothing to modify")
-        phrases.append("nothing to revise")
-        phrases.append("nothing needs")
-        phrases.append("nothing further")
-        for phrase in phrases:
-            phrase_hit = _core_contains(c, phrase)
-            if phrase_hit:
-                is_noop = True
-            else:
-                pass
-        keep_prefixes = []
-        keep_prefixes.append("keep the existing")
-        keep_prefixes.append("leave the existing")
-        keep_prefixes.append("retain the existing")
-        keep_prefixes.append("preserve the existing")
-        has_keep_prefix = False
-        for keep_prefix in keep_prefixes:
-            keep_hit = _core_string_starts_with(c, keep_prefix)
-            if keep_hit:
-                has_keep_prefix = True
-            else:
-                pass
-        if has_keep_prefix:
-            stasis_list = []
-            stasis_list.append("unchanged")
-            stasis_list.append("as is")
-            stasis_list.append("as-is")
-            stasis_list.append("intact")
-            stasis_list.append("in place")
-            for stasis in stasis_list:
-                stasis_hit = _core_contains(c, stasis)
-                if stasis_hit:
-                    is_noop = True
-                else:
-                    pass
-        else:
-            pass
-        remains_list = []
-        remains_list.append("remains correct")
-        remains_list.append("remains unchanged")
-        remains_list.append("remains the same")
-        remains_list.append("remains valid")
-        remains_list.append("remains accurate")
-        remains_list.append("already correct")
-        has_remains = False
-        for remains in remains_list:
-            remains_hit = _core_contains(c, remains)
-            if remains_hit:
-                has_remains = True
-            else:
-                pass
-        if has_remains:
-            referents = []
-            referents.append("existing")
-            referents.append("current")
-            referents.append("rule")
-            referents.append("guideline")
-            referents.append("guidance")
-            referents.append("playbook")
-            referents.append("bullet")
-            referents.append("entry")
-            for referent in referents:
-                referent_hit = _core_contains(c, referent)
-                if referent_hit:
-                    is_noop = True
-                else:
-                    pass
-        else:
-            pass
-    else:
-        pass
-    return is_noop
 
 
 def chat_session_close_state(state: Any) -> list[Any]:
@@ -11340,6 +11336,139 @@ def _stream_text_required_check_impl(values: Any, fields: list[Any]) -> None:
     raise error
 
 
+def _ace_is_noop_acknowledgment(content: str) -> bool:
+    _core_coverage_mark("_ace_is_noop_acknowledgment")
+    lowered = _core_string_lower(content)
+    c = str(lowered).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    is_noop = False
+    empty = _core_eq(c, "")
+    nonempty = _core_not(empty)
+    if nonempty:
+        markers = []
+        markers.append("no-op")
+        markers.append("noop")
+        for marker in markers:
+            marker_hit = _core_string_starts_with(c, marker)
+            if marker_hit:
+                is_noop = True
+            else:
+                pass
+        subjects = []
+        subjects.append("no update")
+        subjects.append("no updates")
+        subjects.append("no change")
+        subjects.append("no changes")
+        subjects.append("no modification")
+        subjects.append("no modifications")
+        subjects.append("no edit")
+        subjects.append("no edits")
+        subjects.append("no revision")
+        subjects.append("no revisions")
+        subjects.append("no action")
+        subjects.append("no adjustment")
+        subjects.append("no adjustments")
+        subjects.append("no new")
+        subjects.append("no additional")
+        subjects.append("no further")
+        has_subject = False
+        for subject in subjects:
+            subject_hit = _core_contains(c, subject)
+            if subject_hit:
+                has_subject = True
+            else:
+                pass
+        if has_subject:
+            qualifiers = []
+            qualifiers.append("needed")
+            qualifiers.append("required")
+            qualifiers.append("necessary")
+            qualifiers.append("warranted")
+            for qualifier in qualifiers:
+                qualifier_hit = _core_contains(c, qualifier)
+                if qualifier_hit:
+                    is_noop = True
+                else:
+                    pass
+        else:
+            pass
+        phrases = []
+        phrases.append("nothing to add")
+        phrases.append("nothing to change")
+        phrases.append("nothing to update")
+        phrases.append("nothing to modify")
+        phrases.append("nothing to revise")
+        phrases.append("nothing needs")
+        phrases.append("nothing further")
+        for phrase in phrases:
+            phrase_hit = _core_contains(c, phrase)
+            if phrase_hit:
+                is_noop = True
+            else:
+                pass
+        keep_prefixes = []
+        keep_prefixes.append("keep the existing")
+        keep_prefixes.append("leave the existing")
+        keep_prefixes.append("retain the existing")
+        keep_prefixes.append("preserve the existing")
+        has_keep_prefix = False
+        for keep_prefix in keep_prefixes:
+            keep_hit = _core_string_starts_with(c, keep_prefix)
+            if keep_hit:
+                has_keep_prefix = True
+            else:
+                pass
+        if has_keep_prefix:
+            stasis_list = []
+            stasis_list.append("unchanged")
+            stasis_list.append("as is")
+            stasis_list.append("as-is")
+            stasis_list.append("intact")
+            stasis_list.append("in place")
+            for stasis in stasis_list:
+                stasis_hit = _core_contains(c, stasis)
+                if stasis_hit:
+                    is_noop = True
+                else:
+                    pass
+        else:
+            pass
+        remains_list = []
+        remains_list.append("remains correct")
+        remains_list.append("remains unchanged")
+        remains_list.append("remains the same")
+        remains_list.append("remains valid")
+        remains_list.append("remains accurate")
+        remains_list.append("already correct")
+        has_remains = False
+        for remains in remains_list:
+            remains_hit = _core_contains(c, remains)
+            if remains_hit:
+                has_remains = True
+            else:
+                pass
+        if has_remains:
+            referents = []
+            referents.append("existing")
+            referents.append("current")
+            referents.append("rule")
+            referents.append("guideline")
+            referents.append("guidance")
+            referents.append("playbook")
+            referents.append("bullet")
+            referents.append("entry")
+            for referent in referents:
+                referent_hit = _core_contains(c, referent)
+                if referent_hit:
+                    is_noop = True
+                else:
+                    pass
+        else:
+            pass
+    else:
+        pass
+    return is_noop
+
+
 def _completion_call_to_chat_impl(call: Any) -> Any:
     _core_coverage_mark("_completion_call_to_chat_impl")
     id = _core_get(call, "id", None)
@@ -11365,170 +11494,6 @@ def chat_session_tool_argument_errors(schema: Any, arguments: Any) -> Any:
         pass
     errors = _chat_session_argument_errors(schema, schema, arguments, "", 0)
     return errors
-
-
-def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
-    _core_coverage_mark("_ace_normalize_curator_operations")
-    empty_list = []
-    has_operations = _core_is_not_none(operations)
-    missing = _core_not(has_operations)
-    if missing:
-        return empty_list
-    else:
-        pass
-    is_list = _core_type_is(operations, "list")
-    if is_list:
-        normalized = []
-        seen = {}
-        for entry in operations:
-            is_object = _core_type_is(entry, "object")
-            if is_object:
-                type_raw = _core_get(entry, "type", "ADD")
-                type_is_string = _core_type_is(type_raw, "string")
-                type_lower = "add"
-                if type_is_string:
-                    lowered = _core_string_lower(type_raw)
-                    type_lower = lowered
-                else:
-                    pass
-                is_update = _core_eq(type_lower, "update")
-                is_remove = _core_eq(type_lower, "remove")
-                type = "ADD"
-                if is_update:
-                    type = "UPDATE"
-                else:
-                    pass
-                if is_remove:
-                    type = "REMOVE"
-                else:
-                    pass
-                section_raw = _core_get(entry, "section", "Guidelines")
-                section_is_string = _core_type_is(section_raw, "string")
-                section = "Guidelines"
-                if section_is_string:
-                    section_trimmed = str(section_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                    section_nonempty = _core_ne(section_trimmed, "")
-                    if section_nonempty:
-                        section = section_trimmed
-                    else:
-                        pass
-                else:
-                    pass
-                content_raw = _core_get(entry, "content", "")
-                content_is_string = _core_type_is(content_raw, "string")
-                content = ""
-                if content_is_string:
-                    content_trimmed = str(content_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                    content = content_trimmed
-                else:
-                    pass
-                not_remove = _core_ne(type, "REMOVE")
-                content_empty = _core_eq(content, "")
-                keep = True
-                if not_remove:
-                    if content_empty:
-                        keep = False
-                    else:
-                        pass
-                else:
-                    pass
-                is_add_type = _core_eq(type, "ADD")
-                if is_add_type:
-                    is_noop = _ace_is_noop_acknowledgment(content)
-                    if is_noop:
-                        keep = False
-                    else:
-                        pass
-                else:
-                    pass
-                if keep:
-                    bullet_id_raw = _core_get(entry, "bulletId", None)
-                    has_bullet_id_field = _core_is_not_none(bullet_id_raw)
-                    bullet_id_source = bullet_id_raw
-                    if has_bullet_id_field:
-                        pass
-                    else:
-                        id_field = _core_get(entry, "id", None)
-                        bullet_id_source = id_field
-                    bullet_id_is_string = _core_type_is(bullet_id_source, "string")
-                    none_value = _core_none()
-                    bullet_id = none_value
-                    if bullet_id_is_string:
-                        bullet_id_trimmed = str(bullet_id_source).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                        bullet_id_nonempty = _core_ne(bullet_id_trimmed, "")
-                        if bullet_id_nonempty:
-                            bullet_id = bullet_id_trimmed
-                        else:
-                            pass
-                    else:
-                        pass
-                    bullet_id_key = ""
-                    has_bullet_id = _core_is_not_none(bullet_id)
-                    if has_bullet_id:
-                        bullet_id_key = bullet_id
-                    else:
-                        pass
-                    key_a = _core_string_format("{}:{}", type, section)
-                    key_b = _core_string_format("{}:{}", content, bullet_id_key)
-                    key = _core_string_format("{}:{}", key_a, key_b)
-                    already_seen = _core_map_contains(seen, key)
-                    fresh = _core_not(already_seen)
-                    if fresh:
-                        seen[key] = True
-                        normalized_entry = {}
-                        normalized_entry["type"] = type
-                        normalized_entry["section"] = section
-                        if not_remove:
-                            normalized_entry["content"] = content
-                        else:
-                            pass
-                        if has_bullet_id:
-                            normalized_entry["bulletId"] = bullet_id
-                        else:
-                            pass
-                        metadata_raw = _core_get(entry, "metadata", None)
-                        metadata_is_object = _core_type_is(metadata_raw, "object")
-                        if metadata_is_object:
-                            empty_metadata = {}
-                            metadata_copy = _core_map_merge(empty_metadata, metadata_raw)
-                            normalized_entry["metadata"] = metadata_copy
-                        else:
-                            pass
-                        normalized.append(normalized_entry)
-                    else:
-                        pass
-                else:
-                    pass
-            else:
-                pass
-        return normalized
-    else:
-        pass
-    is_string = _core_type_is(operations, "string")
-    if is_string:
-        parsed = _core_json_parse(operations)
-        parsed_is_none = _core_is_none(parsed)
-        if parsed_is_none:
-            return empty_list
-        else:
-            pass
-        normalized_from_string = _ace_normalize_curator_operations(parsed)
-        return normalized_from_string
-    else:
-        pass
-    is_object = _core_type_is(operations, "object")
-    if is_object:
-        inner = _core_get(operations, "operations", None)
-        has_inner = _core_is_not_none(inner)
-        if has_inner:
-            normalized_from_object = _ace_normalize_curator_operations(inner)
-            return normalized_from_object
-        else:
-            pass
-        return empty_list
-    else:
-        pass
-    return empty_list
 
 
 def chat_session_tool_argument_error(name: str, schema: Any, arguments: Any) -> Any:
@@ -11924,6 +11889,170 @@ def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) ->
     return values
 
 
+def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
+    _core_coverage_mark("_ace_normalize_curator_operations")
+    empty_list = []
+    has_operations = _core_is_not_none(operations)
+    missing = _core_not(has_operations)
+    if missing:
+        return empty_list
+    else:
+        pass
+    is_list = _core_type_is(operations, "list")
+    if is_list:
+        normalized = []
+        seen = {}
+        for entry in operations:
+            is_object = _core_type_is(entry, "object")
+            if is_object:
+                type_raw = _core_get(entry, "type", "ADD")
+                type_is_string = _core_type_is(type_raw, "string")
+                type_lower = "add"
+                if type_is_string:
+                    lowered = _core_string_lower(type_raw)
+                    type_lower = lowered
+                else:
+                    pass
+                is_update = _core_eq(type_lower, "update")
+                is_remove = _core_eq(type_lower, "remove")
+                type = "ADD"
+                if is_update:
+                    type = "UPDATE"
+                else:
+                    pass
+                if is_remove:
+                    type = "REMOVE"
+                else:
+                    pass
+                section_raw = _core_get(entry, "section", "Guidelines")
+                section_is_string = _core_type_is(section_raw, "string")
+                section = "Guidelines"
+                if section_is_string:
+                    section_trimmed = str(section_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                    section_nonempty = _core_ne(section_trimmed, "")
+                    if section_nonempty:
+                        section = section_trimmed
+                    else:
+                        pass
+                else:
+                    pass
+                content_raw = _core_get(entry, "content", "")
+                content_is_string = _core_type_is(content_raw, "string")
+                content = ""
+                if content_is_string:
+                    content_trimmed = str(content_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                    content = content_trimmed
+                else:
+                    pass
+                not_remove = _core_ne(type, "REMOVE")
+                content_empty = _core_eq(content, "")
+                keep = True
+                if not_remove:
+                    if content_empty:
+                        keep = False
+                    else:
+                        pass
+                else:
+                    pass
+                is_add_type = _core_eq(type, "ADD")
+                if is_add_type:
+                    is_noop = _ace_is_noop_acknowledgment(content)
+                    if is_noop:
+                        keep = False
+                    else:
+                        pass
+                else:
+                    pass
+                if keep:
+                    bullet_id_raw = _core_get(entry, "bulletId", None)
+                    has_bullet_id_field = _core_is_not_none(bullet_id_raw)
+                    bullet_id_source = bullet_id_raw
+                    if has_bullet_id_field:
+                        pass
+                    else:
+                        id_field = _core_get(entry, "id", None)
+                        bullet_id_source = id_field
+                    bullet_id_is_string = _core_type_is(bullet_id_source, "string")
+                    none_value = _core_none()
+                    bullet_id = none_value
+                    if bullet_id_is_string:
+                        bullet_id_trimmed = str(bullet_id_source).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                        bullet_id_nonempty = _core_ne(bullet_id_trimmed, "")
+                        if bullet_id_nonempty:
+                            bullet_id = bullet_id_trimmed
+                        else:
+                            pass
+                    else:
+                        pass
+                    bullet_id_key = ""
+                    has_bullet_id = _core_is_not_none(bullet_id)
+                    if has_bullet_id:
+                        bullet_id_key = bullet_id
+                    else:
+                        pass
+                    key_a = _core_string_format("{}:{}", type, section)
+                    key_b = _core_string_format("{}:{}", content, bullet_id_key)
+                    key = _core_string_format("{}:{}", key_a, key_b)
+                    already_seen = _core_map_contains(seen, key)
+                    fresh = _core_not(already_seen)
+                    if fresh:
+                        seen[key] = True
+                        normalized_entry = {}
+                        normalized_entry["type"] = type
+                        normalized_entry["section"] = section
+                        if not_remove:
+                            normalized_entry["content"] = content
+                        else:
+                            pass
+                        if has_bullet_id:
+                            normalized_entry["bulletId"] = bullet_id
+                        else:
+                            pass
+                        metadata_raw = _core_get(entry, "metadata", None)
+                        metadata_is_object = _core_type_is(metadata_raw, "object")
+                        if metadata_is_object:
+                            empty_metadata = {}
+                            metadata_copy = _core_map_merge(empty_metadata, metadata_raw)
+                            normalized_entry["metadata"] = metadata_copy
+                        else:
+                            pass
+                        normalized.append(normalized_entry)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        return normalized
+    else:
+        pass
+    is_string = _core_type_is(operations, "string")
+    if is_string:
+        parsed = _core_json_parse(operations)
+        parsed_is_none = _core_is_none(parsed)
+        if parsed_is_none:
+            return empty_list
+        else:
+            pass
+        normalized_from_string = _ace_normalize_curator_operations(parsed)
+        return normalized_from_string
+    else:
+        pass
+    is_object = _core_type_is(operations, "object")
+    if is_object:
+        inner = _core_get(operations, "operations", None)
+        has_inner = _core_is_not_none(inner)
+        if has_inner:
+            normalized_from_object = _ace_normalize_curator_operations(inner)
+            return normalized_from_object
+        else:
+            pass
+        return empty_list
+    else:
+        pass
+    return empty_list
+
+
 def _date_offset_minutes_impl(units: Any, start: Any, end: Any) -> Any:
     _core_coverage_mark("_date_offset_minutes_impl")
     none = _core_none()
@@ -12083,182 +12212,6 @@ def _stream_text_final_impl(xstate: Any, values: Any, content: str, fields: list
     _stream_text_missed_fields_impl(values, content, fields)
     _stream_text_required_check_impl(values, fields)
     return None
-
-
-def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
-    _core_coverage_mark("_ace_locate_bullet_section")
-    empty_map = {}
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
-    none_value = _core_none()
-    found = none_value
-    for section_name in section_names:
-        already = _core_is_not_none(found)
-        still_open = _core_not(already)
-        if still_open:
-            bullets = _core_get(sections, section_name, None)
-            for bullet in bullets:
-                open = _core_is_none(found)
-                if open:
-                    current_id = _core_get(bullet, "id", "")
-                    match = _core_eq(current_id, bullet_id)
-                    if match:
-                        hit = {}
-                        hit["section"] = section_name
-                        hit["id"] = current_id
-                        found = hit
-                    else:
-                        pass
-                else:
-                    pass
-        else:
-            pass
-    return found
-
-
-def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
-    _core_coverage_mark("_ace_resolve_curator_operation_targets")
-    op_count = _core_len(operations)
-    is_empty = _core_eq(op_count, 0)
-    if is_empty:
-        return operations
-    else:
-        pass
-    used_ids = {}
-    for op in operations:
-        existing_bullet_id = _core_get(op, "bulletId", None)
-        has_existing = _core_is_not_none(existing_bullet_id)
-        if has_existing:
-            existing_is_string = _core_type_is(existing_bullet_id, "string")
-            if existing_is_string:
-                used_ids[existing_bullet_id] = True
-            else:
-                pass
-        else:
-            pass
-    section_queues = {}
-    empty_list = []
-    reflection_present = _core_is_not_none(reflection)
-    if reflection_present:
-        bullet_tags = _ace_normalize_reflection_bullet_tags(reflection)
-        for tag in bullet_tags:
-            tag_id = _core_get(tag, "id", None)
-            tag_value = _core_get(tag, "tag", None)
-            is_harmful = _core_eq(tag_value, "harmful")
-            already_used = _core_map_contains(used_ids, tag_id)
-            not_used = _core_not(already_used)
-            if not_used:
-                located = _ace_locate_bullet_section(playbook, tag_id)
-                located_found = _core_is_not_none(located)
-                if located_found:
-                    located_section = _core_get(located, "section", None)
-                    located_id = _core_get(located, "id", None)
-                    priority = "primary"
-                    if is_harmful:
-                        priority = "harmful"
-                    else:
-                        pass
-                    has_queue = _core_map_contains(section_queues, located_section)
-                    missing_queue = _core_not(has_queue)
-                    if missing_queue:
-                        new_queue = {}
-                        harmful_list = []
-                        new_queue["harmful"] = harmful_list
-                        primary_list = []
-                        new_queue["primary"] = primary_list
-                        generator_list = []
-                        new_queue["generator"] = generator_list
-                        section_queues[located_section] = new_queue
-                    else:
-                        pass
-                    queue = _core_get(section_queues, located_section, None)
-                    priority_list = _core_get(queue, priority, None)
-                    priority_list.append(located_id)
-                    queue[priority] = priority_list
-                    section_queues[located_section] = queue
-                else:
-                    pass
-            else:
-                pass
-    else:
-        pass
-    generator_present = _core_is_not_none(generator_output)
-    if generator_present:
-        generator_bullet_ids = _core_get(generator_output, "bulletIds", empty_list)
-        for bullet_id in generator_bullet_ids:
-            gen_id_is_string = _core_type_is(bullet_id, "string")
-            if gen_id_is_string:
-                gen_already_used = _core_map_contains(used_ids, bullet_id)
-                gen_not_used = _core_not(gen_already_used)
-                if gen_not_used:
-                    gen_located = _ace_locate_bullet_section(playbook, bullet_id)
-                    gen_found = _core_is_not_none(gen_located)
-                    if gen_found:
-                        gen_section = _core_get(gen_located, "section", None)
-                        gen_located_id = _core_get(gen_located, "id", None)
-                        gen_has_queue = _core_map_contains(section_queues, gen_section)
-                        gen_missing_queue = _core_not(gen_has_queue)
-                        if gen_missing_queue:
-                            gen_new_queue = {}
-                            gen_harmful = []
-                            gen_new_queue["harmful"] = gen_harmful
-                            gen_primary = []
-                            gen_new_queue["primary"] = gen_primary
-                            gen_generator = []
-                            gen_new_queue["generator"] = gen_generator
-                            section_queues[gen_section] = gen_new_queue
-                        else:
-                            pass
-                        gen_queue = _core_get(section_queues, gen_section, None)
-                        gen_generator_list = _core_get(gen_queue, "generator", None)
-                        gen_generator_list.append(gen_located_id)
-                        gen_queue["generator"] = gen_generator_list
-                        section_queues[gen_section] = gen_queue
-                    else:
-                        pass
-                else:
-                    pass
-            else:
-                pass
-    else:
-        pass
-    resolved = []
-    for op in operations:
-        op_type = _core_get(op, "type", "")
-        op_is_update = _core_eq(op_type, "UPDATE")
-        op_is_remove = _core_eq(op_type, "REMOVE")
-        needs_target = _core_or(op_is_update, op_is_remove)
-        current_bullet_id = _core_get(op, "bulletId", None)
-        has_bullet_id = _core_is_not_none(current_bullet_id)
-        missing_bullet_id = _core_not(has_bullet_id)
-        empty_op = {}
-        resolved_op = _core_map_merge(empty_op, op)
-        if needs_target:
-            if missing_bullet_id:
-                op_section = _core_get(op, "section", "")
-                candidate = _ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook)
-                candidate_found = _core_is_not_none(candidate)
-                if candidate_found:
-                    resolved_op["bulletId"] = candidate
-                    used_ids[candidate] = True
-                else:
-                    pass
-            else:
-                pass
-        else:
-            pass
-        final_bullet_id = _core_get(resolved_op, "bulletId", None)
-        final_has_bullet_id = _core_is_not_none(final_bullet_id)
-        keep = True
-        if needs_target:
-            keep = final_has_bullet_id
-        else:
-            pass
-        if keep:
-            resolved.append(resolved_op)
-        else:
-            pass
-    return resolved
 
 
 def _parse_output_fields_impl(content: str, fields: Any) -> Any:
@@ -12495,6 +12448,37 @@ def _caller_function_call_impl(options: Any) -> Any:
     return none
 
 
+def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
+    _core_coverage_mark("_ace_locate_bullet_section")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    none_value = _core_none()
+    found = none_value
+    for section_name in section_names:
+        already = _core_is_not_none(found)
+        still_open = _core_not(already)
+        if still_open:
+            bullets = _core_get(sections, section_name, None)
+            for bullet in bullets:
+                open = _core_is_none(found)
+                if open:
+                    current_id = _core_get(bullet, "id", "")
+                    match = _core_eq(current_id, bullet_id)
+                    if match:
+                        hit = {}
+                        hit["section"] = section_name
+                        hit["id"] = current_id
+                        found = hit
+                    else:
+                        pass
+                else:
+                    pass
+        else:
+            pass
+    return found
+
+
 def _date_js_json_string_impl(text: Any) -> Any:
     _core_coverage_mark("_date_js_json_string_impl")
     hex = "0123456789abcdef"
@@ -12657,36 +12641,149 @@ def _function_call_names_output_impl(choice: Any) -> bool:
     return reserved
 
 
-def _ace_normalize_reflection_bullet_tags(reflection: Any) -> list[Any]:
-    _core_coverage_mark("_ace_normalize_reflection_bullet_tags")
-    empty_list = []
-    raw_bullet_tags = _core_get(reflection, "bulletTags", empty_list)
-    candidates = []
-    tags_is_list = _core_type_is(raw_bullet_tags, "list")
-    if tags_is_list:
-        candidates = raw_bullet_tags
+def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
+    _core_coverage_mark("_ace_resolve_curator_operation_targets")
+    op_count = _core_len(operations)
+    is_empty = _core_eq(op_count, 0)
+    if is_empty:
+        return operations
     else:
-        tags_is_object = _core_type_is(raw_bullet_tags, "object")
-        if tags_is_object:
-            candidates.append(raw_bullet_tags)
-        else:
-            pass
-    normalized = []
-    for tag in candidates:
-        tag_is_object = _core_type_is(tag, "object")
-        if tag_is_object:
-            tag_id = _core_get(tag, "id", None)
-            tag_id_is_string = _core_type_is(tag_id, "string")
-            tag_value = _core_get(tag, "tag", None)
-            tag_value_is_string = _core_type_is(tag_value, "string")
-            valid_tag_shape = _core_and(tag_id_is_string, tag_value_is_string)
-            if valid_tag_shape:
-                normalized.append(tag)
+        pass
+    used_ids = {}
+    for op in operations:
+        existing_bullet_id = _core_get(op, "bulletId", None)
+        has_existing = _core_is_not_none(existing_bullet_id)
+        if has_existing:
+            existing_is_string = _core_type_is(existing_bullet_id, "string")
+            if existing_is_string:
+                used_ids[existing_bullet_id] = True
             else:
                 pass
         else:
             pass
-    return normalized
+    section_queues = {}
+    empty_list = []
+    reflection_present = _core_is_not_none(reflection)
+    if reflection_present:
+        bullet_tags = _ace_normalize_reflection_bullet_tags(reflection)
+        for tag in bullet_tags:
+            tag_id = _core_get(tag, "id", None)
+            tag_value = _core_get(tag, "tag", None)
+            is_harmful = _core_eq(tag_value, "harmful")
+            already_used = _core_map_contains(used_ids, tag_id)
+            not_used = _core_not(already_used)
+            if not_used:
+                located = _ace_locate_bullet_section(playbook, tag_id)
+                located_found = _core_is_not_none(located)
+                if located_found:
+                    located_section = _core_get(located, "section", None)
+                    located_id = _core_get(located, "id", None)
+                    priority = "primary"
+                    if is_harmful:
+                        priority = "harmful"
+                    else:
+                        pass
+                    has_queue = _core_map_contains(section_queues, located_section)
+                    missing_queue = _core_not(has_queue)
+                    if missing_queue:
+                        new_queue = {}
+                        harmful_list = []
+                        new_queue["harmful"] = harmful_list
+                        primary_list = []
+                        new_queue["primary"] = primary_list
+                        generator_list = []
+                        new_queue["generator"] = generator_list
+                        section_queues[located_section] = new_queue
+                    else:
+                        pass
+                    queue = _core_get(section_queues, located_section, None)
+                    priority_list = _core_get(queue, priority, None)
+                    priority_list.append(located_id)
+                    queue[priority] = priority_list
+                    section_queues[located_section] = queue
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    generator_present = _core_is_not_none(generator_output)
+    if generator_present:
+        generator_bullet_ids = _core_get(generator_output, "bulletIds", empty_list)
+        for bullet_id in generator_bullet_ids:
+            gen_id_is_string = _core_type_is(bullet_id, "string")
+            if gen_id_is_string:
+                gen_already_used = _core_map_contains(used_ids, bullet_id)
+                gen_not_used = _core_not(gen_already_used)
+                if gen_not_used:
+                    gen_located = _ace_locate_bullet_section(playbook, bullet_id)
+                    gen_found = _core_is_not_none(gen_located)
+                    if gen_found:
+                        gen_section = _core_get(gen_located, "section", None)
+                        gen_located_id = _core_get(gen_located, "id", None)
+                        gen_has_queue = _core_map_contains(section_queues, gen_section)
+                        gen_missing_queue = _core_not(gen_has_queue)
+                        if gen_missing_queue:
+                            gen_new_queue = {}
+                            gen_harmful = []
+                            gen_new_queue["harmful"] = gen_harmful
+                            gen_primary = []
+                            gen_new_queue["primary"] = gen_primary
+                            gen_generator = []
+                            gen_new_queue["generator"] = gen_generator
+                            section_queues[gen_section] = gen_new_queue
+                        else:
+                            pass
+                        gen_queue = _core_get(section_queues, gen_section, None)
+                        gen_generator_list = _core_get(gen_queue, "generator", None)
+                        gen_generator_list.append(gen_located_id)
+                        gen_queue["generator"] = gen_generator_list
+                        section_queues[gen_section] = gen_queue
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    resolved = []
+    for op in operations:
+        op_type = _core_get(op, "type", "")
+        op_is_update = _core_eq(op_type, "UPDATE")
+        op_is_remove = _core_eq(op_type, "REMOVE")
+        needs_target = _core_or(op_is_update, op_is_remove)
+        current_bullet_id = _core_get(op, "bulletId", None)
+        has_bullet_id = _core_is_not_none(current_bullet_id)
+        missing_bullet_id = _core_not(has_bullet_id)
+        empty_op = {}
+        resolved_op = _core_map_merge(empty_op, op)
+        if needs_target:
+            if missing_bullet_id:
+                op_section = _core_get(op, "section", "")
+                candidate = _ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook)
+                candidate_found = _core_is_not_none(candidate)
+                if candidate_found:
+                    resolved_op["bulletId"] = candidate
+                    used_ids[candidate] = True
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+        final_bullet_id = _core_get(resolved_op, "bulletId", None)
+        final_has_bullet_id = _core_is_not_none(final_bullet_id)
+        keep = True
+        if needs_target:
+            keep = final_has_bullet_id
+        else:
+            pass
+        if keep:
+            resolved.append(resolved_op)
+        else:
+            pass
+    return resolved
 
 
 def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
@@ -12872,78 +12969,6 @@ def _stream_text_values_impl(fields: list[Any], content: str, values: Any, xstat
             pass
     xstate["streamed_index"] = streamed
     return deltas
-
-
-def _ace_dequeue_section_candidate(section_queues: Any, section: str, used_ids: Any, playbook: Any) -> Any:
-    _core_coverage_mark("_ace_dequeue_section_candidate")
-    none_value = _core_none()
-    picked = none_value
-    has_queue = _core_map_contains(section_queues, section)
-    if has_queue:
-        queue = _core_get(section_queues, section, None)
-        empty_list = []
-        harmful_list = _core_get(queue, "harmful", empty_list)
-        for candidate in harmful_list:
-            open = _core_is_none(picked)
-            if open:
-                used = _core_map_contains(used_ids, candidate)
-                not_used = _core_not(used)
-                if not_used:
-                    picked = candidate
-                else:
-                    pass
-            else:
-                pass
-        primary_list = _core_get(queue, "primary", empty_list)
-        for candidate in primary_list:
-            open = _core_is_none(picked)
-            if open:
-                used = _core_map_contains(used_ids, candidate)
-                not_used = _core_not(used)
-                if not_used:
-                    picked = candidate
-                else:
-                    pass
-            else:
-                pass
-        generator_list = _core_get(queue, "generator", empty_list)
-        for candidate in generator_list:
-            open = _core_is_none(picked)
-            if open:
-                used = _core_map_contains(used_ids, candidate)
-                not_used = _core_not(used)
-                if not_used:
-                    picked = candidate
-                else:
-                    pass
-            else:
-                pass
-    else:
-        pass
-    still_open = _core_is_none(picked)
-    if still_open:
-        empty_map = {}
-        sections = _core_get(playbook, "sections", empty_map)
-        fallback_bullets = _core_get(sections, section, None)
-        fallback_present = _core_is_not_none(fallback_bullets)
-        if fallback_present:
-            for bullet in fallback_bullets:
-                open = _core_is_none(picked)
-                if open:
-                    bullet_id = _core_get(bullet, "id", "")
-                    used = _core_map_contains(used_ids, bullet_id)
-                    not_used = _core_not(used)
-                    if not_used:
-                        picked = bullet_id
-                    else:
-                        pass
-                else:
-                    pass
-        else:
-            pass
-    else:
-        pass
-    return picked
 
 
 def _with_output_thought_impl(output: Any, field: str, prefix: str, thought: str) -> Any:
@@ -13654,6 +13679,38 @@ def _date_floor_div_impl(dividend: Any, divisor: Any) -> Any:
     return quotient
 
 
+def _ace_normalize_reflection_bullet_tags(reflection: Any) -> list[Any]:
+    _core_coverage_mark("_ace_normalize_reflection_bullet_tags")
+    empty_list = []
+    raw_bullet_tags = _core_get(reflection, "bulletTags", empty_list)
+    candidates = []
+    tags_is_list = _core_type_is(raw_bullet_tags, "list")
+    if tags_is_list:
+        candidates = raw_bullet_tags
+    else:
+        tags_is_object = _core_type_is(raw_bullet_tags, "object")
+        if tags_is_object:
+            candidates.append(raw_bullet_tags)
+        else:
+            pass
+    normalized = []
+    for tag in candidates:
+        tag_is_object = _core_type_is(tag, "object")
+        if tag_is_object:
+            tag_id = _core_get(tag, "id", None)
+            tag_id_is_string = _core_type_is(tag_id, "string")
+            tag_value = _core_get(tag, "tag", None)
+            tag_value_is_string = _core_type_is(tag_value, "string")
+            valid_tag_shape = _core_and(tag_id_is_string, tag_value_is_string)
+            if valid_tag_shape:
+                normalized.append(tag)
+            else:
+                pass
+        else:
+            pass
+    return normalized
+
+
 def _regex_test(pattern: Any, value: Any) -> Any:
     _core_coverage_mark("_regex_test")
     groups = _core_none()
@@ -13836,6 +13893,78 @@ def _stream_json_context_impl(json_text: str) -> Any:
     marker["in_array"] = in_array
     marker["in_object"] = in_object
     return marker
+
+
+def _ace_dequeue_section_candidate(section_queues: Any, section: str, used_ids: Any, playbook: Any) -> Any:
+    _core_coverage_mark("_ace_dequeue_section_candidate")
+    none_value = _core_none()
+    picked = none_value
+    has_queue = _core_map_contains(section_queues, section)
+    if has_queue:
+        queue = _core_get(section_queues, section, None)
+        empty_list = []
+        harmful_list = _core_get(queue, "harmful", empty_list)
+        for candidate in harmful_list:
+            open = _core_is_none(picked)
+            if open:
+                used = _core_map_contains(used_ids, candidate)
+                not_used = _core_not(used)
+                if not_used:
+                    picked = candidate
+                else:
+                    pass
+            else:
+                pass
+        primary_list = _core_get(queue, "primary", empty_list)
+        for candidate in primary_list:
+            open = _core_is_none(picked)
+            if open:
+                used = _core_map_contains(used_ids, candidate)
+                not_used = _core_not(used)
+                if not_used:
+                    picked = candidate
+                else:
+                    pass
+            else:
+                pass
+        generator_list = _core_get(queue, "generator", empty_list)
+        for candidate in generator_list:
+            open = _core_is_none(picked)
+            if open:
+                used = _core_map_contains(used_ids, candidate)
+                not_used = _core_not(used)
+                if not_used:
+                    picked = candidate
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    still_open = _core_is_none(picked)
+    if still_open:
+        empty_map = {}
+        sections = _core_get(playbook, "sections", empty_map)
+        fallback_bullets = _core_get(sections, section, None)
+        fallback_present = _core_is_not_none(fallback_bullets)
+        if fallback_present:
+            for bullet in fallback_bullets:
+                open = _core_is_none(picked)
+                if open:
+                    bullet_id = _core_get(bullet, "id", "")
+                    used = _core_map_contains(used_ids, bullet_id)
+                    not_used = _core_not(used)
+                    if not_used:
+                        picked = bullet_id
+                    else:
+                        pass
+                else:
+                    pass
+        else:
+            pass
+    else:
+        pass
+    return picked
 
 
 def _date_civil_from_days_impl(days: Any) -> Any:
@@ -14971,15 +15100,6 @@ def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bo
     return None
 
 
-def _parse_text_contract_output_impl(content: str, output_fields: list[Any], strict_mode: bool) -> Any:
-    _core_coverage_mark("_parse_text_contract_output_impl")
-    out = {}
-    values = _stream_text_extract_values_impl(content, output_fields, strict_mode)
-    out["values"] = values
-    out["extracted"] = True
-    return out
-
-
 def _stream_json_validate_value_impl(field: Any, value: Any, allow_missing: bool) -> Any:
     _core_coverage_mark("_stream_json_validate_value_impl")
     typ = _core_get(field, "type", None)
@@ -15075,6 +15195,15 @@ def _stream_json_validate_value_impl(field: Any, value: Any, allow_missing: bool
     else:
         pass
     return value
+
+
+def _parse_text_contract_output_impl(content: str, output_fields: list[Any], strict_mode: bool) -> Any:
+    _core_coverage_mark("_parse_text_contract_output_impl")
+    out = {}
+    values = _stream_text_extract_values_impl(content, output_fields, strict_mode)
+    out["values"] = values
+    out["extracted"] = True
+    return out
 
 
 def _generate_failed_impl(error: error) -> error:
@@ -15242,23 +15371,6 @@ def _feedback_message_impl(text: Any) -> Any:
     return message
 
 
-def _caching_function_option_impl(gen: AxGen, options: Any) -> Any:
-    _core_coverage_mark("_caching_function_option_impl")
-    empty = {}
-    call_options = _core_map_merge(empty, options)
-    base_options = _core_get(gen, "options", empty)
-    run_options = _core_map_merge(base_options, call_options)
-    control = _core_get(run_options, "control", None)
-    controlled = _core_is_not_none(control)
-    if controlled:
-        no_cache = _core_none()
-        return no_cache
-    else:
-        pass
-    cache_fn = _core_axgen_caching_function(gen, call_options)
-    return cache_fn
-
-
 def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
     _core_coverage_mark("_stream_json_select_fields_impl")
     out = {}
@@ -15278,6 +15390,23 @@ def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
         else:
             pass
     return out
+
+
+def _caching_function_option_impl(gen: AxGen, options: Any) -> Any:
+    _core_coverage_mark("_caching_function_option_impl")
+    empty = {}
+    call_options = _core_map_merge(empty, options)
+    base_options = _core_get(gen, "options", empty)
+    run_options = _core_map_merge(base_options, call_options)
+    control = _core_get(run_options, "control", None)
+    controlled = _core_is_not_none(control)
+    if controlled:
+        no_cache = _core_none()
+        return no_cache
+    else:
+        pass
+    cache_fn = _core_axgen_caching_function(gen, call_options)
+    return cache_fn
 
 
 def _cache_key_impl(gen: AxGen, values: Any, options: Any) -> str:

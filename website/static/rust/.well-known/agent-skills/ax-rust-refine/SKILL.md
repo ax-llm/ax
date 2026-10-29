@@ -27,14 +27,16 @@ This skill helps an agent write Rust code with the generated Ax package `axllm`.
 ## Core Pattern
 
 ```rust
-let engine = axllm::AxGEPA::new(reflection_client, options)?;
+let mut engine = axllm::AxGEPA::new().with_reflection_client(reflection_client);
 let result = engine.optimize(request, evaluator)?;
+let baseline = result["baselineScore"].as_f64().unwrap();
+let delta = result["metadata"]["bestScore"].as_f64().unwrap() - baseline;
 ```
 
 ## Relevant API Surface
 
 - AxGen: `ax`, `novel_f1_score`, `AxGen`, `run_control`, `AxRunControl`, `AxCachingFunction`, `set_caching_function`
-- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
+- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`, `optimize_with_client`
 
 ## Guardrails
 

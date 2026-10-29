@@ -16,6 +16,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 ## Backend Implementation Rules
 
 - Keep semantics Core-owned. Provider mapping, Agent context/runtime behavior, Flow graph semantics, optimizer/GEPA behavior, envelopes, state, logs, and traces should come from Core helpers/descriptors.
+- GEPA baseline reports must come from the original program's capped validation pass before bootstrap, survive seed domination, and use selection's objective averaging/scalarization. Count baseline and seeded validation against the same metric budget; bootstrap generation has its own limits. Build demos from fresh training evaluation rows, never a retained trace tree.
 - Keep target code idiomatic but thin. Target templates own language wrappers, dynamic value representation, transports, error boundary shape, package metadata, and examples.
 - Error catch/rethrow conversions must preserve the concrete generation error type and its nested causes, including provider status and request metadata. Exercise both agent forward and streaming boundaries with failures in each stage.
 - Prefer standard-library dependencies for base packages. Optional runtime profiles may remain dependency-bearing and opt-in.

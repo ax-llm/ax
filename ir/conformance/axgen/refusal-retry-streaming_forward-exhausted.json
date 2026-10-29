@@ -1,0 +1,75 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "refused partial"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "refused again"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_error_contains": "Unable to fix validation error",
+  "expected_last_request_tail": [
+    {
+      "content": "Question: Status?\n",
+      "role": "user"
+    }
+  ],
+  "expected_request_count": 2,
+  "expected_request_roles": [["system", "user"], ["system", "user"]],
+  "forward_options": {
+    "max_retries": 1,
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "refusal-retry-streaming_forward-exhausted",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: refused partial",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "error": {
+            "message": "refused partial turn",
+            "type": "refusal"
+          }
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: refused again",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "error": {
+            "message": "refused partial turn",
+            "type": "refusal"
+          }
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

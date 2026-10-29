@@ -2939,6 +2939,61 @@ writeFixture('streaming-forward-field-transform', {
   expected_request_count: 1,
 });
 
+// A refusal may arrive after content, thinking, or a completed tool step.
+// Pin the retried prompt as well as the output: refused partial turns must
+// never become an assistant prefill, even when memory cleanup is disabled.
+const refusedPartial = (result: ChunkSpec): ResponseSpec =>
+  streamed(result, {
+    error: { type: 'refusal', message: 'refused partial turn' },
+  });
+for (const kind of ['forward', 'streaming_forward'] as const) {
+  for (const [suffix, partial] of Object.entries({
+    content: text('Answer: refused partial'),
+    thought: chunk({ thought: 'refused thinking' }),
+  })) {
+    await record(`refusal-retry-${kind}-${suffix}`, {
+      kind,
+      signature: 'question:string -> answer:string',
+      forward_options: { stream: true },
+      pin_request_roles: true,
+      request_tail: 1,
+      responses: [
+        refusedPartial(partial),
+        streamed(text('Answer: recovered'), done()),
+      ],
+    });
+  }
+  await record(`refusal-retry-${kind}-after-tool`, {
+    kind,
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    forward_options: { stream: true, disable_memory_cleanup: true },
+    pin_request_roles: true,
+    responses: [
+      streamed(
+        chunk({
+          function_calls: [call('lookup_1', 'lookup', '{"key":"a"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+      refusedPartial(text('Answer: refused partial')),
+      streamed(text('Answer: recovered'), done()),
+    ],
+  });
+  await record(`refusal-retry-${kind}-exhausted`, {
+    kind,
+    signature: 'question:string -> answer:string',
+    forward_options: { stream: true, max_retries: 1 },
+    pin_request_roles: true,
+    request_tail: 1,
+    error_contains: 'Unable to fix validation error',
+    responses: [
+      refusedPartial(text('Answer: refused partial')),
+      refusedPartial(text('Answer: refused again')),
+    ],
+  });
+}
+
 for (const [name, spec] of Object.entries(cases)) {
   await record(name, spec);
 }

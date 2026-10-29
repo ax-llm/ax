@@ -800,6 +800,14 @@ export interface AxOptimizerResult<OUT> {
   demos?: AxProgramDemos<any, OUT>[];
   stats: AxOptimizationStats;
   bestScore: number;
+  /**
+   * Scalarized validation score before this run changes the program.
+   * GEPA and optimize() measure this before bootstrap, retaining any demos
+   * already supplied by the caller. Other optimizers may omit it.
+   */
+  baselineScore?: number;
+  /** Averaged baseline objectives before scalarization; scalar metrics use `score`. */
+  baselineScores?: Record<string, number>;
   finalConfiguration?: Record<string, unknown>;
 
   // Optimization history for analysis

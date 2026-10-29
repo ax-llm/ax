@@ -2330,6 +2330,7 @@ public final class Conformance {
         ScriptedGEPAEvaluator evaluator = new ScriptedGEPAEvaluator(fixture);
         Map<String, Object> artifact = engine.optimize(request, evaluator);
         if (fixture.containsKey("expected_artifact_subset")) assertSubset(artifact, fixture.get("expected_artifact_subset"), "GEPA artifact");
+        if (fixture.containsKey("expected_gepa_phases")) assertEqual(evaluator.evaluations.stream().map(row -> row.get("phase")).toList(), fixture.get("expected_gepa_phases"), "GEPA evaluation phases");
         if (fixture.containsKey("expected_gepa_evaluations_subset")) assertListSubset(evaluator.evaluations, fixture.get("expected_gepa_evaluations_subset"), "GEPA evaluations");
         if (fixture.containsKey("expected_reflection_request_count")) {
           int reflectionRequests = reflection == null ? 0 : reflection.requests.size();

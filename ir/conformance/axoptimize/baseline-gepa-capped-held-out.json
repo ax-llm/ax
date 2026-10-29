@@ -1,0 +1,164 @@
+{
+  "components": [
+    {
+      "current": "",
+      "id": "root::instruction",
+      "kind": "instruction",
+      "owner": "root"
+    }
+  ],
+  "dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "training-only-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      },
+      {
+        "input": {
+          "question": "training-only-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      }
+    ],
+    "validation": [
+      {
+        "input": {
+          "question": "held-out-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.1
+      },
+      {
+        "input": {
+          "question": "held-out-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.2
+      },
+      {
+        "input": {
+          "question": "held-out-2"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.3
+      },
+      {
+        "input": {
+          "question": "held-out-3"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.4
+      },
+      {
+        "input": {
+          "question": "held-out-4"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.5
+      },
+      {
+        "input": {
+          "question": "held-out-5"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.6
+      },
+      {
+        "input": {
+          "question": "held-out-6"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.7
+      },
+      {
+        "input": {
+          "question": "held-out-7"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.8
+      }
+    ]
+  },
+  "expected_artifact_subset": {
+    "baselineScore": 0.3,
+    "baselineScores": {
+      "score": 0.3
+    },
+    "metadata": {
+      "baselineScore": 0.3,
+      "baselineScores": {
+        "score": 0.3
+      },
+      "bestScore": 0.3,
+      "bootstrapMetricCalls": 0,
+      "totalCalls": 5,
+      "totalMetricCalls": 5
+    }
+  },
+  "expected_demo_count": 0,
+  "expected_gepa_phases": ["baseline evaluation"],
+  "kind": "optimize",
+  "name": "baseline-gepa-capped-held-out",
+  "operation": "gepa",
+  "optimize_options": {
+    "bootstrap": false,
+    "maxMetricCalls": 5,
+    "numTrials": 0,
+    "paretoSetSize": 5
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

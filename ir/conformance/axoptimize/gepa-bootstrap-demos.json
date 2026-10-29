@@ -24,19 +24,8 @@
         "programId": "root",
         "traces": [
           {
-            "actionLog": [],
-            "completionType": "final",
-            "finalOutput": {
-              "componentValue": "Base answer instruction"
-            },
-            "functionCalls": [],
-            "output": {
-              "componentValue": "Base answer instruction"
-            },
-            "trace": {
-              "componentValue": "Base answer instruction"
-            },
-            "usage": {}
+            "componentValue": "Base answer instruction",
+            "question": "Keep?"
           }
         ]
       }

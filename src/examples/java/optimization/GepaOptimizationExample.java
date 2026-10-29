@@ -1,14 +1,13 @@
 // ax-example:start
 // title: Java GEPA Optimization
 // group: optimization
-// description: Pairs a real OpenAI baseline with a local GEPA optimization pass.
+// description: Scores real OpenAI predictions before and after GEPA instruction search.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: intermediate
 // order: 20
 // ax-example:end
 import dev.axllm.ax.*;
-import java.nio.file.*;
 import java.util.*;
 
 public final class GepaOptimizationExample {
@@ -23,20 +22,53 @@ public final class GepaOptimizationExample {
 
   static AxAIService client() {
     return Ax.ai("openai",
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
+        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"), "model_config", Map.of("temperature", 0.0)));
   }
 
-  static final class LocalEvaluator implements OptimizerEvaluator {
+  static Map<String, Object> task(String text, String priority) {
+    return Map.of("input", Map.of("emailText", text), "expectedOutput", Map.of("priority", priority));
+  }
+
+  @SuppressWarnings("unchecked")
+  static Map<String, Object> map(Object value) {
+    return value instanceof Map<?, ?> ? (Map<String, Object>) value : Map.of();
+  }
+
+  static final class PriorityEvaluator implements OptimizerEvaluator {
+    final AxGen program;
+    final AxAIService client;
+    PriorityEvaluator(AxGen program, AxAIService client) { this.program = program; this.client = client; }
     public Map<String, Object> evaluate(Map<String, Object> candidateMap, Map<String, Object> options) {
-      return Map.of("rows", List.of(Map.of("prediction", Map.of("answer", "Ax composes typed LLM programs."), "scores", Map.of("quality", 0.9), "scalar", 0.9)), "avg", 0.9, "count", 1);
+      var result = program.evaluateOptimization(client, options.get("dataset"), candidateMap, options);
+      double sum = 0;
+      var rows = (List<?>) result.get("rows");
+      for (Object item : rows) {
+        var row = map(item);
+        var expected = map(map(row.get("input")).get("expectedOutput"));
+        var output = map(map(row.get("prediction")).get("output"));
+        double score = Objects.equals(output.get("priority"), expected.get("priority")) ? 1 : 0;
+        row.put("scores", Map.of("accuracy", score));
+        row.put("scalar", score);
+        sum += score;
+      }
+      result.put("avg", sum / rows.size());
+      return result;
     }
   }
 
   public static void main(String[] args) throws Exception {
-    AxGen program = new AxGen(Ax.s("emailText:string -> priority:class \"high, normal, low\", rationale:string"), Map.of("id", "priority", "instruction", "Classify the email priority."));
-    Map<String, Object> baseline = program.forward(client(), Map.of("emailText", "Production checkout is failing for enterprise customers."));
-    Map<String, Object> request = Map.of("programKind", "axgen", "components", List.of(Map.of("id", "priority::instruction", "owner", "priority", "kind", "instruction", "current", "Classify priority clearly.")), "dataset", Map.of("train", List.of(Map.of("emailText", "URGENT: checkout is down"))), "options", Map.of("numTrials", 0, "maxMetricCalls", 4, "seed", 7));
-    Map<String, Object> artifact = new AxGEPA(null, Map.of("seed", 7)).optimize(request, new LocalEvaluator());
-    System.out.println(Json.stringify(Map.of("baseline", baseline, "artifact", artifact)));
+    AxAIService student = client();
+    AxGen program = Ax.ax("emailText:string -> priority:class \"high, normal, low\", rationale:string", Map.of("id", "priority", "instruction", "Classify the email priority."), null);
+    Map<String, Object> baseline = program.forward(student, Map.of("emailText", "Production checkout is failing for enterprise customers."));
+    Map<String, Object> request = Map.of(
+        "programKind", "axgen", "components", program.getOptimizableComponents(),
+        "dataset", Map.of("train", List.of(task("URGENT: checkout is down", "high"), task("Weekly product newsletter", "low")),
+            "validation", List.of(task("Production payments are failing", "high"), task("Optional community meetup invite", "low"))),
+        "options", Map.of("numTrials", 1, "minibatchSize", 2, "maxMetricCalls", 12, "bootstrap", false, "seed", 7));
+    var artifact = new AxGEPA(student, Map.of("seed", 7)).optimize(request, new PriorityEvaluator(program, student));
+    double original = ((Number) artifact.get("baselineScore")).doubleValue();
+    double best = ((Number) map(artifact.get("metadata")).get("bestScore")).doubleValue();
+    System.out.println(Json.stringify(Map.of("baselinePrediction", baseline, "baselineScore", original,
+        "baselineScores", artifact.get("baselineScores"), "optimizedScore", best, "delta", best - original)));
   }
 }

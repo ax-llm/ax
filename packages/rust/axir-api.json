@@ -1160,13 +1160,15 @@
           "canonical_name": "AxGEPA",
           "public_name": "AxGEPA",
           "kind": "type",
-          "description": "Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.",
-          "form": "AxGEPA::new(reflection, options)",
+          "description": "GEPA engine with Core-owned reflection, Pareto and bootstrap behavior. Artifacts report original-program baselineScore/baselineScores at the top level and in metadata, independently of the final frontier.",
+          "form": "AxGEPA::new().with_reflection_client(reflection)",
           "important_options": [
             "reflection client",
             "budget",
             "metric",
-            "candidate count"
+            "candidate count",
+            "baselineScore",
+            "baselineScores"
           ],
           "returns": "optimizer engine",
           "example": "let engine = AxGEPA::new(reflection_client, json!({}));"
@@ -1197,6 +1199,23 @@
             "evidence"
           ],
           "returns": "score/evidence result"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "optimize_with_client",
+          "public_name": "optimize_with_client",
+          "kind": "function",
+          "description": "Run BootstrapFewShot and GEPA against a live student client. Reports the original baseline before bootstrap. The client-free optimize helper requires pre-scored tasks.",
+          "form": "optimize_with_client(\u0026mut program, Rc\u003cRefCell\u003cClient\u003e\u003e, examples, options)",
+          "important_options": [
+            "Rc\u003cRefCell\u003cClient\u003e\u003e",
+            "examples",
+            "validationExamples",
+            "bootstrap",
+            "maxMetricCalls"
+          ],
+          "returns": "AxResult\u003cOptimizedArtifact\u003e",
+          "example": "let artifact = optimize_with_client(\u0026mut qa, student.clone(), train, json!({\"maxMetricCalls\": 100}))?;"
         }
       ]
     },

@@ -54,10 +54,14 @@ from .gen import (
     _build_optimization_eval_result,
     _build_optimization_eval_row,
     _deserialize_optimized_artifact,
+    _gepa_baseline_report,
+    _gepa_helper_metric_budget,
+    _gepa_pareto_set_size,
     _normalize_optimization_dataset,
     _normalize_optimization_metric_scores,
     _normalize_optimizer_engine_response,
     _optimization_component_current_map,
+    _optimization_bootstrap_demo,
     _prepare_optimizer_run,
     _scalarize_optimization_scores,
     _validate_optimization_component_map,
@@ -326,7 +330,7 @@ class AxBootstrapFewShot(OptimizerEngine):
                     row = rows[0]
                     if _gepa_num(row.get("scalar"), 0) >= threshold:
                         accepted.add(example_key)
-                        demos.append({"programId": "root", "traces": [copy.deepcopy(row.get("prediction", row.get("input", {})))]})
+                        demos.append(_optimization_bootstrap_demo(row))
         return {
             "artifactVersion": "axir-optimized-artifact-v1",
             "optimizerName": self.name,
@@ -354,6 +358,8 @@ class AxGEPA(OptimizerEngine):
         self.rng_state = _gepa_int(self.options.get("seed"), 123456789) or 123456789
         self.selector_state = {}
         self.feedback_memory = []
+        self._baseline_evaluation = None
+        self._active_demos = []
 
     def _rand(self):
         self.rng_state ^= (self.rng_state << 13) & 0xFFFFFFFF
@@ -436,9 +442,12 @@ class AxGEPA(OptimizerEngine):
         needed = len(examples or [])
         if total_calls + needed > max_calls:
             if throw:
-                raise RuntimeError(f"AxGEPA: options.maxMetricCalls={max_calls} is too small to evaluate the initial Pareto set; need at least {needed} metric calls")
+                raise RuntimeError(f"AxGEPA: options.maxMetricCalls={max_calls} is too small for {phase}; need at least {total_calls + needed} metric calls")
             return None, total_calls
-        result = evaluator.evaluate(dict(cfg), {"dataset": self._dataset_for(examples), "phase": phase, "captureTraces": capture_traces})
+        eval_options = {"dataset": self._dataset_for(examples), "phase": phase, "captureTraces": capture_traces}
+        if self._active_demos:
+            eval_options["demos"] = copy.deepcopy(self._active_demos)
+        result = evaluator.evaluate(dict(cfg), eval_options)
         rows = list((result or {}).get("rows") or [])
         scalars = [_gepa_num(row.get("scalar"), 0) for row in rows]
         out = {
@@ -542,7 +551,7 @@ class AxGEPA(OptimizerEngine):
                 continue
             row = result["rows"][0]
             if _gepa_num(row.get("scalar"), 0) >= threshold:
-                demos.append({"programId": "root", "traces": [copy.deepcopy(row.get("prediction", row.get("input", {})))]})
+                demos.append(_optimization_bootstrap_demo(row))
         return demos, total_calls
 
     def optimize(self, request: dict[str, Any], evaluator: OptimizerEvaluator | None = None) -> dict[str, Any]:
@@ -563,14 +572,31 @@ class AxGEPA(OptimizerEngine):
         minibatch_size = _gepa_int(_gepa_option(options, "minibatchSize", "minibatch_size", default=20), 20, 1)
         early_stop = _gepa_int(_gepa_option(options, "earlyStoppingTrials", "early_stopping_trials", default=5), 5, 1)
         min_improvement = _gepa_num(_gepa_option(options, "minImprovementThreshold", "min_improvement_threshold", default=0), 0)
-        pareto_size = _gepa_int(_gepa_option(options, "paretoSetSize", "pareto_set_size", default=max(10, min(200, minibatch_size * 3))), max(10, min(200, minibatch_size * 3)), 1, 1000)
+        pareto_size = int(_gepa_pareto_set_size(options))
         tie_eps = _gepa_num(_gepa_option(options, "tieEpsilon", "tie_epsilon", default=0), 0)
         base_cfg = _gepa_current_map(components)
         pareto_set = validation[:pareto_size]
         self._selector_init(components, _gepa_option(options, "selectorState", "selector_state"))
         total_calls = 0
-        demos, total_calls = self._bootstrap(evaluator, base_cfg, train, options, total_calls, max_calls)
-        base_eval, total_calls = self._evaluate(evaluator, base_cfg, pareto_set, "initial Pareto evaluation", max_calls, total_calls, True)
+        self._active_demos = []
+        baseline_eval = copy.deepcopy(options.get("_baselineEvaluation"))
+        if baseline_eval is None:
+            baseline_eval, total_calls = self._evaluate(evaluator, base_cfg, pareto_set, "baseline evaluation", max_calls, total_calls, True)
+        else:
+            total_calls = int(baseline_eval.get("count", len(pareto_set)))
+        self._baseline_evaluation = copy.deepcopy(baseline_eval)
+        baseline_report = _gepa_baseline_report(baseline_eval, options)
+        bootstrap_calls = int(options.get("_bootstrapMetricCalls", 0))
+        demos = copy.deepcopy(options.get("_bootstrapDemos") or [])
+        if options.get("bootstrap"):
+            raw_bootstrap = options["bootstrap"]
+            boot_options = raw_bootstrap if isinstance(raw_bootstrap, dict) else {}
+            boot_limit = _gepa_int(_gepa_option(boot_options, "maxBootstrapMetricCalls", "max_bootstrap_metric_calls", default=min(len(train), 8) or 1), min(len(train), 8) or 1, 1)
+            demos, bootstrap_calls = self._bootstrap(evaluator, base_cfg, train, options, 0, boot_limit)
+        self._active_demos = demos
+        base_eval = baseline_eval
+        if demos:
+            base_eval, total_calls = self._evaluate(evaluator, base_cfg, pareto_set, "bootstrapped Pareto evaluation", max_calls, total_calls, True)
         candidates = [{"cfg": dict(base_cfg), "scores": base_eval["avgScores"] or {"score": base_eval["avg"]}, "parent": None}]
         per_instance = [base_eval["scalars"]]
         stagnation = 0
@@ -631,6 +657,7 @@ class AxGEPA(OptimizerEngine):
             "artifactVersion": "axir-optimized-artifact-v1",
             "optimizerName": "GEPA",
             "optimizerVersion": self.version,
+            **baseline_report,
             "componentMap": best_cfg,
             "demos": demos,
             "metadata": {
@@ -638,7 +665,10 @@ class AxGEPA(OptimizerEngine):
                 "selectorState": copy.deepcopy(self.selector_state),
                 "paretoFront": pareto_meta,
                 "bestScore": 0 if best_score == -1e100 else best_score,
+                **baseline_report,
                 "totalMetricCalls": total_calls,
+                "bootstrapMetricCalls": bootstrap_calls,
+                "totalCalls": total_calls + bootstrap_calls,
                 "candidatesExplored": len(candidates),
                 "report": {
                     "summary": "GEPA Multi-Objective Optimization Complete",
@@ -1407,27 +1437,38 @@ def optimize(program, examples, options: dict[str, Any] | None = None):
     if student is None:
         raise ValueError("optimize() requires studentAI or client")
     teacher = _optimize_option(opts, "teacherAI", "teacher_ai", "teacher", "reflectionAI", "reflection_ai", "reflection_client", default=student)
-    max_metric_calls = _gepa_int(_optimize_option(opts, "maxMetricCalls", "max_metric_calls", default=100), 100, 1)
-    bootstrap_setting = opts.get("bootstrap") if "bootstrap" in opts else (len(examples or []) <= 8)
+    dataset = _normalize_optimization_dataset(examples or [])
+    validation_examples = _optimize_option(opts, "validationExamples", "validation_examples")
+    if validation_examples is not None:
+        dataset["validation"] = list(validation_examples)
+    validation = dataset.get("validation") or dataset.get("train") or []
+    bootstrap_setting = opts.get("bootstrap") if "bootstrap" in opts else (len(dataset.get("train") or []) <= 8)
+    max_metric_calls = int(_gepa_helper_metric_budget(opts, len(validation), bootstrap_setting is not False))
+    gepa_options = {**opts, "bootstrap": False, "maxMetricCalls": max_metric_calls, "client": student, "apply": False}
     demos = []
+    bootstrap_calls = 0
     if bootstrap_setting is not False:
+        baseline_options = {**gepa_options, "numTrials": 0}
+        baseline_engine = AxGEPA(teacher, **baseline_options)
+        program.optimize_with(baseline_engine, dataset, baseline_options)
+        gepa_options["_baselineEvaluation"] = baseline_engine._baseline_evaluation
         bootstrap_options = dict(opts)
         if isinstance(bootstrap_setting, dict):
             bootstrap_options.update(bootstrap_setting)
         bootstrap_options["client"] = teacher or student
         bootstrap_options["apply"] = False
         bootstrap = AxBootstrapFewShot(**bootstrap_options)
-        bootstrap_artifact = program.optimize_with(bootstrap, examples or [], bootstrap_options)
+        bootstrap_artifact = program.optimize_with(bootstrap, dataset, bootstrap_options)
         demos = list((bootstrap_artifact or {}).get("demos") or [])
+        if not demos:
+            raise RuntimeError("No demonstrations found. Either provide more examples or improve the existing ones.")
+        bootstrap_calls = int((bootstrap_artifact.get("metadata") or {}).get("totalMetricCalls", 0))
         if demos and hasattr(program, "set_demos"):
             program.set_demos(demos)
-    gepa_options = dict(opts)
-    gepa_options["bootstrap"] = False
-    gepa_options["maxMetricCalls"] = max_metric_calls
-    gepa_options["client"] = student
-    gepa_options["apply"] = False
+    gepa_options["_bootstrapDemos"] = demos
+    gepa_options["_bootstrapMetricCalls"] = bootstrap_calls
     engine = AxGEPA(teacher, **gepa_options)
-    artifact = program.optimize_with(engine, examples or [], gepa_options)
+    artifact = program.optimize_with(engine, dataset, gepa_options)
     if demos:
         artifact["demos"] = demos
     return artifact

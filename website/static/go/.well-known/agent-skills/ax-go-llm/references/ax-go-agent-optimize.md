@@ -39,3 +39,6 @@ result := engine.Optimize(request, evaluator)
 - Use `no-key` examples for deterministic local checks and provider request mapping.
 - Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
 - Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- GEPA returns baselineScore and baselineScores at the artifact top level and in metadata, measured before bootstrap or component changes. Compare metadata.bestScore with baselineScore; the original candidate need not remain on the Pareto frontier.
+- Baseline and seeded validation use the same capped held-out subset and selection scalarization. Both consume maxMetricCalls. Bootstrap generation has separate limits; metadata.bootstrapMetricCalls plus metadata.totalMetricCalls equals metadata.totalCalls. Without new demos, reuse the baseline evaluation.
+- Bootstrap demos contain only fresh training inputs and outputs; never recover demos from a retained validation or inactive-child trace tree.

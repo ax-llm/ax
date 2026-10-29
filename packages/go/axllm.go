@@ -47024,6 +47024,7 @@ func _scalarize_optimization_scores(args ...Value) (Value, error) {
 	var v_empty Value
 	var v_has_metric Value
 	var v_metric_key Value
+	var v_metric_key_snake Value
 	var v_picked Value
 	var v_sum Value
 	var v_sum_next Value
@@ -47039,12 +47040,14 @@ func _scalarize_optimization_scores(args ...Value) (Value, error) {
 	_ = v_empty
 	_ = v_has_metric
 	_ = v_metric_key
+	_ = v_metric_key_snake
 	_ = v_picked
 	_ = v_sum
 	_ = v_sum_next
 	_ = v_value
 	_ = v_values
-	v_metric_key = coreGet(v_options, "paretoMetricKey", "")
+	v_metric_key_snake = coreGet(v_options, "pareto_metric_key", "")
+	v_metric_key = coreGet(v_options, "paretoMetricKey", v_metric_key_snake)
 	v_has_metric = _core_ne(v_metric_key, "")
 	if coreTruthy(v_has_metric) {
 		v_picked = coreGet(v_scores, v_metric_key, 0)
@@ -47069,41 +47072,6 @@ func _scalarize_optimization_scores(args ...Value) (Value, error) {
 	}
 	v_avg = _core_div(v_sum, v_count)
 	return v_avg, nil
-}
-
-func _optimization_action_name_matches(args ...Value) (Value, error) {
-	axirCoverageMark("_optimization_action_name_matches")
-	var v_expected Value
-	var v_call Value
-	var v_any_match Value
-	var v_direct_match Value
-	var v_dot_expected Value
-	var v_name Value
-	var v_name_match Value
-	var v_qualified Value
-	var v_qualified_match Value
-	var v_suffix_match Value
-	if len(args) > 0 { v_expected = args[0] }
-	_ = v_expected
-	if len(args) > 1 { v_call = args[1] }
-	_ = v_call
-	_ = v_any_match
-	_ = v_direct_match
-	_ = v_dot_expected
-	_ = v_name
-	_ = v_name_match
-	_ = v_qualified
-	_ = v_qualified_match
-	_ = v_suffix_match
-	v_qualified = coreGet(v_call, "qualifiedName", "")
-	v_name = coreGet(v_call, "name", "")
-	v_qualified_match = _core_eq(v_qualified, v_expected)
-	v_name_match = _core_eq(v_name, v_expected)
-	v_dot_expected = _core_add(".", v_expected)
-	v_suffix_match = _core_string_ends_with(v_qualified, v_dot_expected)
-	v_direct_match = _core_or(v_qualified_match, v_name_match)
-	v_any_match = _core_or(v_direct_match, v_suffix_match)
-	return v_any_match, nil
 }
 
 func _stream_strip_leading_fence_impl(args ...Value) (Value, error) {
@@ -47208,119 +47176,104 @@ func _stream_strip_leading_fence_impl(args ...Value) (Value, error) {
 	return v_stripped, nil
 }
 
+func _gepa_baseline_report(args ...Value) (Value, error) {
+	axirCoverageMark("_gepa_baseline_report")
+	var v_evaluation Value
+	var v_options Value
+	var v_average Value
+	var v_averages Value
+	var v_count Value
+	var v_count_next Value
+	var v_counts Value
+	var v_empty Value
+	var v_key Value
+	var v_keys Value
+	var v_n Value
+	var v_number Value
+	var v_objective Value
+	var v_objective_keys Value
+	var v_out Value
+	var v_raw Value
+	var v_row Value
+	var v_rows Value
+	var v_scalar Value
+	var v_scores Value
+	var v_sum Value
+	var v_sum_next Value
+	var v_sums Value
+	var v_total Value
+	var v_value Value
+	if len(args) > 0 { v_evaluation = args[0] }
+	_ = v_evaluation
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_average
+	_ = v_averages
+	_ = v_count
+	_ = v_count_next
+	_ = v_counts
+	_ = v_empty
+	_ = v_key
+	_ = v_keys
+	_ = v_n
+	_ = v_number
+	_ = v_objective
+	_ = v_objective_keys
+	_ = v_out
+	_ = v_raw
+	_ = v_row
+	_ = v_rows
+	_ = v_scalar
+	_ = v_scores
+	_ = v_sum
+	_ = v_sum_next
+	_ = v_sums
+	_ = v_total
+	_ = v_value
+	v_empty = MutableArray()
+	v_rows = coreGet(v_evaluation, "rows", v_empty)
+	v_sums = Object()
+	v_counts = Object()
+	for _, v_row = range coreIter(v_rows) {
+		v_raw = coreGet(v_row, "scores", 0)
+		{ v, err := _normalize_optimization_metric_scores(v_raw); if err != nil { return nil, err }; v_scores = v }
+		v_keys = _core_map_keys(v_scores)
+		for _, v_key = range coreIter(v_keys) {
+			v_value = coreGet(v_scores, v_key, nil)
+			v_number = coreTypeIs(v_value, "number")
+			if coreTruthy(v_number) {
+				v_sum = coreGet(v_sums, v_key, 0)
+				v_count = coreGet(v_counts, v_key, 0)
+				v_sum_next = _core_add(v_sum, v_value)
+				v_count_next = _core_add(v_count, 1)
+				if err := coreSet(v_sums, v_key, v_sum_next); err != nil { return nil, err }
+				if err := coreSet(v_counts, v_key, v_count_next); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	}
+	v_averages = Object()
+	v_objective_keys = _core_map_keys(v_sums)
+	for _, v_objective = range coreIter(v_objective_keys) {
+		v_total = coreGet(v_sums, v_objective, nil)
+		v_n = coreGet(v_counts, v_objective, nil)
+		v_average = _core_div(v_total, v_n)
+		if err := coreSet(v_averages, v_objective, v_average); err != nil { return nil, err }
+	}
+	{ v, err := _scalarize_optimization_scores(v_averages, v_options); if err != nil { return nil, err }; v_scalar = v }
+	v_out = Object()
+	if err := coreSet(v_out, "baselineScores", v_averages); err != nil { return nil, err }
+	if err := coreSet(v_out, "baselineScore", v_scalar); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _date_datetime_format_error_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_datetime_format_error_impl")
 	var v_error Value
 	_ = v_error
 	v_error = _core_runtime_error("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.")
 	return v_error, nil
-}
-
-func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
-	axirCoverageMark("_adjust_optimization_score_for_actions")
-	var v_score Value
-	var v_task Value
-	var v_prediction Value
-	var v_adjusted Value
-	var v_adjusted_next Value
-	var v_bad_found Value
-	var v_bad_match Value
-	var v_call Value
-	var v_call_matches Value
-	var v_empty_list Value
-	var v_expected Value
-	var v_expected_actions Value
-	var v_expected_count Value
-	var v_factor Value
-	var v_forbidden Value
-	var v_forbidden_actions Value
-	var v_found Value
-	var v_function_calls Value
-	var v_half_ratio Value
-	var v_has_expected Value
-	var v_matched Value
-	var v_matched_next Value
-	var v_penalized Value
-	var v_ratio Value
-	if len(args) > 0 { v_score = args[0] }
-	_ = v_score
-	if len(args) > 1 { v_task = args[1] }
-	_ = v_task
-	if len(args) > 2 { v_prediction = args[2] }
-	_ = v_prediction
-	_ = v_adjusted
-	_ = v_adjusted_next
-	_ = v_bad_found
-	_ = v_bad_match
-	_ = v_call
-	_ = v_call_matches
-	_ = v_empty_list
-	_ = v_expected
-	_ = v_expected_actions
-	_ = v_expected_count
-	_ = v_factor
-	_ = v_forbidden
-	_ = v_forbidden_actions
-	_ = v_found
-	_ = v_function_calls
-	_ = v_half_ratio
-	_ = v_has_expected
-	_ = v_matched
-	_ = v_matched_next
-	_ = v_penalized
-	_ = v_ratio
-	v_empty_list = MutableArray()
-	v_function_calls = coreGet(v_prediction, "functionCalls", v_empty_list)
-	v_expected_actions = coreGet(v_task, "expectedActions", v_empty_list)
-	v_forbidden_actions = coreGet(v_task, "forbiddenActions", v_empty_list)
-	v_adjusted = v_score
-	v_expected_count = _core_len(v_expected_actions)
-	v_has_expected = _core_gt(v_expected_count, 0)
-	if coreTruthy(v_has_expected) {
-		v_matched = 0
-		for _, v_expected = range coreIter(v_expected_actions) {
-			v_found = false
-			for _, v_call = range coreIter(v_function_calls) {
-				{ v, err := _optimization_action_name_matches(v_expected, v_call); if err != nil { return nil, err }; v_call_matches = v }
-				if coreTruthy(v_call_matches) {
-					v_found = true
-				} else {
-				// empty
-				}
-			}
-			if coreTruthy(v_found) {
-				v_matched_next = _core_add(v_matched, 1)
-				v_matched = v_matched_next
-			} else {
-			// empty
-			}
-		}
-		v_ratio = _core_div(v_matched, v_expected_count)
-		v_half_ratio = _core_mul(0.5, v_ratio)
-		v_factor = _core_add(0.5, v_half_ratio)
-		v_adjusted_next = _core_mul(v_adjusted, v_factor)
-		v_adjusted = v_adjusted_next
-	} else {
-	// empty
-	}
-	for _, v_forbidden = range coreIter(v_forbidden_actions) {
-		v_bad_found = false
-		for _, v_call = range coreIter(v_function_calls) {
-			{ v, err := _optimization_action_name_matches(v_forbidden, v_call); if err != nil { return nil, err }; v_bad_match = v }
-			if coreTruthy(v_bad_match) {
-				v_bad_found = true
-			} else {
-			// empty
-			}
-		}
-		if coreTruthy(v_bad_found) {
-			v_penalized = _core_mul(v_adjusted, 0.2)
-			v_adjusted = v_penalized
-		} else {
-		// empty
-		}
-	}
-	return v_adjusted, nil
 }
 
 func _date_values_error_impl(args ...Value) (Value, error) {
@@ -47409,6 +47362,44 @@ func _date_datetime_parts_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_parts, nil
+}
+
+func _optimization_bootstrap_demo(args ...Value) (Value, error) {
+	axirCoverageMark("_optimization_bootstrap_demo")
+	var v_row Value
+	var v_demo Value
+	var v_empty Value
+	var v_input Value
+	var v_output Value
+	var v_output_fallback Value
+	var v_prediction Value
+	var v_task Value
+	var v_trace Value
+	var v_traces Value
+	if len(args) > 0 { v_row = args[0] }
+	_ = v_row
+	_ = v_demo
+	_ = v_empty
+	_ = v_input
+	_ = v_output
+	_ = v_output_fallback
+	_ = v_prediction
+	_ = v_task
+	_ = v_trace
+	_ = v_traces
+	v_empty = Object()
+	v_task = coreGet(v_row, "input", v_empty)
+	v_input = coreGet(v_task, "input", v_task)
+	v_prediction = coreGet(v_row, "prediction", v_empty)
+	v_output_fallback = coreGet(v_prediction, "output", v_prediction)
+	v_output = coreGet(v_prediction, "finalOutput", v_output_fallback)
+	v_trace = _core_map_merge(v_input, v_output)
+	v_traces = MutableArray()
+	v_traces = coreAppend(v_traces, v_trace)
+	v_demo = Object()
+	if err := coreSet(v_demo, "programId", "root"); err != nil { return nil, err }
+	if err := coreSet(v_demo, "traces", v_traces); err != nil { return nil, err }
+	return v_demo, nil
 }
 
 func _evidence_decode_one_impl(args ...Value) (Value, error) {
@@ -48068,6 +48059,72 @@ func _parse_sample_outputs(args ...Value) (Value, error) {
 	return v_bundle, nil
 }
 
+func _gepa_pareto_set_size(args ...Value) (Value, error) {
+	axirCoverageMark("_gepa_pareto_set_size")
+	var v_options Value
+	var v_default_size Value
+	var v_explicit Value
+	var v_large Value
+	var v_mini Value
+	var v_mini_snake Value
+	var v_rounded Value
+	var v_size Value
+	var v_small Value
+	var v_snake Value
+	var v_too_large Value
+	var v_too_small Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_default_size
+	_ = v_explicit
+	_ = v_large
+	_ = v_mini
+	_ = v_mini_snake
+	_ = v_rounded
+	_ = v_size
+	_ = v_small
+	_ = v_snake
+	_ = v_too_large
+	_ = v_too_small
+	v_snake = coreGet(v_options, "pareto_set_size", 0)
+	v_size = coreGet(v_options, "paretoSetSize", v_snake)
+	v_explicit = _core_gt(v_size, 0)
+	if coreTruthy(v_explicit) {
+		v_rounded = _core_math_floor(v_size)
+		v_small = _core_lt(v_rounded, 5)
+		if coreTruthy(v_small) {
+			return 5, nil
+		} else {
+		// empty
+		}
+		v_large = _core_gt(v_rounded, 1000)
+		if coreTruthy(v_large) {
+			return 1000, nil
+		} else {
+		// empty
+		}
+		return v_rounded, nil
+	} else {
+	// empty
+	}
+	v_mini_snake = coreGet(v_options, "minibatch_size", 20)
+	v_mini = coreGet(v_options, "minibatchSize", v_mini_snake)
+	v_default_size = _core_mul(v_mini, 3)
+	v_too_small = _core_lt(v_default_size, 10)
+	if coreTruthy(v_too_small) {
+		return 10, nil
+	} else {
+	// empty
+	}
+	v_too_large = _core_gt(v_default_size, 200)
+	if coreTruthy(v_too_large) {
+		return 200, nil
+	} else {
+	// empty
+	}
+	return v_default_size, nil
+}
+
 func _date_abbreviation_offset_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_abbreviation_offset_impl")
 	var v_units Value
@@ -48324,6 +48381,99 @@ func _stream_markdown_list_impl(args ...Value) (Value, error) {
 	return v_items, nil
 }
 
+func _gepa_helper_metric_budget(args ...Value) (Value, error) {
+	axirCoverageMark("_gepa_helper_metric_budget")
+	var v_options Value
+	var v_validation_count Value
+	var v_bootstrap Value
+	var v_cap Value
+	var v_capped Value
+	var v_count Value
+	var v_explicit Value
+	var v_minimum Value
+	var v_none Value
+	var v_snake Value
+	var v_supplied Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	if len(args) > 1 { v_validation_count = args[1] }
+	_ = v_validation_count
+	if len(args) > 2 { v_bootstrap = args[2] }
+	_ = v_bootstrap
+	_ = v_cap
+	_ = v_capped
+	_ = v_count
+	_ = v_explicit
+	_ = v_minimum
+	_ = v_none
+	_ = v_snake
+	_ = v_supplied
+	v_none = _core_none()
+	v_snake = coreGet(v_options, "max_metric_calls", v_none)
+	v_explicit = coreGet(v_options, "maxMetricCalls", v_snake)
+	v_supplied = _core_is_not_none(v_explicit)
+	if coreTruthy(v_supplied) {
+		return v_explicit, nil
+	} else {
+	// empty
+	}
+	{ v, err := _gepa_pareto_set_size(v_options); if err != nil { return nil, err }; v_cap = v }
+	v_count = v_validation_count
+	v_capped = _core_gt(v_count, v_cap)
+	if coreTruthy(v_capped) {
+		v_count = v_cap
+	} else {
+	// empty
+	}
+	if coreTruthy(v_bootstrap) {
+		v_count = _core_mul(v_count, 2)
+	} else {
+	// empty
+	}
+	v_minimum = _core_lt(v_count, 100)
+	if coreTruthy(v_minimum) {
+		return 100, nil
+	} else {
+	// empty
+	}
+	return v_count, nil
+}
+
+func _optimization_action_name_matches(args ...Value) (Value, error) {
+	axirCoverageMark("_optimization_action_name_matches")
+	var v_expected Value
+	var v_call Value
+	var v_any_match Value
+	var v_direct_match Value
+	var v_dot_expected Value
+	var v_name Value
+	var v_name_match Value
+	var v_qualified Value
+	var v_qualified_match Value
+	var v_suffix_match Value
+	if len(args) > 0 { v_expected = args[0] }
+	_ = v_expected
+	if len(args) > 1 { v_call = args[1] }
+	_ = v_call
+	_ = v_any_match
+	_ = v_direct_match
+	_ = v_dot_expected
+	_ = v_name
+	_ = v_name_match
+	_ = v_qualified
+	_ = v_qualified_match
+	_ = v_suffix_match
+	v_qualified = coreGet(v_call, "qualifiedName", "")
+	v_name = coreGet(v_call, "name", "")
+	v_qualified_match = _core_eq(v_qualified, v_expected)
+	v_name_match = _core_eq(v_name, v_expected)
+	v_dot_expected = _core_add(".", v_expected)
+	v_suffix_match = _core_string_ends_with(v_qualified, v_dot_expected)
+	v_direct_match = _core_or(v_qualified_match, v_name_match)
+	v_any_match = _core_or(v_direct_match, v_suffix_match)
+	return v_any_match, nil
+}
+
 func _date_zone_resolve_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_zone_resolve_impl")
 	var v_units Value
@@ -48468,43 +48618,111 @@ func _date_zone_resolve_impl(args ...Value) (Value, error) {
 	return nil, asError(v_missing_error)
 }
 
-func _build_optimization_eval_row(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimization_eval_row")
+func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
+	axirCoverageMark("_adjust_optimization_score_for_actions")
+	var v_score Value
 	var v_task Value
 	var v_prediction Value
-	var v_scores Value
-	var v_scalar Value
-	var v_trace Value
-	var v_error Value
-	var v_has_error Value
-	var v_out Value
-	if len(args) > 0 { v_task = args[0] }
+	var v_adjusted Value
+	var v_adjusted_next Value
+	var v_bad_found Value
+	var v_bad_match Value
+	var v_call Value
+	var v_call_matches Value
+	var v_empty_list Value
+	var v_expected Value
+	var v_expected_actions Value
+	var v_expected_count Value
+	var v_factor Value
+	var v_forbidden Value
+	var v_forbidden_actions Value
+	var v_found Value
+	var v_function_calls Value
+	var v_half_ratio Value
+	var v_has_expected Value
+	var v_matched Value
+	var v_matched_next Value
+	var v_penalized Value
+	var v_ratio Value
+	if len(args) > 0 { v_score = args[0] }
+	_ = v_score
+	if len(args) > 1 { v_task = args[1] }
 	_ = v_task
-	if len(args) > 1 { v_prediction = args[1] }
+	if len(args) > 2 { v_prediction = args[2] }
 	_ = v_prediction
-	if len(args) > 2 { v_scores = args[2] }
-	_ = v_scores
-	if len(args) > 3 { v_scalar = args[3] }
-	_ = v_scalar
-	if len(args) > 4 { v_trace = args[4] }
-	_ = v_trace
-	if len(args) > 5 { v_error = args[5] }
-	_ = v_error
-	_ = v_has_error
-	_ = v_out
-	v_out = Object()
-	if err := coreSet(v_out, "input", v_task); err != nil { return nil, err }
-	if err := coreSet(v_out, "prediction", v_prediction); err != nil { return nil, err }
-	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
-	if err := coreSet(v_out, "scalar", v_scalar); err != nil { return nil, err }
-	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_has_error = _core_is_not_none(v_error)
-	if coreTruthy(v_has_error) {
-		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
+	_ = v_adjusted
+	_ = v_adjusted_next
+	_ = v_bad_found
+	_ = v_bad_match
+	_ = v_call
+	_ = v_call_matches
+	_ = v_empty_list
+	_ = v_expected
+	_ = v_expected_actions
+	_ = v_expected_count
+	_ = v_factor
+	_ = v_forbidden
+	_ = v_forbidden_actions
+	_ = v_found
+	_ = v_function_calls
+	_ = v_half_ratio
+	_ = v_has_expected
+	_ = v_matched
+	_ = v_matched_next
+	_ = v_penalized
+	_ = v_ratio
+	v_empty_list = MutableArray()
+	v_function_calls = coreGet(v_prediction, "functionCalls", v_empty_list)
+	v_expected_actions = coreGet(v_task, "expectedActions", v_empty_list)
+	v_forbidden_actions = coreGet(v_task, "forbiddenActions", v_empty_list)
+	v_adjusted = v_score
+	v_expected_count = _core_len(v_expected_actions)
+	v_has_expected = _core_gt(v_expected_count, 0)
+	if coreTruthy(v_has_expected) {
+		v_matched = 0
+		for _, v_expected = range coreIter(v_expected_actions) {
+			v_found = false
+			for _, v_call = range coreIter(v_function_calls) {
+				{ v, err := _optimization_action_name_matches(v_expected, v_call); if err != nil { return nil, err }; v_call_matches = v }
+				if coreTruthy(v_call_matches) {
+					v_found = true
+				} else {
+				// empty
+				}
+			}
+			if coreTruthy(v_found) {
+				v_matched_next = _core_add(v_matched, 1)
+				v_matched = v_matched_next
+			} else {
+			// empty
+			}
+		}
+		v_ratio = _core_div(v_matched, v_expected_count)
+		v_half_ratio = _core_mul(0.5, v_ratio)
+		v_factor = _core_add(0.5, v_half_ratio)
+		v_adjusted_next = _core_mul(v_adjusted, v_factor)
+		v_adjusted = v_adjusted_next
 	} else {
 	// empty
 	}
-	return v_out, nil
+	for _, v_forbidden = range coreIter(v_forbidden_actions) {
+		v_bad_found = false
+		for _, v_call = range coreIter(v_function_calls) {
+			{ v, err := _optimization_action_name_matches(v_forbidden, v_call); if err != nil { return nil, err }; v_bad_match = v }
+			if coreTruthy(v_bad_match) {
+				v_bad_found = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_bad_found) {
+			v_penalized = _core_mul(v_adjusted, 0.2)
+			v_adjusted = v_penalized
+		} else {
+		// empty
+		}
+	}
+	return v_adjusted, nil
 }
 
 func _stream_js_string_impl(args ...Value) (Value, error) {
@@ -48598,64 +48816,6 @@ func _stream_js_string_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return "[object Object]", nil
-}
-
-func _build_optimization_eval_result(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimization_eval_result")
-	var v_rows Value
-	var v_candidate_map Value
-	var v_phase Value
-	var v_avg Value
-	var v_avg_next Value
-	var v_count Value
-	var v_count_next Value
-	var v_has_rows Value
-	var v_out Value
-	var v_row Value
-	var v_scalar Value
-	var v_sum Value
-	var v_sum_next Value
-	if len(args) > 0 { v_rows = args[0] }
-	_ = v_rows
-	if len(args) > 1 { v_candidate_map = args[1] }
-	_ = v_candidate_map
-	if len(args) > 2 { v_phase = args[2] }
-	_ = v_phase
-	_ = v_avg
-	_ = v_avg_next
-	_ = v_count
-	_ = v_count_next
-	_ = v_has_rows
-	_ = v_out
-	_ = v_row
-	_ = v_scalar
-	_ = v_sum
-	_ = v_sum_next
-	v_sum = 0
-	v_count = 0
-	for _, v_row = range coreIter(v_rows) {
-		v_scalar = coreGet(v_row, "scalar", 0)
-		v_sum_next = _core_add(v_sum, v_scalar)
-		v_count_next = _core_add(v_count, 1)
-		v_sum = v_sum_next
-		v_count = v_count_next
-	}
-	v_avg = 0
-	v_has_rows = _core_gt(v_count, 0)
-	if coreTruthy(v_has_rows) {
-		v_avg_next = _core_div(v_sum, v_count)
-		v_avg = v_avg_next
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "phase", v_phase); err != nil { return nil, err }
-	if err := coreSet(v_out, "candidateMap", v_candidate_map); err != nil { return nil, err }
-	if err := coreSet(v_out, "rows", v_rows); err != nil { return nil, err }
-	if err := coreSet(v_out, "sum", v_sum); err != nil { return nil, err }
-	if err := coreSet(v_out, "avg", v_avg); err != nil { return nil, err }
-	if err := coreSet(v_out, "count", v_count); err != nil { return nil, err }
-	return v_out, nil
 }
 
 func chat_session_record_result(args ...Value) (Value, error) {
@@ -48883,147 +49043,6 @@ func _select_sample_index(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_selected, nil
-}
-
-func _filter_optimization_components(args ...Value) (Value, error) {
-	axirCoverageMark("_filter_optimization_components")
-	var v_components Value
-	var v_target Value
-	var v_actor_any_match Value
-	var v_actor_component_match Value
-	var v_actor_match Value
-	var v_component Value
-	var v_count Value
-	var v_empty Value
-	var v_error Value
-	var v_explicit_match Value
-	var v_flow_component Value
-	var v_id Value
-	var v_include Value
-	var v_is_actor Value
-	var v_is_all Value
-	var v_is_flow Value
-	var v_is_list Value
-	var v_is_responder Value
-	var v_kind Value
-	var v_listed Value
-	var v_message Value
-	var v_out Value
-	var v_responder_any_match Value
-	var v_responder_component_match Value
-	var v_responder_match Value
-	var v_stage_instruction_match Value
-	if len(args) > 0 { v_components = args[0] }
-	_ = v_components
-	if len(args) > 1 { v_target = args[1] }
-	_ = v_target
-	_ = v_actor_any_match
-	_ = v_actor_component_match
-	_ = v_actor_match
-	_ = v_component
-	_ = v_count
-	_ = v_empty
-	_ = v_error
-	_ = v_explicit_match
-	_ = v_flow_component
-	_ = v_id
-	_ = v_include
-	_ = v_is_actor
-	_ = v_is_all
-	_ = v_is_flow
-	_ = v_is_list
-	_ = v_is_responder
-	_ = v_kind
-	_ = v_listed
-	_ = v_message
-	_ = v_out
-	_ = v_responder_any_match
-	_ = v_responder_component_match
-	_ = v_responder_match
-	_ = v_stage_instruction_match
-	v_out = MutableArray()
-	v_is_list = coreTypeIs(v_target, "list")
-	v_is_all = _core_eq(v_target, "all")
-	v_is_actor = _core_eq(v_target, "actor")
-	v_is_responder = _core_eq(v_target, "responder")
-	v_is_flow = _core_eq(v_target, "flow")
-	for _, v_component = range coreIter(v_components) {
-		v_id = coreGet(v_component, "id", "")
-		v_kind = coreGet(v_component, "kind", "")
-		v_include = false
-		if coreTruthy(v_is_all) {
-			v_include = true
-		} else {
-		// empty
-		}
-		if coreTruthy(v_is_list) {
-			v_listed = _core_contains(v_target, v_id)
-			if coreTruthy(v_listed) {
-				v_include = true
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		if coreTruthy(v_is_actor) {
-			v_actor_match = _core_string_ends_with(v_id, ".actor")
-			v_actor_component_match = _core_contains(v_id, ".actor::")
-			v_actor_any_match = _core_or(v_actor_match, v_actor_component_match)
-			v_stage_instruction_match = _core_eq(v_id, "root::instruction")
-			v_actor_any_match = _core_or(v_actor_any_match, v_stage_instruction_match)
-			if coreTruthy(v_actor_any_match) {
-				v_include = true
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		if coreTruthy(v_is_responder) {
-			v_responder_match = _core_string_ends_with(v_id, ".responder")
-			v_responder_component_match = _core_contains(v_id, ".responder::")
-			v_responder_any_match = _core_or(v_responder_match, v_responder_component_match)
-			if coreTruthy(v_responder_any_match) {
-				v_include = true
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		if coreTruthy(v_is_flow) {
-			v_flow_component = _core_eq(v_kind, "flow-graph")
-			if coreTruthy(v_flow_component) {
-				v_include = true
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		v_explicit_match = _core_eq(v_target, v_id)
-		if coreTruthy(v_explicit_match) {
-			v_include = true
-		} else {
-		// empty
-		}
-		if coreTruthy(v_include) {
-			v_out = coreAppend(v_out, v_component)
-		} else {
-		// empty
-		}
-	}
-	v_count = _core_len(v_out)
-	v_empty = _core_eq(v_count, 0)
-	if coreTruthy(v_empty) {
-		v_message = _core_string_format("no optimizable components match target: {}", v_target)
-		v_error = _core_runtime_error(v_message)
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	return v_out, nil
 }
 
 func _regex_class_atom(args ...Value) (Value, error) {
@@ -50645,44 +50664,42 @@ func chat_session_observe_output(args ...Value) (Value, error) {
 	return v_output, nil
 }
 
-func _build_optimizer_request(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimizer_request")
-	var v_program_kind Value
-	var v_components Value
-	var v_dataset Value
-	var v_options Value
+func _build_optimization_eval_row(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_eval_row")
+	var v_task Value
+	var v_prediction Value
+	var v_scores Value
+	var v_scalar Value
 	var v_trace Value
-	var v_evaluator Value
-	var v_methods Value
+	var v_error Value
+	var v_has_error Value
 	var v_out Value
-	if len(args) > 0 { v_program_kind = args[0] }
-	_ = v_program_kind
-	if len(args) > 1 { v_components = args[1] }
-	_ = v_components
-	if len(args) > 2 { v_dataset = args[2] }
-	_ = v_dataset
-	if len(args) > 3 { v_options = args[3] }
-	_ = v_options
+	if len(args) > 0 { v_task = args[0] }
+	_ = v_task
+	if len(args) > 1 { v_prediction = args[1] }
+	_ = v_prediction
+	if len(args) > 2 { v_scores = args[2] }
+	_ = v_scores
+	if len(args) > 3 { v_scalar = args[3] }
+	_ = v_scalar
 	if len(args) > 4 { v_trace = args[4] }
 	_ = v_trace
-	_ = v_evaluator
-	_ = v_methods
+	if len(args) > 5 { v_error = args[5] }
+	_ = v_error
+	_ = v_has_error
 	_ = v_out
 	v_out = Object()
-	if err := coreSet(v_out, "contractVersion", "axir-optimize-contract-v1"); err != nil { return nil, err }
-	if err := coreSet(v_out, "programKind", v_program_kind); err != nil { return nil, err }
-	if err := coreSet(v_out, "components", v_components); err != nil { return nil, err }
-	if err := coreSet(v_out, "dataset", v_dataset); err != nil { return nil, err }
-	if err := coreSet(v_out, "options", v_options); err != nil { return nil, err }
+	if err := coreSet(v_out, "input", v_task); err != nil { return nil, err }
+	if err := coreSet(v_out, "prediction", v_prediction); err != nil { return nil, err }
+	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
+	if err := coreSet(v_out, "scalar", v_scalar); err != nil { return nil, err }
 	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_evaluator = Object()
-	v_methods = MutableArray()
-	v_methods = coreAppend(v_methods, "evaluate")
-	if err := coreSet(v_evaluator, "available", true); err != nil { return nil, err }
-	if err := coreSet(v_evaluator, "contractVersion", "axir-optimizer-evaluator-v1"); err != nil { return nil, err }
-	if err := coreSet(v_evaluator, "evidenceContractVersion", "axir-optimizer-evidence-v1"); err != nil { return nil, err }
-	if err := coreSet(v_evaluator, "methods", v_methods); err != nil { return nil, err }
-	if err := coreSet(v_out, "evaluator", v_evaluator); err != nil { return nil, err }
+	v_has_error = _core_is_not_none(v_error)
+	if coreTruthy(v_has_error) {
+		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_out, nil
 }
 
@@ -50793,6 +50810,64 @@ func _date_zone_offset_seconds_impl(args ...Value) (Value, error) {
 	return v_seconds, nil
 }
 
+func _build_optimization_eval_result(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_eval_result")
+	var v_rows Value
+	var v_candidate_map Value
+	var v_phase Value
+	var v_avg Value
+	var v_avg_next Value
+	var v_count Value
+	var v_count_next Value
+	var v_has_rows Value
+	var v_out Value
+	var v_row Value
+	var v_scalar Value
+	var v_sum Value
+	var v_sum_next Value
+	if len(args) > 0 { v_rows = args[0] }
+	_ = v_rows
+	if len(args) > 1 { v_candidate_map = args[1] }
+	_ = v_candidate_map
+	if len(args) > 2 { v_phase = args[2] }
+	_ = v_phase
+	_ = v_avg
+	_ = v_avg_next
+	_ = v_count
+	_ = v_count_next
+	_ = v_has_rows
+	_ = v_out
+	_ = v_row
+	_ = v_scalar
+	_ = v_sum
+	_ = v_sum_next
+	v_sum = 0
+	v_count = 0
+	for _, v_row = range coreIter(v_rows) {
+		v_scalar = coreGet(v_row, "scalar", 0)
+		v_sum_next = _core_add(v_sum, v_scalar)
+		v_count_next = _core_add(v_count, 1)
+		v_sum = v_sum_next
+		v_count = v_count_next
+	}
+	v_avg = 0
+	v_has_rows = _core_gt(v_count, 0)
+	if coreTruthy(v_has_rows) {
+		v_avg_next = _core_div(v_sum, v_count)
+		v_avg = v_avg_next
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "phase", v_phase); err != nil { return nil, err }
+	if err := coreSet(v_out, "candidateMap", v_candidate_map); err != nil { return nil, err }
+	if err := coreSet(v_out, "rows", v_rows); err != nil { return nil, err }
+	if err := coreSet(v_out, "sum", v_sum); err != nil { return nil, err }
+	if err := coreSet(v_out, "avg", v_avg); err != nil { return nil, err }
+	if err := coreSet(v_out, "count", v_count); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _evidence_context_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_evidence_context_impl")
 	var v_response Value
@@ -50839,75 +50914,6 @@ func _evidence_context_impl(args ...Value) (Value, error) {
 	v_context = Object()
 	if err := coreSet(v_context, "provenance", v_provenance); err != nil { return nil, err }
 	return v_context, nil
-}
-
-func _prepare_optimizer_run(args ...Value) (Value, error) {
-	axirCoverageMark("_prepare_optimizer_run")
-	var v_program_kind Value
-	var v_components Value
-	var v_dataset Value
-	var v_options Value
-	var v_trace Value
-	var v_evaluator_available Value
-	var v_empty_map Value
-	var v_evaluator Value
-	var v_normalized Value
-	var v_opts Value
-	var v_opts_missing Value
-	var v_out Value
-	var v_request Value
-	var v_request_options Value
-	var v_selected Value
-	var v_target Value
-	if len(args) > 0 { v_program_kind = args[0] }
-	_ = v_program_kind
-	if len(args) > 1 { v_components = args[1] }
-	_ = v_components
-	if len(args) > 2 { v_dataset = args[2] }
-	_ = v_dataset
-	if len(args) > 3 { v_options = args[3] }
-	_ = v_options
-	if len(args) > 4 { v_trace = args[4] }
-	_ = v_trace
-	if len(args) > 5 { v_evaluator_available = args[5] }
-	_ = v_evaluator_available
-	_ = v_empty_map
-	_ = v_evaluator
-	_ = v_normalized
-	_ = v_opts
-	_ = v_opts_missing
-	_ = v_out
-	_ = v_request
-	_ = v_request_options
-	_ = v_selected
-	_ = v_target
-	v_empty_map = Object()
-	v_opts_missing = _core_is_none(v_options)
-	v_opts = v_options
-	if coreTruthy(v_opts_missing) {
-		v_opts = v_empty_map
-	} else {
-	// empty
-	}
-	{ v, err := _normalize_optimization_dataset(v_dataset); if err != nil { return nil, err }; v_normalized = v }
-	v_target = coreGet(v_opts, "target", "all")
-	{ v, err := _filter_optimization_components(v_components, v_target); if err != nil { return nil, err }; v_selected = v }
-	v_request_options = _core_map_merge(v_empty_map, v_opts)
-	_core_map_delete(v_request_options, "client")
-	_core_map_delete(v_request_options, "ai")
-	_core_map_delete(v_request_options, "engine")
-	_core_map_delete(v_request_options, "optimizer")
-	{ v, err := _build_optimizer_request(v_program_kind, v_selected, v_normalized, v_request_options, v_trace); if err != nil { return nil, err }; v_request = v }
-	v_evaluator = coreGet(v_request, "evaluator", nil)
-	if err := coreSet(v_evaluator, "available", v_evaluator_available); err != nil { return nil, err }
-	if err := coreSet(v_request, "evaluator", v_evaluator); err != nil { return nil, err }
-	v_out = Object()
-	if err := coreSet(v_out, "components", v_components); err != nil { return nil, err }
-	if err := coreSet(v_out, "selectedComponents", v_selected); err != nil { return nil, err }
-	if err := coreSet(v_out, "dataset", v_normalized); err != nil { return nil, err }
-	if err := coreSet(v_out, "options", v_request_options); err != nil { return nil, err }
-	if err := coreSet(v_out, "request", v_request); err != nil { return nil, err }
-	return v_out, nil
 }
 
 func _date_parts_in_zone_impl(args ...Value) (Value, error) {
@@ -50988,6 +50994,147 @@ func chat_session_create_state(args ...Value) (Value, error) {
 	v_turns = MutableArray()
 	if err := coreSet(v_state, "turns", v_turns); err != nil { return nil, err }
 	return v_state, nil
+}
+
+func _filter_optimization_components(args ...Value) (Value, error) {
+	axirCoverageMark("_filter_optimization_components")
+	var v_components Value
+	var v_target Value
+	var v_actor_any_match Value
+	var v_actor_component_match Value
+	var v_actor_match Value
+	var v_component Value
+	var v_count Value
+	var v_empty Value
+	var v_error Value
+	var v_explicit_match Value
+	var v_flow_component Value
+	var v_id Value
+	var v_include Value
+	var v_is_actor Value
+	var v_is_all Value
+	var v_is_flow Value
+	var v_is_list Value
+	var v_is_responder Value
+	var v_kind Value
+	var v_listed Value
+	var v_message Value
+	var v_out Value
+	var v_responder_any_match Value
+	var v_responder_component_match Value
+	var v_responder_match Value
+	var v_stage_instruction_match Value
+	if len(args) > 0 { v_components = args[0] }
+	_ = v_components
+	if len(args) > 1 { v_target = args[1] }
+	_ = v_target
+	_ = v_actor_any_match
+	_ = v_actor_component_match
+	_ = v_actor_match
+	_ = v_component
+	_ = v_count
+	_ = v_empty
+	_ = v_error
+	_ = v_explicit_match
+	_ = v_flow_component
+	_ = v_id
+	_ = v_include
+	_ = v_is_actor
+	_ = v_is_all
+	_ = v_is_flow
+	_ = v_is_list
+	_ = v_is_responder
+	_ = v_kind
+	_ = v_listed
+	_ = v_message
+	_ = v_out
+	_ = v_responder_any_match
+	_ = v_responder_component_match
+	_ = v_responder_match
+	_ = v_stage_instruction_match
+	v_out = MutableArray()
+	v_is_list = coreTypeIs(v_target, "list")
+	v_is_all = _core_eq(v_target, "all")
+	v_is_actor = _core_eq(v_target, "actor")
+	v_is_responder = _core_eq(v_target, "responder")
+	v_is_flow = _core_eq(v_target, "flow")
+	for _, v_component = range coreIter(v_components) {
+		v_id = coreGet(v_component, "id", "")
+		v_kind = coreGet(v_component, "kind", "")
+		v_include = false
+		if coreTruthy(v_is_all) {
+			v_include = true
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_list) {
+			v_listed = _core_contains(v_target, v_id)
+			if coreTruthy(v_listed) {
+				v_include = true
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_actor) {
+			v_actor_match = _core_string_ends_with(v_id, ".actor")
+			v_actor_component_match = _core_contains(v_id, ".actor::")
+			v_actor_any_match = _core_or(v_actor_match, v_actor_component_match)
+			v_stage_instruction_match = _core_eq(v_id, "root::instruction")
+			v_actor_any_match = _core_or(v_actor_any_match, v_stage_instruction_match)
+			if coreTruthy(v_actor_any_match) {
+				v_include = true
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_responder) {
+			v_responder_match = _core_string_ends_with(v_id, ".responder")
+			v_responder_component_match = _core_contains(v_id, ".responder::")
+			v_responder_any_match = _core_or(v_responder_match, v_responder_component_match)
+			if coreTruthy(v_responder_any_match) {
+				v_include = true
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_flow) {
+			v_flow_component = _core_eq(v_kind, "flow-graph")
+			if coreTruthy(v_flow_component) {
+				v_include = true
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_explicit_match = _core_eq(v_target, v_id)
+		if coreTruthy(v_explicit_match) {
+			v_include = true
+		} else {
+		// empty
+		}
+		if coreTruthy(v_include) {
+			v_out = coreAppend(v_out, v_component)
+		} else {
+		// empty
+		}
+	}
+	v_count = _core_len(v_out)
+	v_empty = _core_eq(v_count, 0)
+	if coreTruthy(v_empty) {
+		v_message = _core_string_format("no optimizable components match target: {}", v_target)
+		v_error = _core_runtime_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _regex_atom(args ...Value) (Value, error) {
@@ -51342,179 +51489,6 @@ func _regex_atom(args ...Value) (Value, error) {
 	}
 	{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t68 = v }
 	return v_t68, nil
-}
-
-func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
-	axirCoverageMark("_normalize_optimizer_engine_response")
-	var v_response Value
-	var v_engine_name Value
-	var v_engine_version Value
-	var v_components Value
-	var v_artifact Value
-	var v_artifact_error Value
-	var v_artifact_is_object Value
-	var v_artifact_source Value
-	var v_artifact_value Value
-	var v_bad_artifact Value
-	var v_bad_response Value
-	var v_changed Value
-	var v_component_map Value
-	var v_default_metadata Value
-	var v_empty_evidence Value
-	var v_empty_map Value
-	var v_empty_provenance Value
-	var v_engine_ver Value
-	var v_error Value
-	var v_evidence Value
-	var v_has_artifact Value
-	var v_map Value
-	var v_metadata Value
-	var v_metadata_evidence Value
-	var v_metadata_final Value
-	var v_metadata_provenance Value
-	var v_missing_component_map Value
-	var v_missing_engine_ver Value
-	var v_missing_evidence Value
-	var v_missing_metadata Value
-	var v_missing_name Value
-	var v_missing_provenance Value
-	var v_missing_version Value
-	var v_name Value
-	var v_provenance Value
-	var v_response_is_object Value
-	var v_snake_map Value
-	var v_validated Value
-	var v_version Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	if len(args) > 1 { v_engine_name = args[1] }
-	_ = v_engine_name
-	if len(args) > 2 { v_engine_version = args[2] }
-	_ = v_engine_version
-	if len(args) > 3 { v_components = args[3] }
-	_ = v_components
-	_ = v_artifact
-	_ = v_artifact_error
-	_ = v_artifact_is_object
-	_ = v_artifact_source
-	_ = v_artifact_value
-	_ = v_bad_artifact
-	_ = v_bad_response
-	_ = v_changed
-	_ = v_component_map
-	_ = v_default_metadata
-	_ = v_empty_evidence
-	_ = v_empty_map
-	_ = v_empty_provenance
-	_ = v_engine_ver
-	_ = v_error
-	_ = v_evidence
-	_ = v_has_artifact
-	_ = v_map
-	_ = v_metadata
-	_ = v_metadata_evidence
-	_ = v_metadata_final
-	_ = v_metadata_provenance
-	_ = v_missing_component_map
-	_ = v_missing_engine_ver
-	_ = v_missing_evidence
-	_ = v_missing_metadata
-	_ = v_missing_name
-	_ = v_missing_provenance
-	_ = v_missing_version
-	_ = v_name
-	_ = v_provenance
-	_ = v_response_is_object
-	_ = v_snake_map
-	_ = v_validated
-	_ = v_version
-	v_response_is_object = coreTypeIs(v_response, "object")
-	v_bad_response = _core_not(v_response_is_object)
-	if coreTruthy(v_bad_response) {
-		v_error = _core_runtime_error("optimizer engine must return an optimized artifact")
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_empty_map = Object()
-	v_has_artifact = _core_map_contains(v_response, "artifact")
-	v_artifact_source = v_response
-	if coreTruthy(v_has_artifact) {
-		v_artifact_value = coreGet(v_response, "artifact", nil)
-		v_artifact_source = v_artifact_value
-	} else {
-	// empty
-	}
-	v_artifact = _core_map_merge(v_empty_map, v_artifact_source)
-	v_artifact_is_object = coreTypeIs(v_artifact, "object")
-	v_bad_artifact = _core_not(v_artifact_is_object)
-	if coreTruthy(v_bad_artifact) {
-		v_artifact_error = _core_runtime_error("optimizer engine must return an optimized artifact")
-		return nil, asError(v_artifact_error)
-	} else {
-	// empty
-	}
-	v_version = coreGet(v_artifact, "artifactVersion", nil)
-	v_missing_version = _core_is_none(v_version)
-	if coreTruthy(v_missing_version) {
-		if err := coreSet(v_artifact, "artifactVersion", "axir-optimized-artifact-v1"); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_name = coreGet(v_artifact, "optimizerName", nil)
-	v_missing_name = _core_is_none(v_name)
-	if coreTruthy(v_missing_name) {
-		if err := coreSet(v_artifact, "optimizerName", v_engine_name); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_engine_ver = coreGet(v_artifact, "optimizerVersion", nil)
-	v_missing_engine_ver = _core_is_none(v_engine_ver)
-	if coreTruthy(v_missing_engine_ver) {
-		if err := coreSet(v_artifact, "optimizerVersion", v_engine_version); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_component_map = coreGet(v_artifact, "componentMap", nil)
-	v_missing_component_map = _core_is_none(v_component_map)
-	if coreTruthy(v_missing_component_map) {
-		v_snake_map = coreGet(v_artifact, "component_map", v_empty_map)
-		if err := coreSet(v_artifact, "componentMap", v_snake_map); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_metadata = coreGet(v_artifact, "metadata", nil)
-	v_missing_metadata = _core_is_none(v_metadata)
-	if coreTruthy(v_missing_metadata) {
-		v_default_metadata = Object()
-		if err := coreSet(v_artifact, "metadata", v_default_metadata); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_metadata_final = coreGet(v_artifact, "metadata", nil)
-	v_provenance = coreGet(v_artifact, "provenance", nil)
-	v_missing_provenance = _core_is_none(v_provenance)
-	if coreTruthy(v_missing_provenance) {
-		v_empty_provenance = Object()
-		v_metadata_provenance = coreGet(v_metadata_final, "provenance", v_empty_provenance)
-		if err := coreSet(v_artifact, "provenance", v_metadata_provenance); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_evidence = coreGet(v_artifact, "evidence", nil)
-	v_missing_evidence = _core_is_none(v_evidence)
-	if coreTruthy(v_missing_evidence) {
-		v_empty_evidence = Object()
-		v_metadata_evidence = coreGet(v_metadata_final, "evidence", v_empty_evidence)
-		if err := coreSet(v_artifact, "evidence", v_metadata_evidence); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	{ v, err := _validate_optimized_artifact(v_artifact, v_components); if err != nil { return nil, err }; v_validated = v }
-	v_map = coreGet(v_validated, "componentMap", nil)
-	{ v, err := _optimization_changed_components(v_components, v_map); if err != nil { return nil, err }; v_changed = v }
-	if err := coreSet(v_validated, "changedComponents", v_changed); err != nil { return nil, err }
-	return v_validated, nil
 }
 
 func _date_zone_offset_millis_impl(args ...Value) (Value, error) {
@@ -51912,138 +51886,44 @@ func _date_parse_range_impl(args ...Value) (Value, error) {
 	return v_range_millis, nil
 }
 
-func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimizer_evidence_batch")
-	var v_eval_result Value
+func _build_optimizer_request(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimizer_request")
+	var v_program_kind Value
 	var v_components Value
-	var v_avg Value
-	var v_candidate_map Value
-	var v_component Value
-	var v_count Value
-	var v_empty_list Value
-	var v_empty_map Value
-	var v_entry Value
-	var v_error Value
-	var v_has_error Value
-	var v_id Value
-	var v_items Value
-	var v_out Value
-	var v_output Value
-	var v_outputs Value
-	var v_prediction Value
-	var v_prediction_error Value
-	var v_reflective Value
-	var v_row Value
-	var v_row_error Value
-	var v_rows Value
-	var v_scalar Value
-	var v_score_vectors Value
-	var v_scores Value
-	var v_sum Value
+	var v_dataset Value
+	var v_options Value
 	var v_trace Value
-	var v_trajectories Value
-	var v_trajectory Value
-	var v_vector Value
-	if len(args) > 0 { v_eval_result = args[0] }
-	_ = v_eval_result
+	var v_evaluator Value
+	var v_methods Value
+	var v_out Value
+	if len(args) > 0 { v_program_kind = args[0] }
+	_ = v_program_kind
 	if len(args) > 1 { v_components = args[1] }
 	_ = v_components
-	_ = v_avg
-	_ = v_candidate_map
-	_ = v_component
-	_ = v_count
-	_ = v_empty_list
-	_ = v_empty_map
-	_ = v_entry
-	_ = v_error
-	_ = v_has_error
-	_ = v_id
-	_ = v_items
-	_ = v_out
-	_ = v_output
-	_ = v_outputs
-	_ = v_prediction
-	_ = v_prediction_error
-	_ = v_reflective
-	_ = v_row
-	_ = v_row_error
-	_ = v_rows
-	_ = v_scalar
-	_ = v_score_vectors
-	_ = v_scores
-	_ = v_sum
+	if len(args) > 2 { v_dataset = args[2] }
+	_ = v_dataset
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	if len(args) > 4 { v_trace = args[4] }
 	_ = v_trace
-	_ = v_trajectories
-	_ = v_trajectory
-	_ = v_vector
-	v_empty_list = MutableArray()
-	v_empty_map = Object()
-	v_rows = coreGet(v_eval_result, "rows", v_empty_list)
-	v_outputs = MutableArray()
-	v_scores = MutableArray()
-	v_score_vectors = MutableArray()
-	v_trajectories = MutableArray()
-	for _, v_row = range coreIter(v_rows) {
-		v_prediction = coreGet(v_row, "prediction", v_empty_map)
-		v_output = coreGet(v_prediction, "output", v_prediction)
-		v_outputs = coreAppend(v_outputs, v_output)
-		v_scalar = coreGet(v_row, "scalar", 0)
-		v_scores = coreAppend(v_scores, v_scalar)
-		v_vector = coreGet(v_row, "scores", v_empty_map)
-		v_score_vectors = coreAppend(v_score_vectors, v_vector)
-		v_trajectory = Object()
-		v_trace = coreGet(v_row, "trace", nil)
-		if err := coreSet(v_trajectory, "trace", v_trace); err != nil { return nil, err }
-		if err := coreSet(v_trajectory, "output", v_output); err != nil { return nil, err }
-		v_row_error = coreGet(v_row, "error", nil)
-		v_prediction_error = coreGet(v_prediction, "error", v_row_error)
-		v_has_error = _core_is_not_none(v_prediction_error)
-		if coreTruthy(v_has_error) {
-			if err := coreSet(v_trajectory, "error", v_prediction_error); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		v_trajectories = coreAppend(v_trajectories, v_trajectory)
-	}
-	v_reflective = Object()
-	for _, v_component = range coreIter(v_components) {
-		v_id = coreGet(v_component, "id", "")
-		v_items = MutableArray()
-		for _, v_row = range coreIter(v_rows) {
-			v_entry = Object()
-			v_prediction = coreGet(v_row, "prediction", v_empty_map)
-			v_output = coreGet(v_prediction, "output", v_prediction)
-			v_scalar = coreGet(v_row, "scalar", 0)
-			v_trace = coreGet(v_row, "trace", nil)
-			if err := coreSet(v_entry, "score", v_scalar); err != nil { return nil, err }
-			if err := coreSet(v_entry, "output", v_output); err != nil { return nil, err }
-			if err := coreSet(v_entry, "trace", v_trace); err != nil { return nil, err }
-			v_error = coreGet(v_row, "error", nil)
-			v_has_error = _core_is_not_none(v_error)
-			if coreTruthy(v_has_error) {
-				if err := coreSet(v_entry, "error", v_error); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_items = coreAppend(v_items, v_entry)
-		}
-		if err := coreSet(v_reflective, v_id, v_items); err != nil { return nil, err }
-	}
+	_ = v_evaluator
+	_ = v_methods
+	_ = v_out
 	v_out = Object()
-	if err := coreSet(v_out, "contractVersion", "axir-optimizer-evidence-v1"); err != nil { return nil, err }
-	v_candidate_map = coreGet(v_eval_result, "candidateMap", v_empty_map)
-	if err := coreSet(v_out, "candidateMap", v_candidate_map); err != nil { return nil, err }
-	if err := coreSet(v_out, "outputs", v_outputs); err != nil { return nil, err }
-	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
-	if err := coreSet(v_out, "scoreVectors", v_score_vectors); err != nil { return nil, err }
-	if err := coreSet(v_out, "trajectories", v_trajectories); err != nil { return nil, err }
-	v_avg = coreGet(v_eval_result, "avg", 0)
-	v_sum = coreGet(v_eval_result, "sum", 0)
-	v_count = coreGet(v_eval_result, "count", 0)
-	if err := coreSet(v_out, "avg", v_avg); err != nil { return nil, err }
-	if err := coreSet(v_out, "sum", v_sum); err != nil { return nil, err }
-	if err := coreSet(v_out, "count", v_count); err != nil { return nil, err }
-	if err := coreSet(v_out, "reflectiveDataset", v_reflective); err != nil { return nil, err }
+	if err := coreSet(v_out, "contractVersion", "axir-optimize-contract-v1"); err != nil { return nil, err }
+	if err := coreSet(v_out, "programKind", v_program_kind); err != nil { return nil, err }
+	if err := coreSet(v_out, "components", v_components); err != nil { return nil, err }
+	if err := coreSet(v_out, "dataset", v_dataset); err != nil { return nil, err }
+	if err := coreSet(v_out, "options", v_options); err != nil { return nil, err }
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_evaluator = Object()
+	v_methods = MutableArray()
+	v_methods = coreAppend(v_methods, "evaluate")
+	if err := coreSet(v_evaluator, "available", true); err != nil { return nil, err }
+	if err := coreSet(v_evaluator, "contractVersion", "axir-optimizer-evaluator-v1"); err != nil { return nil, err }
+	if err := coreSet(v_evaluator, "evidenceContractVersion", "axir-optimizer-evidence-v1"); err != nil { return nil, err }
+	if err := coreSet(v_evaluator, "methods", v_methods); err != nil { return nil, err }
+	if err := coreSet(v_out, "evaluator", v_evaluator); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -52061,6 +51941,92 @@ func chat_session_result(args ...Value) (Value, error) {
 	v_response = _core_map_merge(v_response, v_empty)
 	if err := coreSet(v_response, "__session_response_id", v_id); err != nil { return nil, err }
 	return v_response, nil
+}
+
+func _prepare_optimizer_run(args ...Value) (Value, error) {
+	axirCoverageMark("_prepare_optimizer_run")
+	var v_program_kind Value
+	var v_components Value
+	var v_dataset Value
+	var v_options Value
+	var v_trace Value
+	var v_evaluator_available Value
+	var v_empty_map Value
+	var v_evaluator Value
+	var v_has_validation_examples Value
+	var v_normalized Value
+	var v_opts Value
+	var v_opts_missing Value
+	var v_out Value
+	var v_request Value
+	var v_request_options Value
+	var v_selected Value
+	var v_target Value
+	var v_validation_examples Value
+	var v_validation_none Value
+	var v_validation_snake Value
+	if len(args) > 0 { v_program_kind = args[0] }
+	_ = v_program_kind
+	if len(args) > 1 { v_components = args[1] }
+	_ = v_components
+	if len(args) > 2 { v_dataset = args[2] }
+	_ = v_dataset
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	if len(args) > 4 { v_trace = args[4] }
+	_ = v_trace
+	if len(args) > 5 { v_evaluator_available = args[5] }
+	_ = v_evaluator_available
+	_ = v_empty_map
+	_ = v_evaluator
+	_ = v_has_validation_examples
+	_ = v_normalized
+	_ = v_opts
+	_ = v_opts_missing
+	_ = v_out
+	_ = v_request
+	_ = v_request_options
+	_ = v_selected
+	_ = v_target
+	_ = v_validation_examples
+	_ = v_validation_none
+	_ = v_validation_snake
+	v_empty_map = Object()
+	v_opts_missing = _core_is_none(v_options)
+	v_opts = v_options
+	if coreTruthy(v_opts_missing) {
+		v_opts = v_empty_map
+	} else {
+	// empty
+	}
+	{ v, err := _normalize_optimization_dataset(v_dataset); if err != nil { return nil, err }; v_normalized = v }
+	v_validation_none = _core_none()
+	v_validation_snake = coreGet(v_opts, "validation_examples", v_validation_none)
+	v_validation_examples = coreGet(v_opts, "validationExamples", v_validation_snake)
+	v_has_validation_examples = _core_is_not_none(v_validation_examples)
+	if coreTruthy(v_has_validation_examples) {
+		if err := coreSet(v_normalized, "validation", v_validation_examples); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_target = coreGet(v_opts, "target", "all")
+	{ v, err := _filter_optimization_components(v_components, v_target); if err != nil { return nil, err }; v_selected = v }
+	v_request_options = _core_map_merge(v_empty_map, v_opts)
+	_core_map_delete(v_request_options, "client")
+	_core_map_delete(v_request_options, "ai")
+	_core_map_delete(v_request_options, "engine")
+	_core_map_delete(v_request_options, "optimizer")
+	{ v, err := _build_optimizer_request(v_program_kind, v_selected, v_normalized, v_request_options, v_trace); if err != nil { return nil, err }; v_request = v }
+	v_evaluator = coreGet(v_request, "evaluator", nil)
+	if err := coreSet(v_evaluator, "available", v_evaluator_available); err != nil { return nil, err }
+	if err := coreSet(v_request, "evaluator", v_evaluator); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "components", v_components); err != nil { return nil, err }
+	if err := coreSet(v_out, "selectedComponents", v_selected); err != nil { return nil, err }
+	if err := coreSet(v_out, "dataset", v_normalized); err != nil { return nil, err }
+	if err := coreSet(v_out, "options", v_request_options); err != nil { return nil, err }
+	if err := coreSet(v_out, "request", v_request); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func chat_session_record_response(args ...Value) (Value, error) {
@@ -52266,6 +52232,179 @@ func _stream_required_missing_error_impl(args ...Value) (Value, error) {
 	v_message = _core_string_format("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank.", v_title, v_title, v_label)
 	v_error = _core_validation_error(v_message)
 	return v_error, nil
+}
+
+func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_optimizer_engine_response")
+	var v_response Value
+	var v_engine_name Value
+	var v_engine_version Value
+	var v_components Value
+	var v_artifact Value
+	var v_artifact_error Value
+	var v_artifact_is_object Value
+	var v_artifact_source Value
+	var v_artifact_value Value
+	var v_bad_artifact Value
+	var v_bad_response Value
+	var v_changed Value
+	var v_component_map Value
+	var v_default_metadata Value
+	var v_empty_evidence Value
+	var v_empty_map Value
+	var v_empty_provenance Value
+	var v_engine_ver Value
+	var v_error Value
+	var v_evidence Value
+	var v_has_artifact Value
+	var v_map Value
+	var v_metadata Value
+	var v_metadata_evidence Value
+	var v_metadata_final Value
+	var v_metadata_provenance Value
+	var v_missing_component_map Value
+	var v_missing_engine_ver Value
+	var v_missing_evidence Value
+	var v_missing_metadata Value
+	var v_missing_name Value
+	var v_missing_provenance Value
+	var v_missing_version Value
+	var v_name Value
+	var v_provenance Value
+	var v_response_is_object Value
+	var v_snake_map Value
+	var v_validated Value
+	var v_version Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_engine_name = args[1] }
+	_ = v_engine_name
+	if len(args) > 2 { v_engine_version = args[2] }
+	_ = v_engine_version
+	if len(args) > 3 { v_components = args[3] }
+	_ = v_components
+	_ = v_artifact
+	_ = v_artifact_error
+	_ = v_artifact_is_object
+	_ = v_artifact_source
+	_ = v_artifact_value
+	_ = v_bad_artifact
+	_ = v_bad_response
+	_ = v_changed
+	_ = v_component_map
+	_ = v_default_metadata
+	_ = v_empty_evidence
+	_ = v_empty_map
+	_ = v_empty_provenance
+	_ = v_engine_ver
+	_ = v_error
+	_ = v_evidence
+	_ = v_has_artifact
+	_ = v_map
+	_ = v_metadata
+	_ = v_metadata_evidence
+	_ = v_metadata_final
+	_ = v_metadata_provenance
+	_ = v_missing_component_map
+	_ = v_missing_engine_ver
+	_ = v_missing_evidence
+	_ = v_missing_metadata
+	_ = v_missing_name
+	_ = v_missing_provenance
+	_ = v_missing_version
+	_ = v_name
+	_ = v_provenance
+	_ = v_response_is_object
+	_ = v_snake_map
+	_ = v_validated
+	_ = v_version
+	v_response_is_object = coreTypeIs(v_response, "object")
+	v_bad_response = _core_not(v_response_is_object)
+	if coreTruthy(v_bad_response) {
+		v_error = _core_runtime_error("optimizer engine must return an optimized artifact")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_empty_map = Object()
+	v_has_artifact = _core_map_contains(v_response, "artifact")
+	v_artifact_source = v_response
+	if coreTruthy(v_has_artifact) {
+		v_artifact_value = coreGet(v_response, "artifact", nil)
+		v_artifact_source = v_artifact_value
+	} else {
+	// empty
+	}
+	v_artifact = _core_map_merge(v_empty_map, v_artifact_source)
+	v_artifact_is_object = coreTypeIs(v_artifact, "object")
+	v_bad_artifact = _core_not(v_artifact_is_object)
+	if coreTruthy(v_bad_artifact) {
+		v_artifact_error = _core_runtime_error("optimizer engine must return an optimized artifact")
+		return nil, asError(v_artifact_error)
+	} else {
+	// empty
+	}
+	v_version = coreGet(v_artifact, "artifactVersion", nil)
+	v_missing_version = _core_is_none(v_version)
+	if coreTruthy(v_missing_version) {
+		if err := coreSet(v_artifact, "artifactVersion", "axir-optimized-artifact-v1"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_name = coreGet(v_artifact, "optimizerName", nil)
+	v_missing_name = _core_is_none(v_name)
+	if coreTruthy(v_missing_name) {
+		if err := coreSet(v_artifact, "optimizerName", v_engine_name); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_engine_ver = coreGet(v_artifact, "optimizerVersion", nil)
+	v_missing_engine_ver = _core_is_none(v_engine_ver)
+	if coreTruthy(v_missing_engine_ver) {
+		if err := coreSet(v_artifact, "optimizerVersion", v_engine_version); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_component_map = coreGet(v_artifact, "componentMap", nil)
+	v_missing_component_map = _core_is_none(v_component_map)
+	if coreTruthy(v_missing_component_map) {
+		v_snake_map = coreGet(v_artifact, "component_map", v_empty_map)
+		if err := coreSet(v_artifact, "componentMap", v_snake_map); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_metadata = coreGet(v_artifact, "metadata", nil)
+	v_missing_metadata = _core_is_none(v_metadata)
+	if coreTruthy(v_missing_metadata) {
+		v_default_metadata = Object()
+		if err := coreSet(v_artifact, "metadata", v_default_metadata); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_metadata_final = coreGet(v_artifact, "metadata", nil)
+	v_provenance = coreGet(v_artifact, "provenance", nil)
+	v_missing_provenance = _core_is_none(v_provenance)
+	if coreTruthy(v_missing_provenance) {
+		v_empty_provenance = Object()
+		v_metadata_provenance = coreGet(v_metadata_final, "provenance", v_empty_provenance)
+		if err := coreSet(v_artifact, "provenance", v_metadata_provenance); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_evidence = coreGet(v_artifact, "evidence", nil)
+	v_missing_evidence = _core_is_none(v_evidence)
+	if coreTruthy(v_missing_evidence) {
+		v_empty_evidence = Object()
+		v_metadata_evidence = coreGet(v_metadata_final, "evidence", v_empty_evidence)
+		if err := coreSet(v_artifact, "evidence", v_metadata_evidence); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	{ v, err := _validate_optimized_artifact(v_artifact, v_components); if err != nil { return nil, err }; v_validated = v }
+	v_map = coreGet(v_validated, "componentMap", nil)
+	{ v, err := _optimization_changed_components(v_components, v_map); if err != nil { return nil, err }; v_changed = v }
+	if err := coreSet(v_validated, "changedComponents", v_changed); err != nil { return nil, err }
+	return v_validated, nil
 }
 
 func chat_session_step_limit_error(args ...Value) (Value, error) {
@@ -53103,41 +53242,6 @@ func _regex_quantifier(args ...Value) (Value, error) {
 	return v_t73, nil
 }
 
-func _ace_estimate_token_count(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_estimate_token_count")
-	var v_text Value
-	var v_done Value
-	var v_len Value
-	var v_remaining Value
-	var v_remaining_next Value
-	var v_tokens Value
-	var v_tokens_next Value
-	if len(args) > 0 { v_text = args[0] }
-	_ = v_text
-	_ = v_done
-	_ = v_len
-	_ = v_remaining
-	_ = v_remaining_next
-	_ = v_tokens
-	_ = v_tokens_next
-	v_len = _core_len(v_text)
-	v_tokens = 0
-	v_remaining = v_len
-	for {
-		v_done = _core_lte(v_remaining, 0)
-		if coreTruthy(v_done) {
-			break
-		} else {
-		// empty
-		}
-		v_tokens_next = _core_add(v_tokens, 1)
-		v_tokens = v_tokens_next
-		v_remaining_next = _core_add(v_remaining, -4)
-		v_remaining = v_remaining_next
-	}
-	return v_tokens, nil
-}
-
 func chat_session_completion(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_completion")
 	var v_response Value
@@ -53175,77 +53279,139 @@ func chat_session_has_continuation_work(args ...Value) (Value, error) {
 	return v_work, nil
 }
 
-func _ace_recompute_playbook_stats(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_recompute_playbook_stats")
-	var v_playbook Value
-	var v_bullet Value
-	var v_bullet_count Value
-	var v_bullet_count_next Value
-	var v_bullet_tokens Value
-	var v_bullets Value
-	var v_content Value
+func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimizer_evidence_batch")
+	var v_eval_result Value
+	var v_components Value
+	var v_avg Value
+	var v_candidate_map Value
+	var v_component Value
+	var v_count Value
+	var v_empty_list Value
 	var v_empty_map Value
-	var v_harmful Value
-	var v_harmful_count Value
-	var v_harmful_count_next Value
-	var v_helpful Value
-	var v_helpful_count Value
-	var v_helpful_count_next Value
-	var v_section_lists Value
-	var v_sections Value
-	var v_stats Value
-	var v_token_estimate Value
-	var v_token_estimate_next Value
-	if len(args) > 0 { v_playbook = args[0] }
-	_ = v_playbook
-	_ = v_bullet
-	_ = v_bullet_count
-	_ = v_bullet_count_next
-	_ = v_bullet_tokens
-	_ = v_bullets
-	_ = v_content
+	var v_entry Value
+	var v_error Value
+	var v_has_error Value
+	var v_id Value
+	var v_items Value
+	var v_out Value
+	var v_output Value
+	var v_outputs Value
+	var v_prediction Value
+	var v_prediction_error Value
+	var v_reflective Value
+	var v_row Value
+	var v_row_error Value
+	var v_rows Value
+	var v_scalar Value
+	var v_score_vectors Value
+	var v_scores Value
+	var v_sum Value
+	var v_trace Value
+	var v_trajectories Value
+	var v_trajectory Value
+	var v_vector Value
+	if len(args) > 0 { v_eval_result = args[0] }
+	_ = v_eval_result
+	if len(args) > 1 { v_components = args[1] }
+	_ = v_components
+	_ = v_avg
+	_ = v_candidate_map
+	_ = v_component
+	_ = v_count
+	_ = v_empty_list
 	_ = v_empty_map
-	_ = v_harmful
-	_ = v_harmful_count
-	_ = v_harmful_count_next
-	_ = v_helpful
-	_ = v_helpful_count
-	_ = v_helpful_count_next
-	_ = v_section_lists
-	_ = v_sections
-	_ = v_stats
-	_ = v_token_estimate
-	_ = v_token_estimate_next
+	_ = v_entry
+	_ = v_error
+	_ = v_has_error
+	_ = v_id
+	_ = v_items
+	_ = v_out
+	_ = v_output
+	_ = v_outputs
+	_ = v_prediction
+	_ = v_prediction_error
+	_ = v_reflective
+	_ = v_row
+	_ = v_row_error
+	_ = v_rows
+	_ = v_scalar
+	_ = v_score_vectors
+	_ = v_scores
+	_ = v_sum
+	_ = v_trace
+	_ = v_trajectories
+	_ = v_trajectory
+	_ = v_vector
+	v_empty_list = MutableArray()
 	v_empty_map = Object()
-	v_sections = coreGet(v_playbook, "sections", v_empty_map)
-	v_bullet_count = 0
-	v_helpful_count = 0
-	v_harmful_count = 0
-	v_token_estimate = 0
-	v_section_lists = _core_map_values(v_sections)
-	for _, v_bullets = range coreIter(v_section_lists) {
-		for _, v_bullet = range coreIter(v_bullets) {
-			v_bullet_count_next = _core_add(v_bullet_count, 1)
-			v_bullet_count = v_bullet_count_next
-			v_helpful = coreGet(v_bullet, "helpfulCount", 0)
-			v_harmful = coreGet(v_bullet, "harmfulCount", 0)
-			v_helpful_count_next = _core_add(v_helpful_count, v_helpful)
-			v_helpful_count = v_helpful_count_next
-			v_harmful_count_next = _core_add(v_harmful_count, v_harmful)
-			v_harmful_count = v_harmful_count_next
-			v_content = coreGet(v_bullet, "content", "")
-			{ v, err := _ace_estimate_token_count(v_content); if err != nil { return nil, err }; v_bullet_tokens = v }
-			v_token_estimate_next = _core_add(v_token_estimate, v_bullet_tokens)
-			v_token_estimate = v_token_estimate_next
+	v_rows = coreGet(v_eval_result, "rows", v_empty_list)
+	v_outputs = MutableArray()
+	v_scores = MutableArray()
+	v_score_vectors = MutableArray()
+	v_trajectories = MutableArray()
+	for _, v_row = range coreIter(v_rows) {
+		v_prediction = coreGet(v_row, "prediction", v_empty_map)
+		v_output = coreGet(v_prediction, "output", v_prediction)
+		v_outputs = coreAppend(v_outputs, v_output)
+		v_scalar = coreGet(v_row, "scalar", 0)
+		v_scores = coreAppend(v_scores, v_scalar)
+		v_vector = coreGet(v_row, "scores", v_empty_map)
+		v_score_vectors = coreAppend(v_score_vectors, v_vector)
+		v_trajectory = Object()
+		v_trace = coreGet(v_row, "trace", nil)
+		if err := coreSet(v_trajectory, "trace", v_trace); err != nil { return nil, err }
+		if err := coreSet(v_trajectory, "output", v_output); err != nil { return nil, err }
+		v_row_error = coreGet(v_row, "error", nil)
+		v_prediction_error = coreGet(v_prediction, "error", v_row_error)
+		v_has_error = _core_is_not_none(v_prediction_error)
+		if coreTruthy(v_has_error) {
+			if err := coreSet(v_trajectory, "error", v_prediction_error); err != nil { return nil, err }
+		} else {
+		// empty
 		}
+		v_trajectories = coreAppend(v_trajectories, v_trajectory)
 	}
-	v_stats = Object()
-	if err := coreSet(v_stats, "bulletCount", v_bullet_count); err != nil { return nil, err }
-	if err := coreSet(v_stats, "helpfulCount", v_helpful_count); err != nil { return nil, err }
-	if err := coreSet(v_stats, "harmfulCount", v_harmful_count); err != nil { return nil, err }
-	if err := coreSet(v_stats, "tokenEstimate", v_token_estimate); err != nil { return nil, err }
-	if err := coreSet(v_playbook, "stats", v_stats); err != nil { return nil, err }
-	return v_playbook, nil
+	v_reflective = Object()
+	for _, v_component = range coreIter(v_components) {
+		v_id = coreGet(v_component, "id", "")
+		v_items = MutableArray()
+		for _, v_row = range coreIter(v_rows) {
+			v_entry = Object()
+			v_prediction = coreGet(v_row, "prediction", v_empty_map)
+			v_output = coreGet(v_prediction, "output", v_prediction)
+			v_scalar = coreGet(v_row, "scalar", 0)
+			v_trace = coreGet(v_row, "trace", nil)
+			if err := coreSet(v_entry, "score", v_scalar); err != nil { return nil, err }
+			if err := coreSet(v_entry, "output", v_output); err != nil { return nil, err }
+			if err := coreSet(v_entry, "trace", v_trace); err != nil { return nil, err }
+			v_error = coreGet(v_row, "error", nil)
+			v_has_error = _core_is_not_none(v_error)
+			if coreTruthy(v_has_error) {
+				if err := coreSet(v_entry, "error", v_error); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_items = coreAppend(v_items, v_entry)
+		}
+		if err := coreSet(v_reflective, v_id, v_items); err != nil { return nil, err }
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "contractVersion", "axir-optimizer-evidence-v1"); err != nil { return nil, err }
+	v_candidate_map = coreGet(v_eval_result, "candidateMap", v_empty_map)
+	if err := coreSet(v_out, "candidateMap", v_candidate_map); err != nil { return nil, err }
+	if err := coreSet(v_out, "outputs", v_outputs); err != nil { return nil, err }
+	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
+	if err := coreSet(v_out, "scoreVectors", v_score_vectors); err != nil { return nil, err }
+	if err := coreSet(v_out, "trajectories", v_trajectories); err != nil { return nil, err }
+	v_avg = coreGet(v_eval_result, "avg", 0)
+	v_sum = coreGet(v_eval_result, "sum", 0)
+	v_count = coreGet(v_eval_result, "count", 0)
+	if err := coreSet(v_out, "avg", v_avg); err != nil { return nil, err }
+	if err := coreSet(v_out, "sum", v_sum); err != nil { return nil, err }
+	if err := coreSet(v_out, "count", v_count); err != nil { return nil, err }
+	if err := coreSet(v_out, "reflectiveDataset", v_reflective); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func chat_session_normalize_call(args ...Value) (Value, error) {
@@ -53483,42 +53649,6 @@ func chat_session_defer_final_call(args ...Value) (Value, error) {
 	return false, nil
 }
 
-func _ace_empty_playbook(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_empty_playbook")
-	var v_description Value
-	var v_now Value
-	var v_has_description Value
-	var v_out Value
-	var v_sections Value
-	var v_stats Value
-	if len(args) > 0 { v_description = args[0] }
-	_ = v_description
-	if len(args) > 1 { v_now = args[1] }
-	_ = v_now
-	_ = v_has_description
-	_ = v_out
-	_ = v_sections
-	_ = v_stats
-	v_out = Object()
-	if err := coreSet(v_out, "version", 1); err != nil { return nil, err }
-	v_sections = Object()
-	if err := coreSet(v_out, "sections", v_sections); err != nil { return nil, err }
-	v_stats = Object()
-	if err := coreSet(v_stats, "bulletCount", 0); err != nil { return nil, err }
-	if err := coreSet(v_stats, "helpfulCount", 0); err != nil { return nil, err }
-	if err := coreSet(v_stats, "harmfulCount", 0); err != nil { return nil, err }
-	if err := coreSet(v_stats, "tokenEstimate", 0); err != nil { return nil, err }
-	if err := coreSet(v_out, "stats", v_stats); err != nil { return nil, err }
-	if err := coreSet(v_out, "updatedAt", v_now); err != nil { return nil, err }
-	v_has_description = _core_truthy(v_description)
-	if coreTruthy(v_has_description) {
-		if err := coreSet(v_out, "description", v_description); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
 func chat_session_complete_call(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_complete_call")
 	var v_state Value
@@ -53571,135 +53701,6 @@ func chat_session_complete_call(args ...Value) (Value, error) {
 	// empty
 	}
 	return false, nil
-}
-
-func _ace_render_playbook(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_render_playbook")
-	var v_playbook Value
-	var v_block Value
-	var v_block_empty Value
-	var v_block_with_body Value
-	var v_body Value
-	var v_bullet Value
-	var v_bullet_count Value
-	var v_bullet_lines Value
-	var v_bullets Value
-	var v_combined Value
-	var v_content Value
-	var v_description Value
-	var v_empty_list Value
-	var v_empty_map Value
-	var v_empty_playbook Value
-	var v_has_body Value
-	var v_has_bullets Value
-	var v_has_description Value
-	var v_header Value
-	var v_header_with_description Value
-	var v_id Value
-	var v_joined_sections Value
-	var v_line Value
-	var v_next_bullet_count Value
-	var v_no_bullets Value
-	var v_no_description Value
-	var v_result Value
-	var v_section_blocks Value
-	var v_section_bullets Value
-	var v_section_count Value
-	var v_section_name Value
-	var v_section_names Value
-	var v_sections Value
-	var v_trimmed_description Value
-	if len(args) > 0 { v_playbook = args[0] }
-	_ = v_playbook
-	_ = v_block
-	_ = v_block_empty
-	_ = v_block_with_body
-	_ = v_body
-	_ = v_bullet
-	_ = v_bullet_count
-	_ = v_bullet_lines
-	_ = v_bullets
-	_ = v_combined
-	_ = v_content
-	_ = v_description
-	_ = v_empty_list
-	_ = v_empty_map
-	_ = v_empty_playbook
-	_ = v_has_body
-	_ = v_has_bullets
-	_ = v_has_description
-	_ = v_header
-	_ = v_header_with_description
-	_ = v_id
-	_ = v_joined_sections
-	_ = v_line
-	_ = v_next_bullet_count
-	_ = v_no_bullets
-	_ = v_no_description
-	_ = v_result
-	_ = v_section_blocks
-	_ = v_section_bullets
-	_ = v_section_count
-	_ = v_section_name
-	_ = v_section_names
-	_ = v_sections
-	_ = v_trimmed_description
-	v_empty_map = Object()
-	v_empty_list = MutableArray()
-	v_description = coreGet(v_playbook, "description", nil)
-	v_has_description = _core_truthy(v_description)
-	v_sections = coreGet(v_playbook, "sections", v_empty_map)
-	v_section_names = _core_map_keys(v_sections)
-	v_bullet_count = 0
-	for _, v_section_name = range coreIter(v_section_names) {
-		v_section_bullets = coreGet(v_sections, v_section_name, v_empty_list)
-		v_section_count = _core_len(v_section_bullets)
-		v_next_bullet_count = _core_add(v_bullet_count, v_section_count)
-		v_bullet_count = v_next_bullet_count
-	}
-	v_has_bullets = _core_gt(v_bullet_count, 0)
-	v_no_bullets = _core_not(v_has_bullets)
-	v_no_description = _core_not(v_has_description)
-	v_empty_playbook = _core_and(v_no_bullets, v_no_description)
-	if coreTruthy(v_empty_playbook) {
-		return "", nil
-	} else {
-	// empty
-	}
-	v_header = "## Context Playbook\n"
-	if coreTruthy(v_has_description) {
-		v_trimmed_description = coreStringTrim(v_description)
-		v_header_with_description = _core_string_format("## Context Playbook\n{}\n", v_trimmed_description)
-		v_header = v_header_with_description
-	} else {
-	// empty
-	}
-	v_section_blocks = MutableArray()
-	for _, v_section_name = range coreIter(v_section_names) {
-		v_bullets = coreGet(v_sections, v_section_name, nil)
-		v_bullet_lines = MutableArray()
-		for _, v_bullet = range coreIter(v_bullets) {
-			v_id = coreGet(v_bullet, "id", "")
-			v_content = coreGet(v_bullet, "content", "")
-			v_line = _core_string_format("- [{}] {}", v_id, v_content)
-			v_bullet_lines = coreAppend(v_bullet_lines, v_line)
-		}
-		v_body = _core_string_join("\n", v_bullet_lines)
-		v_has_body = _core_ne(v_body, "")
-		v_block = ""
-		if coreTruthy(v_has_body) {
-			v_block_with_body = _core_string_format("### {}\n{}", v_section_name, v_body)
-			v_block = v_block_with_body
-		} else {
-			v_block_empty = _core_string_format("### {}\n_(empty)_", v_section_name)
-			v_block = v_block_empty
-		}
-		v_section_blocks = coreAppend(v_section_blocks, v_block)
-	}
-	v_joined_sections = _core_string_join("\n\n", v_section_blocks)
-	v_combined = _core_string_format("{}\n{}", v_header, v_joined_sections)
-	v_result = coreStringTrim(v_combined)
-	return v_result, nil
 }
 
 func _stream_convert_value_impl(args ...Value) (Value, error) {
@@ -54005,6 +54006,41 @@ func chat_session_complete_response(args ...Value) (Value, error) {
 	return true, nil
 }
 
+func _ace_estimate_token_count(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_estimate_token_count")
+	var v_text Value
+	var v_done Value
+	var v_len Value
+	var v_remaining Value
+	var v_remaining_next Value
+	var v_tokens Value
+	var v_tokens_next Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_done
+	_ = v_len
+	_ = v_remaining
+	_ = v_remaining_next
+	_ = v_tokens
+	_ = v_tokens_next
+	v_len = _core_len(v_text)
+	v_tokens = 0
+	v_remaining = v_len
+	for {
+		v_done = _core_lte(v_remaining, 0)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_tokens_next = _core_add(v_tokens, 1)
+		v_tokens = v_tokens_next
+		v_remaining_next = _core_add(v_remaining, -4)
+		v_remaining = v_remaining_next
+	}
+	return v_tokens, nil
+}
+
 func _date_range_keyword_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_range_keyword_impl")
 	var v_units Value
@@ -54110,111 +54146,6 @@ func _date_range_keyword_impl(args ...Value) (Value, error) {
 	return 0, nil
 }
 
-func _ace_update_bullet_feedback(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_update_bullet_feedback")
-	var v_playbook Value
-	var v_bullet_id Value
-	var v_tag Value
-	var v_now Value
-	var v_already_found Value
-	var v_bullet Value
-	var v_bullets Value
-	var v_current_id Value
-	var v_did_find Value
-	var v_empty_map Value
-	var v_found Value
-	var v_harmful Value
-	var v_harmful_next Value
-	var v_helpful Value
-	var v_helpful_next Value
-	var v_is_harmful Value
-	var v_is_helpful Value
-	var v_match Value
-	var v_section_name Value
-	var v_section_names Value
-	var v_sections Value
-	var v_still_open Value
-	var v_updated Value
-	if len(args) > 0 { v_playbook = args[0] }
-	_ = v_playbook
-	if len(args) > 1 { v_bullet_id = args[1] }
-	_ = v_bullet_id
-	if len(args) > 2 { v_tag = args[2] }
-	_ = v_tag
-	if len(args) > 3 { v_now = args[3] }
-	_ = v_now
-	_ = v_already_found
-	_ = v_bullet
-	_ = v_bullets
-	_ = v_current_id
-	_ = v_did_find
-	_ = v_empty_map
-	_ = v_found
-	_ = v_harmful
-	_ = v_harmful_next
-	_ = v_helpful
-	_ = v_helpful_next
-	_ = v_is_harmful
-	_ = v_is_helpful
-	_ = v_match
-	_ = v_section_name
-	_ = v_section_names
-	_ = v_sections
-	_ = v_still_open
-	_ = v_updated
-	v_empty_map = Object()
-	v_sections = coreGet(v_playbook, "sections", v_empty_map)
-	v_section_names = _core_map_keys(v_sections)
-	v_found = false
-	for _, v_section_name = range coreIter(v_section_names) {
-		v_already_found = v_found
-		if coreTruthy(v_already_found) {
-		// empty
-		} else {
-			v_bullets = coreGet(v_sections, v_section_name, nil)
-			for _, v_bullet = range coreIter(v_bullets) {
-				v_current_id = coreGet(v_bullet, "id", "")
-				v_match = _core_eq(v_bullet_id, v_current_id)
-				v_still_open = _core_not(v_found)
-				if coreTruthy(v_match) {
-					if coreTruthy(v_still_open) {
-						v_is_helpful = _core_eq(v_tag, "helpful")
-						if coreTruthy(v_is_helpful) {
-							v_helpful = coreGet(v_bullet, "helpfulCount", 0)
-							v_helpful_next = _core_add(v_helpful, 1)
-							if err := coreSet(v_bullet, "helpfulCount", v_helpful_next); err != nil { return nil, err }
-						} else {
-						// empty
-						}
-						v_is_harmful = _core_eq(v_tag, "harmful")
-						if coreTruthy(v_is_harmful) {
-							v_harmful = coreGet(v_bullet, "harmfulCount", 0)
-							v_harmful_next = _core_add(v_harmful, 1)
-							if err := coreSet(v_bullet, "harmfulCount", v_harmful_next); err != nil { return nil, err }
-						} else {
-						// empty
-						}
-						if err := coreSet(v_bullet, "updatedAt", v_now); err != nil { return nil, err }
-						v_found = true
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-			}
-		}
-	}
-	v_did_find = v_found
-	if coreTruthy(v_did_find) {
-		{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_updated = v }
-		return v_updated, nil
-	} else {
-	// empty
-	}
-	return v_playbook, nil
-}
-
 func _set_examples(args ...Value) (Value, error) {
 	axirCoverageMark("_set_examples")
 	var v_gen Value
@@ -54225,6 +54156,79 @@ func _set_examples(args ...Value) (Value, error) {
 	_ = v_examples
 	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
 	return v_gen, nil
+}
+
+func _ace_recompute_playbook_stats(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_recompute_playbook_stats")
+	var v_playbook Value
+	var v_bullet Value
+	var v_bullet_count Value
+	var v_bullet_count_next Value
+	var v_bullet_tokens Value
+	var v_bullets Value
+	var v_content Value
+	var v_empty_map Value
+	var v_harmful Value
+	var v_harmful_count Value
+	var v_harmful_count_next Value
+	var v_helpful Value
+	var v_helpful_count Value
+	var v_helpful_count_next Value
+	var v_section_lists Value
+	var v_sections Value
+	var v_stats Value
+	var v_token_estimate Value
+	var v_token_estimate_next Value
+	if len(args) > 0 { v_playbook = args[0] }
+	_ = v_playbook
+	_ = v_bullet
+	_ = v_bullet_count
+	_ = v_bullet_count_next
+	_ = v_bullet_tokens
+	_ = v_bullets
+	_ = v_content
+	_ = v_empty_map
+	_ = v_harmful
+	_ = v_harmful_count
+	_ = v_harmful_count_next
+	_ = v_helpful
+	_ = v_helpful_count
+	_ = v_helpful_count_next
+	_ = v_section_lists
+	_ = v_sections
+	_ = v_stats
+	_ = v_token_estimate
+	_ = v_token_estimate_next
+	v_empty_map = Object()
+	v_sections = coreGet(v_playbook, "sections", v_empty_map)
+	v_bullet_count = 0
+	v_helpful_count = 0
+	v_harmful_count = 0
+	v_token_estimate = 0
+	v_section_lists = _core_map_values(v_sections)
+	for _, v_bullets = range coreIter(v_section_lists) {
+		for _, v_bullet = range coreIter(v_bullets) {
+			v_bullet_count_next = _core_add(v_bullet_count, 1)
+			v_bullet_count = v_bullet_count_next
+			v_helpful = coreGet(v_bullet, "helpfulCount", 0)
+			v_harmful = coreGet(v_bullet, "harmfulCount", 0)
+			v_helpful_count_next = _core_add(v_helpful_count, v_helpful)
+			v_helpful_count = v_helpful_count_next
+			v_harmful_count_next = _core_add(v_harmful_count, v_harmful)
+			v_harmful_count = v_harmful_count_next
+			v_content = coreGet(v_bullet, "content", "")
+			{ v, err := _ace_estimate_token_count(v_content); if err != nil { return nil, err }; v_bullet_tokens = v }
+			v_token_estimate_next = _core_add(v_token_estimate, v_bullet_tokens)
+			v_token_estimate = v_token_estimate_next
+		}
+	}
+	v_stats = Object()
+	if err := coreSet(v_stats, "bulletCount", v_bullet_count); err != nil { return nil, err }
+	if err := coreSet(v_stats, "helpfulCount", v_helpful_count); err != nil { return nil, err }
+	if err := coreSet(v_stats, "harmfulCount", v_harmful_count); err != nil { return nil, err }
+	if err := coreSet(v_stats, "tokenEstimate", v_token_estimate); err != nil { return nil, err }
+	if err := coreSet(v_playbook, "stats", v_stats); err != nil { return nil, err }
+	return v_playbook, nil
 }
 
 func _set_demos(args ...Value) (Value, error) {
@@ -54507,6 +54511,42 @@ func _render_demos(args ...Value) (Value, error) {
 	return v_messages, nil
 }
 
+func _ace_empty_playbook(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_empty_playbook")
+	var v_description Value
+	var v_now Value
+	var v_has_description Value
+	var v_out Value
+	var v_sections Value
+	var v_stats Value
+	if len(args) > 0 { v_description = args[0] }
+	_ = v_description
+	if len(args) > 1 { v_now = args[1] }
+	_ = v_now
+	_ = v_has_description
+	_ = v_out
+	_ = v_sections
+	_ = v_stats
+	v_out = Object()
+	if err := coreSet(v_out, "version", 1); err != nil { return nil, err }
+	v_sections = Object()
+	if err := coreSet(v_out, "sections", v_sections); err != nil { return nil, err }
+	v_stats = Object()
+	if err := coreSet(v_stats, "bulletCount", 0); err != nil { return nil, err }
+	if err := coreSet(v_stats, "helpfulCount", 0); err != nil { return nil, err }
+	if err := coreSet(v_stats, "harmfulCount", 0); err != nil { return nil, err }
+	if err := coreSet(v_stats, "tokenEstimate", 0); err != nil { return nil, err }
+	if err := coreSet(v_out, "stats", v_stats); err != nil { return nil, err }
+	if err := coreSet(v_out, "updatedAt", v_now); err != nil { return nil, err }
+	v_has_description = _core_truthy(v_description)
+	if coreTruthy(v_has_description) {
+		if err := coreSet(v_out, "description", v_description); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
 func _apply_field_processors(args ...Value) (Value, error) {
 	axirCoverageMark("_apply_field_processors")
 	var v_gen Value
@@ -54519,89 +54559,6 @@ func _apply_field_processors(args ...Value) (Value, error) {
 	_ = v_processed
 	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
 	return v_processed, nil
-}
-
-func _ace_dedupe_playbook(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_dedupe_playbook")
-	var v_playbook Value
-	var v_bullet Value
-	var v_bullet_harmful Value
-	var v_bullet_helpful Value
-	var v_bullet_updated_at Value
-	var v_bullets Value
-	var v_content Value
-	var v_empty_map Value
-	var v_existing Value
-	var v_existing_harmful Value
-	var v_existing_helpful Value
-	var v_has_existing Value
-	var v_key Value
-	var v_merged_harmful Value
-	var v_merged_helpful Value
-	var v_recomputed Value
-	var v_section_name Value
-	var v_section_names Value
-	var v_sections Value
-	var v_seen Value
-	var v_trimmed Value
-	var v_unique Value
-	if len(args) > 0 { v_playbook = args[0] }
-	_ = v_playbook
-	_ = v_bullet
-	_ = v_bullet_harmful
-	_ = v_bullet_helpful
-	_ = v_bullet_updated_at
-	_ = v_bullets
-	_ = v_content
-	_ = v_empty_map
-	_ = v_existing
-	_ = v_existing_harmful
-	_ = v_existing_helpful
-	_ = v_has_existing
-	_ = v_key
-	_ = v_merged_harmful
-	_ = v_merged_helpful
-	_ = v_recomputed
-	_ = v_section_name
-	_ = v_section_names
-	_ = v_sections
-	_ = v_seen
-	_ = v_trimmed
-	_ = v_unique
-	v_empty_map = Object()
-	v_sections = coreGet(v_playbook, "sections", v_empty_map)
-	v_section_names = _core_map_keys(v_sections)
-	for _, v_section_name = range coreIter(v_section_names) {
-		v_bullets = coreGet(v_sections, v_section_name, nil)
-		v_seen = Object()
-		v_unique = MutableArray()
-		for _, v_bullet = range coreIter(v_bullets) {
-			v_content = coreGet(v_bullet, "content", "")
-			v_trimmed = coreStringTrim(v_content)
-			v_key = _core_string_lower(v_trimmed)
-			v_has_existing = _core_map_contains(v_seen, v_key)
-			if coreTruthy(v_has_existing) {
-				v_existing = coreGet(v_seen, v_key, nil)
-				v_existing_helpful = coreGet(v_existing, "helpfulCount", 0)
-				v_bullet_helpful = coreGet(v_bullet, "helpfulCount", 0)
-				v_merged_helpful = _core_add(v_existing_helpful, v_bullet_helpful)
-				if err := coreSet(v_existing, "helpfulCount", v_merged_helpful); err != nil { return nil, err }
-				v_existing_harmful = coreGet(v_existing, "harmfulCount", 0)
-				v_bullet_harmful = coreGet(v_bullet, "harmfulCount", 0)
-				v_merged_harmful = _core_add(v_existing_harmful, v_bullet_harmful)
-				if err := coreSet(v_existing, "harmfulCount", v_merged_harmful); err != nil { return nil, err }
-				v_bullet_updated_at = coreGet(v_bullet, "updatedAt", "")
-				if err := coreSet(v_existing, "updatedAt", v_bullet_updated_at); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_seen, v_key, v_bullet); err != nil { return nil, err }
-				v_unique = coreAppend(v_unique, v_bullet)
-			}
-		}
-		if err := coreSet(v_sections, v_section_name, v_unique); err != nil { return nil, err }
-	}
-	if err := coreSet(v_playbook, "sections", v_sections); err != nil { return nil, err }
-	{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_recomputed = v }
-	return v_recomputed, nil
 }
 
 func chat_session_native_wait(args ...Value) (Value, error) {
@@ -54706,6 +54663,135 @@ func _run_assertions(args ...Value) (Value, error) {
 	}
 	v_passed = _core_none()
 	return v_passed, nil
+}
+
+func _ace_render_playbook(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_render_playbook")
+	var v_playbook Value
+	var v_block Value
+	var v_block_empty Value
+	var v_block_with_body Value
+	var v_body Value
+	var v_bullet Value
+	var v_bullet_count Value
+	var v_bullet_lines Value
+	var v_bullets Value
+	var v_combined Value
+	var v_content Value
+	var v_description Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_empty_playbook Value
+	var v_has_body Value
+	var v_has_bullets Value
+	var v_has_description Value
+	var v_header Value
+	var v_header_with_description Value
+	var v_id Value
+	var v_joined_sections Value
+	var v_line Value
+	var v_next_bullet_count Value
+	var v_no_bullets Value
+	var v_no_description Value
+	var v_result Value
+	var v_section_blocks Value
+	var v_section_bullets Value
+	var v_section_count Value
+	var v_section_name Value
+	var v_section_names Value
+	var v_sections Value
+	var v_trimmed_description Value
+	if len(args) > 0 { v_playbook = args[0] }
+	_ = v_playbook
+	_ = v_block
+	_ = v_block_empty
+	_ = v_block_with_body
+	_ = v_body
+	_ = v_bullet
+	_ = v_bullet_count
+	_ = v_bullet_lines
+	_ = v_bullets
+	_ = v_combined
+	_ = v_content
+	_ = v_description
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_empty_playbook
+	_ = v_has_body
+	_ = v_has_bullets
+	_ = v_has_description
+	_ = v_header
+	_ = v_header_with_description
+	_ = v_id
+	_ = v_joined_sections
+	_ = v_line
+	_ = v_next_bullet_count
+	_ = v_no_bullets
+	_ = v_no_description
+	_ = v_result
+	_ = v_section_blocks
+	_ = v_section_bullets
+	_ = v_section_count
+	_ = v_section_name
+	_ = v_section_names
+	_ = v_sections
+	_ = v_trimmed_description
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_description = coreGet(v_playbook, "description", nil)
+	v_has_description = _core_truthy(v_description)
+	v_sections = coreGet(v_playbook, "sections", v_empty_map)
+	v_section_names = _core_map_keys(v_sections)
+	v_bullet_count = 0
+	for _, v_section_name = range coreIter(v_section_names) {
+		v_section_bullets = coreGet(v_sections, v_section_name, v_empty_list)
+		v_section_count = _core_len(v_section_bullets)
+		v_next_bullet_count = _core_add(v_bullet_count, v_section_count)
+		v_bullet_count = v_next_bullet_count
+	}
+	v_has_bullets = _core_gt(v_bullet_count, 0)
+	v_no_bullets = _core_not(v_has_bullets)
+	v_no_description = _core_not(v_has_description)
+	v_empty_playbook = _core_and(v_no_bullets, v_no_description)
+	if coreTruthy(v_empty_playbook) {
+		return "", nil
+	} else {
+	// empty
+	}
+	v_header = "## Context Playbook\n"
+	if coreTruthy(v_has_description) {
+		v_trimmed_description = coreStringTrim(v_description)
+		v_header_with_description = _core_string_format("## Context Playbook\n{}\n", v_trimmed_description)
+		v_header = v_header_with_description
+	} else {
+	// empty
+	}
+	v_section_blocks = MutableArray()
+	for _, v_section_name = range coreIter(v_section_names) {
+		v_bullets = coreGet(v_sections, v_section_name, nil)
+		v_bullet_lines = MutableArray()
+		for _, v_bullet = range coreIter(v_bullets) {
+			v_id = coreGet(v_bullet, "id", "")
+			v_content = coreGet(v_bullet, "content", "")
+			v_line = _core_string_format("- [{}] {}", v_id, v_content)
+			v_bullet_lines = coreAppend(v_bullet_lines, v_line)
+		}
+		v_body = _core_string_join("\n", v_bullet_lines)
+		v_has_body = _core_ne(v_body, "")
+		v_block = ""
+		if coreTruthy(v_has_body) {
+			v_block_with_body = _core_string_format("### {}\n{}", v_section_name, v_body)
+			v_block = v_block_with_body
+		} else {
+			v_block_empty = _core_string_format("### {}\n_(empty)_", v_section_name)
+			v_block = v_block_empty
+		}
+		v_section_blocks = coreAppend(v_section_blocks, v_block)
+	}
+	v_joined_sections = _core_string_join("\n\n", v_section_blocks)
+	v_combined = _core_string_format("{}\n{}", v_header, v_joined_sections)
+	v_result = coreStringTrim(v_combined)
+	return v_result, nil
 }
 
 func _regex_word(args ...Value) (Value, error) {
@@ -55460,169 +55546,6 @@ func chat_session_native_event(args ...Value) (Value, error) {
 	return v_result, nil
 }
 
-func _ace_prune_section_for_addition(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_prune_section_for_addition")
-	var v_section Value
-	var v_protected_ids Value
-	var v_bullet Value
-	var v_candidate_helpful Value
-	var v_candidate_index Value
-	var v_candidate_net Value
-	var v_candidate_recency Value
-	var v_created_at Value
-	var v_cursor Value
-	var v_cursor_next Value
-	var v_harmful Value
-	var v_harmful_weighted Value
-	var v_has_candidate Value
-	var v_helpful Value
-	var v_helpful_equal Value
-	var v_helpful_lower Value
-	var v_id Value
-	var v_index Value
-	var v_index_next Value
-	var v_is_protected Value
-	var v_is_target Value
-	var v_is_worse Value
-	var v_negative_harmful Value
-	var v_net_equal Value
-	var v_net_lower Value
-	var v_net_score Value
-	var v_new_section Value
-	var v_no_candidate Value
-	var v_not_protected Value
-	var v_null_pruned Value
-	var v_out Value
-	var v_pruned Value
-	var v_recency Value
-	var v_recency_lower Value
-	if len(args) > 0 { v_section = args[0] }
-	_ = v_section
-	if len(args) > 1 { v_protected_ids = args[1] }
-	_ = v_protected_ids
-	_ = v_bullet
-	_ = v_candidate_helpful
-	_ = v_candidate_index
-	_ = v_candidate_net
-	_ = v_candidate_recency
-	_ = v_created_at
-	_ = v_cursor
-	_ = v_cursor_next
-	_ = v_harmful
-	_ = v_harmful_weighted
-	_ = v_has_candidate
-	_ = v_helpful
-	_ = v_helpful_equal
-	_ = v_helpful_lower
-	_ = v_id
-	_ = v_index
-	_ = v_index_next
-	_ = v_is_protected
-	_ = v_is_target
-	_ = v_is_worse
-	_ = v_negative_harmful
-	_ = v_net_equal
-	_ = v_net_lower
-	_ = v_net_score
-	_ = v_new_section
-	_ = v_no_candidate
-	_ = v_not_protected
-	_ = v_null_pruned
-	_ = v_out
-	_ = v_pruned
-	_ = v_recency
-	_ = v_recency_lower
-	v_candidate_index = -1
-	v_candidate_net = 0
-	v_candidate_helpful = 0
-	v_candidate_recency = 0
-	v_index = 0
-	for _, v_bullet = range coreIter(v_section) {
-		v_id = coreGet(v_bullet, "id", "")
-		v_is_protected = _core_contains(v_protected_ids, v_id)
-		v_not_protected = _core_not(v_is_protected)
-		if coreTruthy(v_not_protected) {
-			v_helpful = coreGet(v_bullet, "helpfulCount", 0)
-			v_harmful = coreGet(v_bullet, "harmfulCount", 0)
-			v_harmful_weighted = _core_mul(v_harmful, 2)
-			v_negative_harmful = _core_mul(v_harmful_weighted, -1)
-			v_net_score = _core_add(v_helpful, v_negative_harmful)
-			v_created_at = coreGet(v_bullet, "createdAt", "")
-			v_recency = coreGet(v_bullet, "updatedAt", v_created_at)
-			v_no_candidate = _core_lt(v_candidate_index, 0)
-			if coreTruthy(v_no_candidate) {
-				v_candidate_index = v_index
-				v_candidate_net = v_net_score
-				v_candidate_helpful = v_helpful
-				v_candidate_recency = v_recency
-			} else {
-				v_net_lower = _core_lt(v_net_score, v_candidate_net)
-				v_net_equal = _core_eq(v_net_score, v_candidate_net)
-				v_helpful_lower = _core_lt(v_helpful, v_candidate_helpful)
-				v_helpful_equal = _core_eq(v_helpful, v_candidate_helpful)
-				v_recency_lower = _core_lt(v_recency, v_candidate_recency)
-				v_is_worse = v_net_lower
-				if coreTruthy(v_net_equal) {
-					if coreTruthy(v_helpful_lower) {
-						v_is_worse = true
-					} else {
-					// empty
-					}
-					if coreTruthy(v_helpful_equal) {
-						if coreTruthy(v_recency_lower) {
-							v_is_worse = true
-						} else {
-						// empty
-						}
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-				if coreTruthy(v_is_worse) {
-					v_candidate_index = v_index
-					v_candidate_net = v_net_score
-					v_candidate_helpful = v_helpful
-					v_candidate_recency = v_recency
-				} else {
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		v_index_next = _core_add(v_index, 1)
-		v_index = v_index_next
-	}
-	v_out = Object()
-	v_has_candidate = _core_gte(v_candidate_index, 0)
-	v_new_section = MutableArray()
-	if coreTruthy(v_has_candidate) {
-		v_pruned = _core_none()
-		v_cursor = 0
-		for _, v_bullet = range coreIter(v_section) {
-			v_is_target = _core_eq(v_cursor, v_candidate_index)
-			if coreTruthy(v_is_target) {
-				v_pruned = v_bullet
-			} else {
-				v_new_section = coreAppend(v_new_section, v_bullet)
-			}
-			v_cursor_next = _core_add(v_cursor, 1)
-			v_cursor = v_cursor_next
-		}
-		if err := coreSet(v_out, "pruned", v_pruned); err != nil { return nil, err }
-		if err := coreSet(v_out, "section", v_new_section); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_null_pruned = _core_none()
-	if err := coreSet(v_out, "pruned", v_null_pruned); err != nil { return nil, err }
-	if err := coreSet(v_out, "section", v_section); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func _append_assertion_retry_messages(args ...Value) (Value, error) {
 	axirCoverageMark("_append_assertion_retry_messages")
 	var v_messages Value
@@ -55959,6 +55882,111 @@ func _should_continue_steps(args ...Value) (Value, error) {
 	return v_should_continue, nil
 }
 
+func _ace_update_bullet_feedback(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_update_bullet_feedback")
+	var v_playbook Value
+	var v_bullet_id Value
+	var v_tag Value
+	var v_now Value
+	var v_already_found Value
+	var v_bullet Value
+	var v_bullets Value
+	var v_current_id Value
+	var v_did_find Value
+	var v_empty_map Value
+	var v_found Value
+	var v_harmful Value
+	var v_harmful_next Value
+	var v_helpful Value
+	var v_helpful_next Value
+	var v_is_harmful Value
+	var v_is_helpful Value
+	var v_match Value
+	var v_section_name Value
+	var v_section_names Value
+	var v_sections Value
+	var v_still_open Value
+	var v_updated Value
+	if len(args) > 0 { v_playbook = args[0] }
+	_ = v_playbook
+	if len(args) > 1 { v_bullet_id = args[1] }
+	_ = v_bullet_id
+	if len(args) > 2 { v_tag = args[2] }
+	_ = v_tag
+	if len(args) > 3 { v_now = args[3] }
+	_ = v_now
+	_ = v_already_found
+	_ = v_bullet
+	_ = v_bullets
+	_ = v_current_id
+	_ = v_did_find
+	_ = v_empty_map
+	_ = v_found
+	_ = v_harmful
+	_ = v_harmful_next
+	_ = v_helpful
+	_ = v_helpful_next
+	_ = v_is_harmful
+	_ = v_is_helpful
+	_ = v_match
+	_ = v_section_name
+	_ = v_section_names
+	_ = v_sections
+	_ = v_still_open
+	_ = v_updated
+	v_empty_map = Object()
+	v_sections = coreGet(v_playbook, "sections", v_empty_map)
+	v_section_names = _core_map_keys(v_sections)
+	v_found = false
+	for _, v_section_name = range coreIter(v_section_names) {
+		v_already_found = v_found
+		if coreTruthy(v_already_found) {
+		// empty
+		} else {
+			v_bullets = coreGet(v_sections, v_section_name, nil)
+			for _, v_bullet = range coreIter(v_bullets) {
+				v_current_id = coreGet(v_bullet, "id", "")
+				v_match = _core_eq(v_bullet_id, v_current_id)
+				v_still_open = _core_not(v_found)
+				if coreTruthy(v_match) {
+					if coreTruthy(v_still_open) {
+						v_is_helpful = _core_eq(v_tag, "helpful")
+						if coreTruthy(v_is_helpful) {
+							v_helpful = coreGet(v_bullet, "helpfulCount", 0)
+							v_helpful_next = _core_add(v_helpful, 1)
+							if err := coreSet(v_bullet, "helpfulCount", v_helpful_next); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						v_is_harmful = _core_eq(v_tag, "harmful")
+						if coreTruthy(v_is_harmful) {
+							v_harmful = coreGet(v_bullet, "harmfulCount", 0)
+							v_harmful_next = _core_add(v_harmful, 1)
+							if err := coreSet(v_bullet, "harmfulCount", v_harmful_next); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						if err := coreSet(v_bullet, "updatedAt", v_now); err != nil { return nil, err }
+						v_found = true
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			}
+		}
+	}
+	v_did_find = v_found
+	if coreTruthy(v_did_find) {
+		{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_updated = v }
+		return v_updated, nil
+	} else {
+	// empty
+	}
+	return v_playbook, nil
+}
+
 func _parse_output_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_output_impl")
 	var v_content Value
@@ -56046,359 +56074,87 @@ func _date_js_trim_impl(args ...Value) (Value, error) {
 	return v_trimmed, nil
 }
 
-func _ace_apply_curator_operations(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_apply_curator_operations")
+func _ace_dedupe_playbook(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_dedupe_playbook")
 	var v_playbook Value
-	var v_operations Value
-	var v_options Value
-	var v_now Value
-	var v_allow_dynamic Value
-	var v_at_capacity Value
-	var v_at_capacity_raw Value
-	var v_auto_removed Value
 	var v_bullet Value
-	var v_bullet_id Value
-	var v_bullet_id_prefix Value
-	var v_bullet_id_update Value
-	var v_bullet_match Value
-	var v_bullet_metadata Value
-	var v_bullet_remove_match Value
-	var v_candidate_bullet_id Value
+	var v_bullet_harmful Value
+	var v_bullet_helpful Value
+	var v_bullet_updated_at Value
+	var v_bullets Value
 	var v_content Value
-	var v_content_is_string Value
-	var v_did_remove Value
-	var v_empty_list Value
 	var v_empty_map Value
-	var v_enable_auto_prune Value
-	var v_existing_metadata Value
-	var v_has_bullet_id Value
-	var v_has_content Value
-	var v_has_max Value
-	var v_has_metadata Value
-	var v_has_metadata_update Value
-	var v_has_pruned Value
-	var v_has_section_name Value
-	var v_is_add Value
-	var v_is_remove Value
-	var v_is_update Value
-	var v_kept Value
-	var v_max_section_size Value
-	var v_merged_metadata Value
-	var v_missing_bullet_id Value
-	var v_missing_section Value
-	var v_new_section_list Value
-	var v_next_operation_index Value
-	var v_none_value Value
-	var v_op Value
-	var v_op_bullet_id Value
-	var v_op_content Value
-	var v_op_metadata Value
-	var v_op_metadata_update Value
-	var v_op_type Value
-	var v_operation_index Value
-	var v_opts Value
-	var v_opts_missing Value
-	var v_out Value
-	var v_proceed Value
-	var v_protected_ids Value
-	var v_prune_result Value
-	var v_pruned Value
-	var v_pruned_id Value
-	var v_pruned_metadata Value
-	var v_pruned_section Value
-	var v_raw_content Value
+	var v_existing Value
+	var v_existing_harmful Value
+	var v_existing_helpful Value
+	var v_has_existing Value
+	var v_key Value
+	var v_merged_harmful Value
+	var v_merged_helpful Value
 	var v_recomputed Value
-	var v_removal Value
-	var v_removal_metadata Value
-	var v_remove_candidate_id Value
-	var v_remove_id Value
-	var v_removed_id Value
-	var v_section Value
-	var v_section_exists Value
-	var v_section_len Value
 	var v_section_name Value
-	var v_section_now_exists Value
+	var v_section_names Value
 	var v_sections Value
-	var v_target_id Value
-	var v_updated_bullets Value
+	var v_seen Value
+	var v_trimmed Value
+	var v_unique Value
 	if len(args) > 0 { v_playbook = args[0] }
 	_ = v_playbook
-	if len(args) > 1 { v_operations = args[1] }
-	_ = v_operations
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	if len(args) > 3 { v_now = args[3] }
-	_ = v_now
-	_ = v_allow_dynamic
-	_ = v_at_capacity
-	_ = v_at_capacity_raw
-	_ = v_auto_removed
 	_ = v_bullet
-	_ = v_bullet_id
-	_ = v_bullet_id_prefix
-	_ = v_bullet_id_update
-	_ = v_bullet_match
-	_ = v_bullet_metadata
-	_ = v_bullet_remove_match
-	_ = v_candidate_bullet_id
+	_ = v_bullet_harmful
+	_ = v_bullet_helpful
+	_ = v_bullet_updated_at
+	_ = v_bullets
 	_ = v_content
-	_ = v_content_is_string
-	_ = v_did_remove
-	_ = v_empty_list
 	_ = v_empty_map
-	_ = v_enable_auto_prune
-	_ = v_existing_metadata
-	_ = v_has_bullet_id
-	_ = v_has_content
-	_ = v_has_max
-	_ = v_has_metadata
-	_ = v_has_metadata_update
-	_ = v_has_pruned
-	_ = v_has_section_name
-	_ = v_is_add
-	_ = v_is_remove
-	_ = v_is_update
-	_ = v_kept
-	_ = v_max_section_size
-	_ = v_merged_metadata
-	_ = v_missing_bullet_id
-	_ = v_missing_section
-	_ = v_new_section_list
-	_ = v_next_operation_index
-	_ = v_none_value
-	_ = v_op
-	_ = v_op_bullet_id
-	_ = v_op_content
-	_ = v_op_metadata
-	_ = v_op_metadata_update
-	_ = v_op_type
-	_ = v_operation_index
-	_ = v_opts
-	_ = v_opts_missing
-	_ = v_out
-	_ = v_proceed
-	_ = v_protected_ids
-	_ = v_prune_result
-	_ = v_pruned
-	_ = v_pruned_id
-	_ = v_pruned_metadata
-	_ = v_pruned_section
-	_ = v_raw_content
+	_ = v_existing
+	_ = v_existing_harmful
+	_ = v_existing_helpful
+	_ = v_has_existing
+	_ = v_key
+	_ = v_merged_harmful
+	_ = v_merged_helpful
 	_ = v_recomputed
-	_ = v_removal
-	_ = v_removal_metadata
-	_ = v_remove_candidate_id
-	_ = v_remove_id
-	_ = v_removed_id
-	_ = v_section
-	_ = v_section_exists
-	_ = v_section_len
 	_ = v_section_name
-	_ = v_section_now_exists
+	_ = v_section_names
 	_ = v_sections
-	_ = v_target_id
-	_ = v_updated_bullets
+	_ = v_seen
+	_ = v_trimmed
+	_ = v_unique
 	v_empty_map = Object()
-	v_empty_list = MutableArray()
-	v_opts = v_options
-	v_opts_missing = _core_is_none(v_options)
-	if coreTruthy(v_opts_missing) {
-		v_opts = v_empty_map
-	} else {
-	// empty
-	}
-	v_allow_dynamic = coreGet(v_opts, "allowDynamicSections", true)
-	v_enable_auto_prune = coreGet(v_opts, "enableAutoPrune", false)
-	v_has_max = _core_map_contains(v_opts, "maxSectionSize")
-	v_max_section_size = coreGet(v_opts, "maxSectionSize", 0)
-	v_protected_ids = coreGet(v_opts, "protectedBulletIds", v_empty_list)
-	v_updated_bullets = MutableArray()
-	v_auto_removed = MutableArray()
 	v_sections = coreGet(v_playbook, "sections", v_empty_map)
-	v_operation_index = 0
-	for _, v_op = range coreIter(v_operations) {
-		v_section_name = coreGet(v_op, "section", "")
-		v_has_section_name = _core_ne(v_section_name, "")
-		if coreTruthy(v_has_section_name) {
-			v_section_exists = _core_map_contains(v_sections, v_section_name)
-			v_missing_section = _core_not(v_section_exists)
-			if coreTruthy(v_missing_section) {
-				if coreTruthy(v_allow_dynamic) {
-					v_new_section_list = MutableArray()
-					if err := coreSet(v_sections, v_section_name, v_new_section_list); err != nil { return nil, err }
-				} else {
-				// empty
-				}
+	v_section_names = _core_map_keys(v_sections)
+	for _, v_section_name = range coreIter(v_section_names) {
+		v_bullets = coreGet(v_sections, v_section_name, nil)
+		v_seen = Object()
+		v_unique = MutableArray()
+		for _, v_bullet = range coreIter(v_bullets) {
+			v_content = coreGet(v_bullet, "content", "")
+			v_trimmed = coreStringTrim(v_content)
+			v_key = _core_string_lower(v_trimmed)
+			v_has_existing = _core_map_contains(v_seen, v_key)
+			if coreTruthy(v_has_existing) {
+				v_existing = coreGet(v_seen, v_key, nil)
+				v_existing_helpful = coreGet(v_existing, "helpfulCount", 0)
+				v_bullet_helpful = coreGet(v_bullet, "helpfulCount", 0)
+				v_merged_helpful = _core_add(v_existing_helpful, v_bullet_helpful)
+				if err := coreSet(v_existing, "helpfulCount", v_merged_helpful); err != nil { return nil, err }
+				v_existing_harmful = coreGet(v_existing, "harmfulCount", 0)
+				v_bullet_harmful = coreGet(v_bullet, "harmfulCount", 0)
+				v_merged_harmful = _core_add(v_existing_harmful, v_bullet_harmful)
+				if err := coreSet(v_existing, "harmfulCount", v_merged_harmful); err != nil { return nil, err }
+				v_bullet_updated_at = coreGet(v_bullet, "updatedAt", "")
+				if err := coreSet(v_existing, "updatedAt", v_bullet_updated_at); err != nil { return nil, err }
 			} else {
-			// empty
+				if err := coreSet(v_seen, v_key, v_bullet); err != nil { return nil, err }
+				v_unique = coreAppend(v_unique, v_bullet)
 			}
-			v_section_now_exists = _core_map_contains(v_sections, v_section_name)
-			if coreTruthy(v_section_now_exists) {
-				v_section = coreGet(v_sections, v_section_name, nil)
-				v_op_type = coreGet(v_op, "type", "")
-				v_is_add = _core_eq(v_op_type, "ADD")
-				if coreTruthy(v_is_add) {
-					v_raw_content = coreGet(v_op, "content", "")
-					v_content = coreStringTrim(v_raw_content)
-					v_has_content = _core_ne(v_content, "")
-					if coreTruthy(v_has_content) {
-						v_section_len = _core_len(v_section)
-						v_at_capacity_raw = _core_gte(v_section_len, v_max_section_size)
-						v_at_capacity = false
-						if coreTruthy(v_has_max) {
-							if coreTruthy(v_at_capacity_raw) {
-								v_at_capacity = true
-							} else {
-							// empty
-							}
-						} else {
-						// empty
-						}
-						v_proceed = true
-						if coreTruthy(v_at_capacity) {
-							if coreTruthy(v_enable_auto_prune) {
-								{ v, err := _ace_prune_section_for_addition(v_section, v_protected_ids); if err != nil { return nil, err }; v_prune_result = v }
-								v_pruned = coreGet(v_prune_result, "pruned", nil)
-								v_has_pruned = _core_is_not_none(v_pruned)
-								if coreTruthy(v_has_pruned) {
-									v_pruned_section = coreGet(v_prune_result, "section", nil)
-									v_section = v_pruned_section
-									if err := coreSet(v_sections, v_section_name, v_section); err != nil { return nil, err }
-									v_pruned_id = coreGet(v_pruned, "id", "")
-									v_updated_bullets = coreAppend(v_updated_bullets, v_pruned_id)
-									v_removal = Object()
-									if err := coreSet(v_removal, "type", "REMOVE"); err != nil { return nil, err }
-									if err := coreSet(v_removal, "section", v_section_name); err != nil { return nil, err }
-									if err := coreSet(v_removal, "bulletId", v_pruned_id); err != nil { return nil, err }
-									v_pruned_metadata = coreGet(v_pruned, "metadata", v_empty_map)
-									v_removal_metadata = _core_map_merge(v_empty_map, v_pruned_metadata)
-									if err := coreSet(v_removal_metadata, "autoPruned", true); err != nil { return nil, err }
-									if err := coreSet(v_removal_metadata, "removedAt", v_now); err != nil { return nil, err }
-									if err := coreSet(v_removal, "metadata", v_removal_metadata); err != nil { return nil, err }
-									v_auto_removed = coreAppend(v_auto_removed, v_removal)
-								} else {
-									v_proceed = false
-								}
-							} else {
-								v_proceed = false
-							}
-						} else {
-						// empty
-						}
-						if coreTruthy(v_proceed) {
-							v_op_bullet_id = coreGet(v_op, "bulletId", nil)
-							v_has_bullet_id = _core_is_not_none(v_op_bullet_id)
-							v_bullet_id = v_op_bullet_id
-							v_missing_bullet_id = _core_not(v_has_bullet_id)
-							if coreTruthy(v_missing_bullet_id) {
-								v_bullet_id_prefix = _core_string_format("{}-{}-{}", v_section_name, v_now, v_section_len)
-								v_bullet_id = _core_string_format("{}-{}", v_bullet_id_prefix, v_operation_index)
-							} else {
-							// empty
-							}
-							v_bullet = Object()
-							if err := coreSet(v_bullet, "id", v_bullet_id); err != nil { return nil, err }
-							if err := coreSet(v_bullet, "section", v_section_name); err != nil { return nil, err }
-							if err := coreSet(v_bullet, "content", v_content); err != nil { return nil, err }
-							if err := coreSet(v_bullet, "helpfulCount", 0); err != nil { return nil, err }
-							if err := coreSet(v_bullet, "harmfulCount", 0); err != nil { return nil, err }
-							if err := coreSet(v_bullet, "createdAt", v_now); err != nil { return nil, err }
-							if err := coreSet(v_bullet, "updatedAt", v_now); err != nil { return nil, err }
-							v_op_metadata = coreGet(v_op, "metadata", nil)
-							v_has_metadata = _core_is_not_none(v_op_metadata)
-							if coreTruthy(v_has_metadata) {
-								v_bullet_metadata = _core_map_merge(v_empty_map, v_op_metadata)
-								if err := coreSet(v_bullet, "metadata", v_bullet_metadata); err != nil { return nil, err }
-							} else {
-							// empty
-							}
-							v_section = coreAppend(v_section, v_bullet)
-							if err := coreSet(v_sections, v_section_name, v_section); err != nil { return nil, err }
-							v_updated_bullets = coreAppend(v_updated_bullets, v_bullet_id)
-						} else {
-						// empty
-						}
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-				v_is_update = _core_eq(v_op_type, "UPDATE")
-				if coreTruthy(v_is_update) {
-					v_target_id = coreGet(v_op, "bulletId", nil)
-					for _, v_bullet = range coreIter(v_section) {
-						v_candidate_bullet_id = coreGet(v_bullet, "id", "")
-						v_bullet_match = _core_eq(v_candidate_bullet_id, v_target_id)
-						if coreTruthy(v_bullet_match) {
-							v_op_content = coreGet(v_op, "content", nil)
-							v_content_is_string = coreTypeIs(v_op_content, "string")
-							if coreTruthy(v_content_is_string) {
-								if err := coreSet(v_bullet, "content", v_op_content); err != nil { return nil, err }
-							} else {
-							// empty
-							}
-							if err := coreSet(v_bullet, "updatedAt", v_now); err != nil { return nil, err }
-							v_op_metadata_update = coreGet(v_op, "metadata", nil)
-							v_has_metadata_update = _core_is_not_none(v_op_metadata_update)
-							if coreTruthy(v_has_metadata_update) {
-								v_existing_metadata = coreGet(v_bullet, "metadata", v_empty_map)
-								v_merged_metadata = _core_map_merge(v_existing_metadata, v_op_metadata_update)
-								if err := coreSet(v_bullet, "metadata", v_merged_metadata); err != nil { return nil, err }
-							} else {
-							// empty
-							}
-							v_bullet_id_update = coreGet(v_bullet, "id", "")
-							v_updated_bullets = coreAppend(v_updated_bullets, v_bullet_id_update)
-						} else {
-						// empty
-						}
-					}
-				} else {
-				// empty
-				}
-				v_is_remove = _core_eq(v_op_type, "REMOVE")
-				if coreTruthy(v_is_remove) {
-					v_remove_id = coreGet(v_op, "bulletId", nil)
-					v_kept = MutableArray()
-					v_none_value = _core_none()
-					v_removed_id = v_none_value
-					for _, v_bullet = range coreIter(v_section) {
-						v_remove_candidate_id = coreGet(v_bullet, "id", "")
-						v_bullet_remove_match = _core_eq(v_remove_candidate_id, v_remove_id)
-						if coreTruthy(v_bullet_remove_match) {
-							v_removed_id = v_remove_candidate_id
-						} else {
-							v_kept = coreAppend(v_kept, v_bullet)
-						}
-					}
-					if err := coreSet(v_sections, v_section_name, v_kept); err != nil { return nil, err }
-					v_did_remove = _core_is_not_none(v_removed_id)
-					if coreTruthy(v_did_remove) {
-						v_updated_bullets = coreAppend(v_updated_bullets, v_removed_id)
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		} else {
-		// empty
 		}
-		v_next_operation_index = _core_add(v_operation_index, 1)
-		v_operation_index = v_next_operation_index
+		if err := coreSet(v_sections, v_section_name, v_unique); err != nil { return nil, err }
 	}
 	if err := coreSet(v_playbook, "sections", v_sections); err != nil { return nil, err }
 	{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_recomputed = v }
-	if err := coreSet(v_recomputed, "updatedAt", v_now); err != nil { return nil, err }
-	v_out = Object()
-	if err := coreSet(v_out, "playbook", v_recomputed); err != nil { return nil, err }
-	if err := coreSet(v_out, "updatedBulletIds", v_updated_bullets); err != nil { return nil, err }
-	if err := coreSet(v_out, "autoRemoved", v_auto_removed); err != nil { return nil, err }
-	return v_out, nil
+	return v_recomputed, nil
 }
 
 func _parse_json_string_value(args ...Value) (Value, error) {
@@ -57032,6 +56788,169 @@ func _date_skip_space_impl(args ...Value) (Value, error) {
 	return v_cursor, nil
 }
 
+func _ace_prune_section_for_addition(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_prune_section_for_addition")
+	var v_section Value
+	var v_protected_ids Value
+	var v_bullet Value
+	var v_candidate_helpful Value
+	var v_candidate_index Value
+	var v_candidate_net Value
+	var v_candidate_recency Value
+	var v_created_at Value
+	var v_cursor Value
+	var v_cursor_next Value
+	var v_harmful Value
+	var v_harmful_weighted Value
+	var v_has_candidate Value
+	var v_helpful Value
+	var v_helpful_equal Value
+	var v_helpful_lower Value
+	var v_id Value
+	var v_index Value
+	var v_index_next Value
+	var v_is_protected Value
+	var v_is_target Value
+	var v_is_worse Value
+	var v_negative_harmful Value
+	var v_net_equal Value
+	var v_net_lower Value
+	var v_net_score Value
+	var v_new_section Value
+	var v_no_candidate Value
+	var v_not_protected Value
+	var v_null_pruned Value
+	var v_out Value
+	var v_pruned Value
+	var v_recency Value
+	var v_recency_lower Value
+	if len(args) > 0 { v_section = args[0] }
+	_ = v_section
+	if len(args) > 1 { v_protected_ids = args[1] }
+	_ = v_protected_ids
+	_ = v_bullet
+	_ = v_candidate_helpful
+	_ = v_candidate_index
+	_ = v_candidate_net
+	_ = v_candidate_recency
+	_ = v_created_at
+	_ = v_cursor
+	_ = v_cursor_next
+	_ = v_harmful
+	_ = v_harmful_weighted
+	_ = v_has_candidate
+	_ = v_helpful
+	_ = v_helpful_equal
+	_ = v_helpful_lower
+	_ = v_id
+	_ = v_index
+	_ = v_index_next
+	_ = v_is_protected
+	_ = v_is_target
+	_ = v_is_worse
+	_ = v_negative_harmful
+	_ = v_net_equal
+	_ = v_net_lower
+	_ = v_net_score
+	_ = v_new_section
+	_ = v_no_candidate
+	_ = v_not_protected
+	_ = v_null_pruned
+	_ = v_out
+	_ = v_pruned
+	_ = v_recency
+	_ = v_recency_lower
+	v_candidate_index = -1
+	v_candidate_net = 0
+	v_candidate_helpful = 0
+	v_candidate_recency = 0
+	v_index = 0
+	for _, v_bullet = range coreIter(v_section) {
+		v_id = coreGet(v_bullet, "id", "")
+		v_is_protected = _core_contains(v_protected_ids, v_id)
+		v_not_protected = _core_not(v_is_protected)
+		if coreTruthy(v_not_protected) {
+			v_helpful = coreGet(v_bullet, "helpfulCount", 0)
+			v_harmful = coreGet(v_bullet, "harmfulCount", 0)
+			v_harmful_weighted = _core_mul(v_harmful, 2)
+			v_negative_harmful = _core_mul(v_harmful_weighted, -1)
+			v_net_score = _core_add(v_helpful, v_negative_harmful)
+			v_created_at = coreGet(v_bullet, "createdAt", "")
+			v_recency = coreGet(v_bullet, "updatedAt", v_created_at)
+			v_no_candidate = _core_lt(v_candidate_index, 0)
+			if coreTruthy(v_no_candidate) {
+				v_candidate_index = v_index
+				v_candidate_net = v_net_score
+				v_candidate_helpful = v_helpful
+				v_candidate_recency = v_recency
+			} else {
+				v_net_lower = _core_lt(v_net_score, v_candidate_net)
+				v_net_equal = _core_eq(v_net_score, v_candidate_net)
+				v_helpful_lower = _core_lt(v_helpful, v_candidate_helpful)
+				v_helpful_equal = _core_eq(v_helpful, v_candidate_helpful)
+				v_recency_lower = _core_lt(v_recency, v_candidate_recency)
+				v_is_worse = v_net_lower
+				if coreTruthy(v_net_equal) {
+					if coreTruthy(v_helpful_lower) {
+						v_is_worse = true
+					} else {
+					// empty
+					}
+					if coreTruthy(v_helpful_equal) {
+						if coreTruthy(v_recency_lower) {
+							v_is_worse = true
+						} else {
+						// empty
+						}
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+				if coreTruthy(v_is_worse) {
+					v_candidate_index = v_index
+					v_candidate_net = v_net_score
+					v_candidate_helpful = v_helpful
+					v_candidate_recency = v_recency
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_index_next = _core_add(v_index, 1)
+		v_index = v_index_next
+	}
+	v_out = Object()
+	v_has_candidate = _core_gte(v_candidate_index, 0)
+	v_new_section = MutableArray()
+	if coreTruthy(v_has_candidate) {
+		v_pruned = _core_none()
+		v_cursor = 0
+		for _, v_bullet = range coreIter(v_section) {
+			v_is_target = _core_eq(v_cursor, v_candidate_index)
+			if coreTruthy(v_is_target) {
+				v_pruned = v_bullet
+			} else {
+				v_new_section = coreAppend(v_new_section, v_bullet)
+			}
+			v_cursor_next = _core_add(v_cursor, 1)
+			v_cursor = v_cursor_next
+		}
+		if err := coreSet(v_out, "pruned", v_pruned); err != nil { return nil, err }
+		if err := coreSet(v_out, "section", v_new_section); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_null_pruned = _core_none()
+	if err := coreSet(v_out, "pruned", v_null_pruned); err != nil { return nil, err }
+	if err := coreSet(v_out, "section", v_section); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _date_space_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_space_impl")
 	var v_unit Value
@@ -57410,6 +57329,361 @@ func _date_ascii_letter_impl(args ...Value) (Value, error) {
 	v_lower = _core_and(v_lower_low, v_lower_high)
 	v_letter = _core_or(v_upper, v_lower)
 	return v_letter, nil
+}
+
+func _ace_apply_curator_operations(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_apply_curator_operations")
+	var v_playbook Value
+	var v_operations Value
+	var v_options Value
+	var v_now Value
+	var v_allow_dynamic Value
+	var v_at_capacity Value
+	var v_at_capacity_raw Value
+	var v_auto_removed Value
+	var v_bullet Value
+	var v_bullet_id Value
+	var v_bullet_id_prefix Value
+	var v_bullet_id_update Value
+	var v_bullet_match Value
+	var v_bullet_metadata Value
+	var v_bullet_remove_match Value
+	var v_candidate_bullet_id Value
+	var v_content Value
+	var v_content_is_string Value
+	var v_did_remove Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_enable_auto_prune Value
+	var v_existing_metadata Value
+	var v_has_bullet_id Value
+	var v_has_content Value
+	var v_has_max Value
+	var v_has_metadata Value
+	var v_has_metadata_update Value
+	var v_has_pruned Value
+	var v_has_section_name Value
+	var v_is_add Value
+	var v_is_remove Value
+	var v_is_update Value
+	var v_kept Value
+	var v_max_section_size Value
+	var v_merged_metadata Value
+	var v_missing_bullet_id Value
+	var v_missing_section Value
+	var v_new_section_list Value
+	var v_next_operation_index Value
+	var v_none_value Value
+	var v_op Value
+	var v_op_bullet_id Value
+	var v_op_content Value
+	var v_op_metadata Value
+	var v_op_metadata_update Value
+	var v_op_type Value
+	var v_operation_index Value
+	var v_opts Value
+	var v_opts_missing Value
+	var v_out Value
+	var v_proceed Value
+	var v_protected_ids Value
+	var v_prune_result Value
+	var v_pruned Value
+	var v_pruned_id Value
+	var v_pruned_metadata Value
+	var v_pruned_section Value
+	var v_raw_content Value
+	var v_recomputed Value
+	var v_removal Value
+	var v_removal_metadata Value
+	var v_remove_candidate_id Value
+	var v_remove_id Value
+	var v_removed_id Value
+	var v_section Value
+	var v_section_exists Value
+	var v_section_len Value
+	var v_section_name Value
+	var v_section_now_exists Value
+	var v_sections Value
+	var v_target_id Value
+	var v_updated_bullets Value
+	if len(args) > 0 { v_playbook = args[0] }
+	_ = v_playbook
+	if len(args) > 1 { v_operations = args[1] }
+	_ = v_operations
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	if len(args) > 3 { v_now = args[3] }
+	_ = v_now
+	_ = v_allow_dynamic
+	_ = v_at_capacity
+	_ = v_at_capacity_raw
+	_ = v_auto_removed
+	_ = v_bullet
+	_ = v_bullet_id
+	_ = v_bullet_id_prefix
+	_ = v_bullet_id_update
+	_ = v_bullet_match
+	_ = v_bullet_metadata
+	_ = v_bullet_remove_match
+	_ = v_candidate_bullet_id
+	_ = v_content
+	_ = v_content_is_string
+	_ = v_did_remove
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_enable_auto_prune
+	_ = v_existing_metadata
+	_ = v_has_bullet_id
+	_ = v_has_content
+	_ = v_has_max
+	_ = v_has_metadata
+	_ = v_has_metadata_update
+	_ = v_has_pruned
+	_ = v_has_section_name
+	_ = v_is_add
+	_ = v_is_remove
+	_ = v_is_update
+	_ = v_kept
+	_ = v_max_section_size
+	_ = v_merged_metadata
+	_ = v_missing_bullet_id
+	_ = v_missing_section
+	_ = v_new_section_list
+	_ = v_next_operation_index
+	_ = v_none_value
+	_ = v_op
+	_ = v_op_bullet_id
+	_ = v_op_content
+	_ = v_op_metadata
+	_ = v_op_metadata_update
+	_ = v_op_type
+	_ = v_operation_index
+	_ = v_opts
+	_ = v_opts_missing
+	_ = v_out
+	_ = v_proceed
+	_ = v_protected_ids
+	_ = v_prune_result
+	_ = v_pruned
+	_ = v_pruned_id
+	_ = v_pruned_metadata
+	_ = v_pruned_section
+	_ = v_raw_content
+	_ = v_recomputed
+	_ = v_removal
+	_ = v_removal_metadata
+	_ = v_remove_candidate_id
+	_ = v_remove_id
+	_ = v_removed_id
+	_ = v_section
+	_ = v_section_exists
+	_ = v_section_len
+	_ = v_section_name
+	_ = v_section_now_exists
+	_ = v_sections
+	_ = v_target_id
+	_ = v_updated_bullets
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_opts = v_options
+	v_opts_missing = _core_is_none(v_options)
+	if coreTruthy(v_opts_missing) {
+		v_opts = v_empty_map
+	} else {
+	// empty
+	}
+	v_allow_dynamic = coreGet(v_opts, "allowDynamicSections", true)
+	v_enable_auto_prune = coreGet(v_opts, "enableAutoPrune", false)
+	v_has_max = _core_map_contains(v_opts, "maxSectionSize")
+	v_max_section_size = coreGet(v_opts, "maxSectionSize", 0)
+	v_protected_ids = coreGet(v_opts, "protectedBulletIds", v_empty_list)
+	v_updated_bullets = MutableArray()
+	v_auto_removed = MutableArray()
+	v_sections = coreGet(v_playbook, "sections", v_empty_map)
+	v_operation_index = 0
+	for _, v_op = range coreIter(v_operations) {
+		v_section_name = coreGet(v_op, "section", "")
+		v_has_section_name = _core_ne(v_section_name, "")
+		if coreTruthy(v_has_section_name) {
+			v_section_exists = _core_map_contains(v_sections, v_section_name)
+			v_missing_section = _core_not(v_section_exists)
+			if coreTruthy(v_missing_section) {
+				if coreTruthy(v_allow_dynamic) {
+					v_new_section_list = MutableArray()
+					if err := coreSet(v_sections, v_section_name, v_new_section_list); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			v_section_now_exists = _core_map_contains(v_sections, v_section_name)
+			if coreTruthy(v_section_now_exists) {
+				v_section = coreGet(v_sections, v_section_name, nil)
+				v_op_type = coreGet(v_op, "type", "")
+				v_is_add = _core_eq(v_op_type, "ADD")
+				if coreTruthy(v_is_add) {
+					v_raw_content = coreGet(v_op, "content", "")
+					v_content = coreStringTrim(v_raw_content)
+					v_has_content = _core_ne(v_content, "")
+					if coreTruthy(v_has_content) {
+						v_section_len = _core_len(v_section)
+						v_at_capacity_raw = _core_gte(v_section_len, v_max_section_size)
+						v_at_capacity = false
+						if coreTruthy(v_has_max) {
+							if coreTruthy(v_at_capacity_raw) {
+								v_at_capacity = true
+							} else {
+							// empty
+							}
+						} else {
+						// empty
+						}
+						v_proceed = true
+						if coreTruthy(v_at_capacity) {
+							if coreTruthy(v_enable_auto_prune) {
+								{ v, err := _ace_prune_section_for_addition(v_section, v_protected_ids); if err != nil { return nil, err }; v_prune_result = v }
+								v_pruned = coreGet(v_prune_result, "pruned", nil)
+								v_has_pruned = _core_is_not_none(v_pruned)
+								if coreTruthy(v_has_pruned) {
+									v_pruned_section = coreGet(v_prune_result, "section", nil)
+									v_section = v_pruned_section
+									if err := coreSet(v_sections, v_section_name, v_section); err != nil { return nil, err }
+									v_pruned_id = coreGet(v_pruned, "id", "")
+									v_updated_bullets = coreAppend(v_updated_bullets, v_pruned_id)
+									v_removal = Object()
+									if err := coreSet(v_removal, "type", "REMOVE"); err != nil { return nil, err }
+									if err := coreSet(v_removal, "section", v_section_name); err != nil { return nil, err }
+									if err := coreSet(v_removal, "bulletId", v_pruned_id); err != nil { return nil, err }
+									v_pruned_metadata = coreGet(v_pruned, "metadata", v_empty_map)
+									v_removal_metadata = _core_map_merge(v_empty_map, v_pruned_metadata)
+									if err := coreSet(v_removal_metadata, "autoPruned", true); err != nil { return nil, err }
+									if err := coreSet(v_removal_metadata, "removedAt", v_now); err != nil { return nil, err }
+									if err := coreSet(v_removal, "metadata", v_removal_metadata); err != nil { return nil, err }
+									v_auto_removed = coreAppend(v_auto_removed, v_removal)
+								} else {
+									v_proceed = false
+								}
+							} else {
+								v_proceed = false
+							}
+						} else {
+						// empty
+						}
+						if coreTruthy(v_proceed) {
+							v_op_bullet_id = coreGet(v_op, "bulletId", nil)
+							v_has_bullet_id = _core_is_not_none(v_op_bullet_id)
+							v_bullet_id = v_op_bullet_id
+							v_missing_bullet_id = _core_not(v_has_bullet_id)
+							if coreTruthy(v_missing_bullet_id) {
+								v_bullet_id_prefix = _core_string_format("{}-{}-{}", v_section_name, v_now, v_section_len)
+								v_bullet_id = _core_string_format("{}-{}", v_bullet_id_prefix, v_operation_index)
+							} else {
+							// empty
+							}
+							v_bullet = Object()
+							if err := coreSet(v_bullet, "id", v_bullet_id); err != nil { return nil, err }
+							if err := coreSet(v_bullet, "section", v_section_name); err != nil { return nil, err }
+							if err := coreSet(v_bullet, "content", v_content); err != nil { return nil, err }
+							if err := coreSet(v_bullet, "helpfulCount", 0); err != nil { return nil, err }
+							if err := coreSet(v_bullet, "harmfulCount", 0); err != nil { return nil, err }
+							if err := coreSet(v_bullet, "createdAt", v_now); err != nil { return nil, err }
+							if err := coreSet(v_bullet, "updatedAt", v_now); err != nil { return nil, err }
+							v_op_metadata = coreGet(v_op, "metadata", nil)
+							v_has_metadata = _core_is_not_none(v_op_metadata)
+							if coreTruthy(v_has_metadata) {
+								v_bullet_metadata = _core_map_merge(v_empty_map, v_op_metadata)
+								if err := coreSet(v_bullet, "metadata", v_bullet_metadata); err != nil { return nil, err }
+							} else {
+							// empty
+							}
+							v_section = coreAppend(v_section, v_bullet)
+							if err := coreSet(v_sections, v_section_name, v_section); err != nil { return nil, err }
+							v_updated_bullets = coreAppend(v_updated_bullets, v_bullet_id)
+						} else {
+						// empty
+						}
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+				v_is_update = _core_eq(v_op_type, "UPDATE")
+				if coreTruthy(v_is_update) {
+					v_target_id = coreGet(v_op, "bulletId", nil)
+					for _, v_bullet = range coreIter(v_section) {
+						v_candidate_bullet_id = coreGet(v_bullet, "id", "")
+						v_bullet_match = _core_eq(v_candidate_bullet_id, v_target_id)
+						if coreTruthy(v_bullet_match) {
+							v_op_content = coreGet(v_op, "content", nil)
+							v_content_is_string = coreTypeIs(v_op_content, "string")
+							if coreTruthy(v_content_is_string) {
+								if err := coreSet(v_bullet, "content", v_op_content); err != nil { return nil, err }
+							} else {
+							// empty
+							}
+							if err := coreSet(v_bullet, "updatedAt", v_now); err != nil { return nil, err }
+							v_op_metadata_update = coreGet(v_op, "metadata", nil)
+							v_has_metadata_update = _core_is_not_none(v_op_metadata_update)
+							if coreTruthy(v_has_metadata_update) {
+								v_existing_metadata = coreGet(v_bullet, "metadata", v_empty_map)
+								v_merged_metadata = _core_map_merge(v_existing_metadata, v_op_metadata_update)
+								if err := coreSet(v_bullet, "metadata", v_merged_metadata); err != nil { return nil, err }
+							} else {
+							// empty
+							}
+							v_bullet_id_update = coreGet(v_bullet, "id", "")
+							v_updated_bullets = coreAppend(v_updated_bullets, v_bullet_id_update)
+						} else {
+						// empty
+						}
+					}
+				} else {
+				// empty
+				}
+				v_is_remove = _core_eq(v_op_type, "REMOVE")
+				if coreTruthy(v_is_remove) {
+					v_remove_id = coreGet(v_op, "bulletId", nil)
+					v_kept = MutableArray()
+					v_none_value = _core_none()
+					v_removed_id = v_none_value
+					for _, v_bullet = range coreIter(v_section) {
+						v_remove_candidate_id = coreGet(v_bullet, "id", "")
+						v_bullet_remove_match = _core_eq(v_remove_candidate_id, v_remove_id)
+						if coreTruthy(v_bullet_remove_match) {
+							v_removed_id = v_remove_candidate_id
+						} else {
+							v_kept = coreAppend(v_kept, v_bullet)
+						}
+					}
+					if err := coreSet(v_sections, v_section_name, v_kept); err != nil { return nil, err }
+					v_did_remove = _core_is_not_none(v_removed_id)
+					if coreTruthy(v_did_remove) {
+						v_updated_bullets = coreAppend(v_updated_bullets, v_removed_id)
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_next_operation_index = _core_add(v_operation_index, 1)
+		v_operation_index = v_next_operation_index
+	}
+	if err := coreSet(v_playbook, "sections", v_sections); err != nil { return nil, err }
+	{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_recomputed = v }
+	if err := coreSet(v_recomputed, "updatedAt", v_now); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "playbook", v_recomputed); err != nil { return nil, err }
+	if err := coreSet(v_out, "updatedBulletIds", v_updated_bullets); err != nil { return nil, err }
+	if err := coreSet(v_out, "autoRemoved", v_auto_removed); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _stream_text_extract_impl(args ...Value) (Value, error) {
@@ -58070,226 +58344,6 @@ func _regex_capture_ids(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_out, nil
-}
-
-func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_is_noop_acknowledgment")
-	var v_content Value
-	var v_c Value
-	var v_empty Value
-	var v_has_keep_prefix Value
-	var v_has_remains Value
-	var v_has_subject Value
-	var v_is_noop Value
-	var v_keep_hit Value
-	var v_keep_prefix Value
-	var v_keep_prefixes Value
-	var v_lowered Value
-	var v_marker Value
-	var v_marker_hit Value
-	var v_markers Value
-	var v_nonempty Value
-	var v_phrase Value
-	var v_phrase_hit Value
-	var v_phrases Value
-	var v_qualifier Value
-	var v_qualifier_hit Value
-	var v_qualifiers Value
-	var v_referent Value
-	var v_referent_hit Value
-	var v_referents Value
-	var v_remains Value
-	var v_remains_hit Value
-	var v_remains_list Value
-	var v_stasis Value
-	var v_stasis_hit Value
-	var v_stasis_list Value
-	var v_subject Value
-	var v_subject_hit Value
-	var v_subjects Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
-	_ = v_c
-	_ = v_empty
-	_ = v_has_keep_prefix
-	_ = v_has_remains
-	_ = v_has_subject
-	_ = v_is_noop
-	_ = v_keep_hit
-	_ = v_keep_prefix
-	_ = v_keep_prefixes
-	_ = v_lowered
-	_ = v_marker
-	_ = v_marker_hit
-	_ = v_markers
-	_ = v_nonempty
-	_ = v_phrase
-	_ = v_phrase_hit
-	_ = v_phrases
-	_ = v_qualifier
-	_ = v_qualifier_hit
-	_ = v_qualifiers
-	_ = v_referent
-	_ = v_referent_hit
-	_ = v_referents
-	_ = v_remains
-	_ = v_remains_hit
-	_ = v_remains_list
-	_ = v_stasis
-	_ = v_stasis_hit
-	_ = v_stasis_list
-	_ = v_subject
-	_ = v_subject_hit
-	_ = v_subjects
-	v_lowered = _core_string_lower(v_content)
-	v_c = coreStringTrim(v_lowered)
-	v_is_noop = false
-	v_empty = _core_eq(v_c, "")
-	v_nonempty = _core_not(v_empty)
-	if coreTruthy(v_nonempty) {
-		v_markers = MutableArray()
-		v_markers = coreAppend(v_markers, "no-op")
-		v_markers = coreAppend(v_markers, "noop")
-		for _, v_marker = range coreIter(v_markers) {
-			v_marker_hit = _core_string_starts_with(v_c, v_marker)
-			if coreTruthy(v_marker_hit) {
-				v_is_noop = true
-			} else {
-			// empty
-			}
-		}
-		v_subjects = MutableArray()
-		v_subjects = coreAppend(v_subjects, "no update")
-		v_subjects = coreAppend(v_subjects, "no updates")
-		v_subjects = coreAppend(v_subjects, "no change")
-		v_subjects = coreAppend(v_subjects, "no changes")
-		v_subjects = coreAppend(v_subjects, "no modification")
-		v_subjects = coreAppend(v_subjects, "no modifications")
-		v_subjects = coreAppend(v_subjects, "no edit")
-		v_subjects = coreAppend(v_subjects, "no edits")
-		v_subjects = coreAppend(v_subjects, "no revision")
-		v_subjects = coreAppend(v_subjects, "no revisions")
-		v_subjects = coreAppend(v_subjects, "no action")
-		v_subjects = coreAppend(v_subjects, "no adjustment")
-		v_subjects = coreAppend(v_subjects, "no adjustments")
-		v_subjects = coreAppend(v_subjects, "no new")
-		v_subjects = coreAppend(v_subjects, "no additional")
-		v_subjects = coreAppend(v_subjects, "no further")
-		v_has_subject = false
-		for _, v_subject = range coreIter(v_subjects) {
-			v_subject_hit = _core_contains(v_c, v_subject)
-			if coreTruthy(v_subject_hit) {
-				v_has_subject = true
-			} else {
-			// empty
-			}
-		}
-		if coreTruthy(v_has_subject) {
-			v_qualifiers = MutableArray()
-			v_qualifiers = coreAppend(v_qualifiers, "needed")
-			v_qualifiers = coreAppend(v_qualifiers, "required")
-			v_qualifiers = coreAppend(v_qualifiers, "necessary")
-			v_qualifiers = coreAppend(v_qualifiers, "warranted")
-			for _, v_qualifier = range coreIter(v_qualifiers) {
-				v_qualifier_hit = _core_contains(v_c, v_qualifier)
-				if coreTruthy(v_qualifier_hit) {
-					v_is_noop = true
-				} else {
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		v_phrases = MutableArray()
-		v_phrases = coreAppend(v_phrases, "nothing to add")
-		v_phrases = coreAppend(v_phrases, "nothing to change")
-		v_phrases = coreAppend(v_phrases, "nothing to update")
-		v_phrases = coreAppend(v_phrases, "nothing to modify")
-		v_phrases = coreAppend(v_phrases, "nothing to revise")
-		v_phrases = coreAppend(v_phrases, "nothing needs")
-		v_phrases = coreAppend(v_phrases, "nothing further")
-		for _, v_phrase = range coreIter(v_phrases) {
-			v_phrase_hit = _core_contains(v_c, v_phrase)
-			if coreTruthy(v_phrase_hit) {
-				v_is_noop = true
-			} else {
-			// empty
-			}
-		}
-		v_keep_prefixes = MutableArray()
-		v_keep_prefixes = coreAppend(v_keep_prefixes, "keep the existing")
-		v_keep_prefixes = coreAppend(v_keep_prefixes, "leave the existing")
-		v_keep_prefixes = coreAppend(v_keep_prefixes, "retain the existing")
-		v_keep_prefixes = coreAppend(v_keep_prefixes, "preserve the existing")
-		v_has_keep_prefix = false
-		for _, v_keep_prefix = range coreIter(v_keep_prefixes) {
-			v_keep_hit = _core_string_starts_with(v_c, v_keep_prefix)
-			if coreTruthy(v_keep_hit) {
-				v_has_keep_prefix = true
-			} else {
-			// empty
-			}
-		}
-		if coreTruthy(v_has_keep_prefix) {
-			v_stasis_list = MutableArray()
-			v_stasis_list = coreAppend(v_stasis_list, "unchanged")
-			v_stasis_list = coreAppend(v_stasis_list, "as is")
-			v_stasis_list = coreAppend(v_stasis_list, "as-is")
-			v_stasis_list = coreAppend(v_stasis_list, "intact")
-			v_stasis_list = coreAppend(v_stasis_list, "in place")
-			for _, v_stasis = range coreIter(v_stasis_list) {
-				v_stasis_hit = _core_contains(v_c, v_stasis)
-				if coreTruthy(v_stasis_hit) {
-					v_is_noop = true
-				} else {
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		v_remains_list = MutableArray()
-		v_remains_list = coreAppend(v_remains_list, "remains correct")
-		v_remains_list = coreAppend(v_remains_list, "remains unchanged")
-		v_remains_list = coreAppend(v_remains_list, "remains the same")
-		v_remains_list = coreAppend(v_remains_list, "remains valid")
-		v_remains_list = coreAppend(v_remains_list, "remains accurate")
-		v_remains_list = coreAppend(v_remains_list, "already correct")
-		v_has_remains = false
-		for _, v_remains = range coreIter(v_remains_list) {
-			v_remains_hit = _core_contains(v_c, v_remains)
-			if coreTruthy(v_remains_hit) {
-				v_has_remains = true
-			} else {
-			// empty
-			}
-		}
-		if coreTruthy(v_has_remains) {
-			v_referents = MutableArray()
-			v_referents = coreAppend(v_referents, "existing")
-			v_referents = coreAppend(v_referents, "current")
-			v_referents = coreAppend(v_referents, "rule")
-			v_referents = coreAppend(v_referents, "guideline")
-			v_referents = coreAppend(v_referents, "guidance")
-			v_referents = coreAppend(v_referents, "playbook")
-			v_referents = coreAppend(v_referents, "bullet")
-			v_referents = coreAppend(v_referents, "entry")
-			for _, v_referent = range coreIter(v_referents) {
-				v_referent_hit = _core_contains(v_c, v_referent)
-				if coreTruthy(v_referent_hit) {
-					v_is_noop = true
-				} else {
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return v_is_noop, nil
 }
 
 func chat_session_close_state(args ...Value) (Value, error) {
@@ -60313,6 +60367,226 @@ func _stream_text_required_check_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
+func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_is_noop_acknowledgment")
+	var v_content Value
+	var v_c Value
+	var v_empty Value
+	var v_has_keep_prefix Value
+	var v_has_remains Value
+	var v_has_subject Value
+	var v_is_noop Value
+	var v_keep_hit Value
+	var v_keep_prefix Value
+	var v_keep_prefixes Value
+	var v_lowered Value
+	var v_marker Value
+	var v_marker_hit Value
+	var v_markers Value
+	var v_nonempty Value
+	var v_phrase Value
+	var v_phrase_hit Value
+	var v_phrases Value
+	var v_qualifier Value
+	var v_qualifier_hit Value
+	var v_qualifiers Value
+	var v_referent Value
+	var v_referent_hit Value
+	var v_referents Value
+	var v_remains Value
+	var v_remains_hit Value
+	var v_remains_list Value
+	var v_stasis Value
+	var v_stasis_hit Value
+	var v_stasis_list Value
+	var v_subject Value
+	var v_subject_hit Value
+	var v_subjects Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	_ = v_c
+	_ = v_empty
+	_ = v_has_keep_prefix
+	_ = v_has_remains
+	_ = v_has_subject
+	_ = v_is_noop
+	_ = v_keep_hit
+	_ = v_keep_prefix
+	_ = v_keep_prefixes
+	_ = v_lowered
+	_ = v_marker
+	_ = v_marker_hit
+	_ = v_markers
+	_ = v_nonempty
+	_ = v_phrase
+	_ = v_phrase_hit
+	_ = v_phrases
+	_ = v_qualifier
+	_ = v_qualifier_hit
+	_ = v_qualifiers
+	_ = v_referent
+	_ = v_referent_hit
+	_ = v_referents
+	_ = v_remains
+	_ = v_remains_hit
+	_ = v_remains_list
+	_ = v_stasis
+	_ = v_stasis_hit
+	_ = v_stasis_list
+	_ = v_subject
+	_ = v_subject_hit
+	_ = v_subjects
+	v_lowered = _core_string_lower(v_content)
+	v_c = coreStringTrim(v_lowered)
+	v_is_noop = false
+	v_empty = _core_eq(v_c, "")
+	v_nonempty = _core_not(v_empty)
+	if coreTruthy(v_nonempty) {
+		v_markers = MutableArray()
+		v_markers = coreAppend(v_markers, "no-op")
+		v_markers = coreAppend(v_markers, "noop")
+		for _, v_marker = range coreIter(v_markers) {
+			v_marker_hit = _core_string_starts_with(v_c, v_marker)
+			if coreTruthy(v_marker_hit) {
+				v_is_noop = true
+			} else {
+			// empty
+			}
+		}
+		v_subjects = MutableArray()
+		v_subjects = coreAppend(v_subjects, "no update")
+		v_subjects = coreAppend(v_subjects, "no updates")
+		v_subjects = coreAppend(v_subjects, "no change")
+		v_subjects = coreAppend(v_subjects, "no changes")
+		v_subjects = coreAppend(v_subjects, "no modification")
+		v_subjects = coreAppend(v_subjects, "no modifications")
+		v_subjects = coreAppend(v_subjects, "no edit")
+		v_subjects = coreAppend(v_subjects, "no edits")
+		v_subjects = coreAppend(v_subjects, "no revision")
+		v_subjects = coreAppend(v_subjects, "no revisions")
+		v_subjects = coreAppend(v_subjects, "no action")
+		v_subjects = coreAppend(v_subjects, "no adjustment")
+		v_subjects = coreAppend(v_subjects, "no adjustments")
+		v_subjects = coreAppend(v_subjects, "no new")
+		v_subjects = coreAppend(v_subjects, "no additional")
+		v_subjects = coreAppend(v_subjects, "no further")
+		v_has_subject = false
+		for _, v_subject = range coreIter(v_subjects) {
+			v_subject_hit = _core_contains(v_c, v_subject)
+			if coreTruthy(v_subject_hit) {
+				v_has_subject = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_has_subject) {
+			v_qualifiers = MutableArray()
+			v_qualifiers = coreAppend(v_qualifiers, "needed")
+			v_qualifiers = coreAppend(v_qualifiers, "required")
+			v_qualifiers = coreAppend(v_qualifiers, "necessary")
+			v_qualifiers = coreAppend(v_qualifiers, "warranted")
+			for _, v_qualifier = range coreIter(v_qualifiers) {
+				v_qualifier_hit = _core_contains(v_c, v_qualifier)
+				if coreTruthy(v_qualifier_hit) {
+					v_is_noop = true
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_phrases = MutableArray()
+		v_phrases = coreAppend(v_phrases, "nothing to add")
+		v_phrases = coreAppend(v_phrases, "nothing to change")
+		v_phrases = coreAppend(v_phrases, "nothing to update")
+		v_phrases = coreAppend(v_phrases, "nothing to modify")
+		v_phrases = coreAppend(v_phrases, "nothing to revise")
+		v_phrases = coreAppend(v_phrases, "nothing needs")
+		v_phrases = coreAppend(v_phrases, "nothing further")
+		for _, v_phrase = range coreIter(v_phrases) {
+			v_phrase_hit = _core_contains(v_c, v_phrase)
+			if coreTruthy(v_phrase_hit) {
+				v_is_noop = true
+			} else {
+			// empty
+			}
+		}
+		v_keep_prefixes = MutableArray()
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "keep the existing")
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "leave the existing")
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "retain the existing")
+		v_keep_prefixes = coreAppend(v_keep_prefixes, "preserve the existing")
+		v_has_keep_prefix = false
+		for _, v_keep_prefix = range coreIter(v_keep_prefixes) {
+			v_keep_hit = _core_string_starts_with(v_c, v_keep_prefix)
+			if coreTruthy(v_keep_hit) {
+				v_has_keep_prefix = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_has_keep_prefix) {
+			v_stasis_list = MutableArray()
+			v_stasis_list = coreAppend(v_stasis_list, "unchanged")
+			v_stasis_list = coreAppend(v_stasis_list, "as is")
+			v_stasis_list = coreAppend(v_stasis_list, "as-is")
+			v_stasis_list = coreAppend(v_stasis_list, "intact")
+			v_stasis_list = coreAppend(v_stasis_list, "in place")
+			for _, v_stasis = range coreIter(v_stasis_list) {
+				v_stasis_hit = _core_contains(v_c, v_stasis)
+				if coreTruthy(v_stasis_hit) {
+					v_is_noop = true
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_remains_list = MutableArray()
+		v_remains_list = coreAppend(v_remains_list, "remains correct")
+		v_remains_list = coreAppend(v_remains_list, "remains unchanged")
+		v_remains_list = coreAppend(v_remains_list, "remains the same")
+		v_remains_list = coreAppend(v_remains_list, "remains valid")
+		v_remains_list = coreAppend(v_remains_list, "remains accurate")
+		v_remains_list = coreAppend(v_remains_list, "already correct")
+		v_has_remains = false
+		for _, v_remains = range coreIter(v_remains_list) {
+			v_remains_hit = _core_contains(v_c, v_remains)
+			if coreTruthy(v_remains_hit) {
+				v_has_remains = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_has_remains) {
+			v_referents = MutableArray()
+			v_referents = coreAppend(v_referents, "existing")
+			v_referents = coreAppend(v_referents, "current")
+			v_referents = coreAppend(v_referents, "rule")
+			v_referents = coreAppend(v_referents, "guideline")
+			v_referents = coreAppend(v_referents, "guidance")
+			v_referents = coreAppend(v_referents, "playbook")
+			v_referents = coreAppend(v_referents, "bullet")
+			v_referents = coreAppend(v_referents, "entry")
+			for _, v_referent = range coreIter(v_referents) {
+				v_referent_hit = _core_contains(v_c, v_referent)
+				if coreTruthy(v_referent_hit) {
+					v_is_noop = true
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_is_noop, nil
+}
+
 func _completion_call_to_chat_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_completion_call_to_chat_impl")
 	var v_call Value
@@ -60364,314 +60638,6 @@ func chat_session_tool_argument_errors(args ...Value) (Value, error) {
 	}
 	{ v, err := _chat_session_argument_errors(v_schema, v_schema, v_arguments, "", 0); if err != nil { return nil, err }; v_errors = v }
 	return v_errors, nil
-}
-
-func _ace_normalize_curator_operations(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_normalize_curator_operations")
-	var v_operations Value
-	var v_already_seen Value
-	var v_bullet_id Value
-	var v_bullet_id_is_string Value
-	var v_bullet_id_key Value
-	var v_bullet_id_nonempty Value
-	var v_bullet_id_raw Value
-	var v_bullet_id_source Value
-	var v_bullet_id_trimmed Value
-	var v_content Value
-	var v_content_empty Value
-	var v_content_is_string Value
-	var v_content_raw Value
-	var v_content_trimmed Value
-	var v_empty_list Value
-	var v_empty_metadata Value
-	var v_entry Value
-	var v_fresh Value
-	var v_has_bullet_id Value
-	var v_has_bullet_id_field Value
-	var v_has_inner Value
-	var v_has_operations Value
-	var v_id_field Value
-	var v_inner Value
-	var v_is_add_type Value
-	var v_is_list Value
-	var v_is_noop Value
-	var v_is_object Value
-	var v_is_remove Value
-	var v_is_string Value
-	var v_is_update Value
-	var v_keep Value
-	var v_key Value
-	var v_key_a Value
-	var v_key_b Value
-	var v_lowered Value
-	var v_metadata_copy Value
-	var v_metadata_is_object Value
-	var v_metadata_raw Value
-	var v_missing Value
-	var v_none_value Value
-	var v_normalized Value
-	var v_normalized_entry Value
-	var v_normalized_from_object Value
-	var v_normalized_from_string Value
-	var v_not_remove Value
-	var v_parsed Value
-	var v_parsed_is_none Value
-	var v_section Value
-	var v_section_is_string Value
-	var v_section_nonempty Value
-	var v_section_raw Value
-	var v_section_trimmed Value
-	var v_seen Value
-	var v_type Value
-	var v_type_is_string Value
-	var v_type_lower Value
-	var v_type_raw Value
-	if len(args) > 0 { v_operations = args[0] }
-	_ = v_operations
-	_ = v_already_seen
-	_ = v_bullet_id
-	_ = v_bullet_id_is_string
-	_ = v_bullet_id_key
-	_ = v_bullet_id_nonempty
-	_ = v_bullet_id_raw
-	_ = v_bullet_id_source
-	_ = v_bullet_id_trimmed
-	_ = v_content
-	_ = v_content_empty
-	_ = v_content_is_string
-	_ = v_content_raw
-	_ = v_content_trimmed
-	_ = v_empty_list
-	_ = v_empty_metadata
-	_ = v_entry
-	_ = v_fresh
-	_ = v_has_bullet_id
-	_ = v_has_bullet_id_field
-	_ = v_has_inner
-	_ = v_has_operations
-	_ = v_id_field
-	_ = v_inner
-	_ = v_is_add_type
-	_ = v_is_list
-	_ = v_is_noop
-	_ = v_is_object
-	_ = v_is_remove
-	_ = v_is_string
-	_ = v_is_update
-	_ = v_keep
-	_ = v_key
-	_ = v_key_a
-	_ = v_key_b
-	_ = v_lowered
-	_ = v_metadata_copy
-	_ = v_metadata_is_object
-	_ = v_metadata_raw
-	_ = v_missing
-	_ = v_none_value
-	_ = v_normalized
-	_ = v_normalized_entry
-	_ = v_normalized_from_object
-	_ = v_normalized_from_string
-	_ = v_not_remove
-	_ = v_parsed
-	_ = v_parsed_is_none
-	_ = v_section
-	_ = v_section_is_string
-	_ = v_section_nonempty
-	_ = v_section_raw
-	_ = v_section_trimmed
-	_ = v_seen
-	_ = v_type
-	_ = v_type_is_string
-	_ = v_type_lower
-	_ = v_type_raw
-	v_empty_list = MutableArray()
-	v_has_operations = _core_is_not_none(v_operations)
-	v_missing = _core_not(v_has_operations)
-	if coreTruthy(v_missing) {
-		return v_empty_list, nil
-	} else {
-	// empty
-	}
-	v_is_list = coreTypeIs(v_operations, "list")
-	if coreTruthy(v_is_list) {
-		v_normalized = MutableArray()
-		v_seen = Object()
-		for _, v_entry = range coreIter(v_operations) {
-			v_is_object = coreTypeIs(v_entry, "object")
-			if coreTruthy(v_is_object) {
-				v_type_raw = coreGet(v_entry, "type", "ADD")
-				v_type_is_string = coreTypeIs(v_type_raw, "string")
-				v_type_lower = "add"
-				if coreTruthy(v_type_is_string) {
-					v_lowered = _core_string_lower(v_type_raw)
-					v_type_lower = v_lowered
-				} else {
-				// empty
-				}
-				v_is_update = _core_eq(v_type_lower, "update")
-				v_is_remove = _core_eq(v_type_lower, "remove")
-				v_type = "ADD"
-				if coreTruthy(v_is_update) {
-					v_type = "UPDATE"
-				} else {
-				// empty
-				}
-				if coreTruthy(v_is_remove) {
-					v_type = "REMOVE"
-				} else {
-				// empty
-				}
-				v_section_raw = coreGet(v_entry, "section", "Guidelines")
-				v_section_is_string = coreTypeIs(v_section_raw, "string")
-				v_section = "Guidelines"
-				if coreTruthy(v_section_is_string) {
-					v_section_trimmed = coreStringTrim(v_section_raw)
-					v_section_nonempty = _core_ne(v_section_trimmed, "")
-					if coreTruthy(v_section_nonempty) {
-						v_section = v_section_trimmed
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-				v_content_raw = coreGet(v_entry, "content", "")
-				v_content_is_string = coreTypeIs(v_content_raw, "string")
-				v_content = ""
-				if coreTruthy(v_content_is_string) {
-					v_content_trimmed = coreStringTrim(v_content_raw)
-					v_content = v_content_trimmed
-				} else {
-				// empty
-				}
-				v_not_remove = _core_ne(v_type, "REMOVE")
-				v_content_empty = _core_eq(v_content, "")
-				v_keep = true
-				if coreTruthy(v_not_remove) {
-					if coreTruthy(v_content_empty) {
-						v_keep = false
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-				v_is_add_type = _core_eq(v_type, "ADD")
-				if coreTruthy(v_is_add_type) {
-					{ v, err := _ace_is_noop_acknowledgment(v_content); if err != nil { return nil, err }; v_is_noop = v }
-					if coreTruthy(v_is_noop) {
-						v_keep = false
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-				if coreTruthy(v_keep) {
-					v_bullet_id_raw = coreGet(v_entry, "bulletId", nil)
-					v_has_bullet_id_field = _core_is_not_none(v_bullet_id_raw)
-					v_bullet_id_source = v_bullet_id_raw
-					if coreTruthy(v_has_bullet_id_field) {
-					// empty
-					} else {
-						v_id_field = coreGet(v_entry, "id", nil)
-						v_bullet_id_source = v_id_field
-					}
-					v_bullet_id_is_string = coreTypeIs(v_bullet_id_source, "string")
-					v_none_value = _core_none()
-					v_bullet_id = v_none_value
-					if coreTruthy(v_bullet_id_is_string) {
-						v_bullet_id_trimmed = coreStringTrim(v_bullet_id_source)
-						v_bullet_id_nonempty = _core_ne(v_bullet_id_trimmed, "")
-						if coreTruthy(v_bullet_id_nonempty) {
-							v_bullet_id = v_bullet_id_trimmed
-						} else {
-						// empty
-						}
-					} else {
-					// empty
-					}
-					v_bullet_id_key = ""
-					v_has_bullet_id = _core_is_not_none(v_bullet_id)
-					if coreTruthy(v_has_bullet_id) {
-						v_bullet_id_key = v_bullet_id
-					} else {
-					// empty
-					}
-					v_key_a = _core_string_format("{}:{}", v_type, v_section)
-					v_key_b = _core_string_format("{}:{}", v_content, v_bullet_id_key)
-					v_key = _core_string_format("{}:{}", v_key_a, v_key_b)
-					v_already_seen = _core_map_contains(v_seen, v_key)
-					v_fresh = _core_not(v_already_seen)
-					if coreTruthy(v_fresh) {
-						if err := coreSet(v_seen, v_key, true); err != nil { return nil, err }
-						v_normalized_entry = Object()
-						if err := coreSet(v_normalized_entry, "type", v_type); err != nil { return nil, err }
-						if err := coreSet(v_normalized_entry, "section", v_section); err != nil { return nil, err }
-						if coreTruthy(v_not_remove) {
-							if err := coreSet(v_normalized_entry, "content", v_content); err != nil { return nil, err }
-						} else {
-						// empty
-						}
-						if coreTruthy(v_has_bullet_id) {
-							if err := coreSet(v_normalized_entry, "bulletId", v_bullet_id); err != nil { return nil, err }
-						} else {
-						// empty
-						}
-						v_metadata_raw = coreGet(v_entry, "metadata", nil)
-						v_metadata_is_object = coreTypeIs(v_metadata_raw, "object")
-						if coreTruthy(v_metadata_is_object) {
-							v_empty_metadata = Object()
-							v_metadata_copy = _core_map_merge(v_empty_metadata, v_metadata_raw)
-							if err := coreSet(v_normalized_entry, "metadata", v_metadata_copy); err != nil { return nil, err }
-						} else {
-						// empty
-						}
-						v_normalized = coreAppend(v_normalized, v_normalized_entry)
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		}
-		return v_normalized, nil
-	} else {
-	// empty
-	}
-	v_is_string = coreTypeIs(v_operations, "string")
-	if coreTruthy(v_is_string) {
-		{ v, err := _core_json_parse(v_operations); if err != nil { return nil, err }; v_parsed = v }
-		v_parsed_is_none = _core_is_none(v_parsed)
-		if coreTruthy(v_parsed_is_none) {
-			return v_empty_list, nil
-		} else {
-		// empty
-		}
-		{ v, err := _ace_normalize_curator_operations(v_parsed); if err != nil { return nil, err }; v_normalized_from_string = v }
-		return v_normalized_from_string, nil
-	} else {
-	// empty
-	}
-	v_is_object = coreTypeIs(v_operations, "object")
-	if coreTruthy(v_is_object) {
-		v_inner = coreGet(v_operations, "operations", nil)
-		v_has_inner = _core_is_not_none(v_inner)
-		if coreTruthy(v_has_inner) {
-			{ v, err := _ace_normalize_curator_operations(v_inner); if err != nil { return nil, err }; v_normalized_from_object = v }
-			return v_normalized_from_object, nil
-		} else {
-		// empty
-		}
-		return v_empty_list, nil
-	} else {
-	// empty
-	}
-	return v_empty_list, nil
 }
 
 func chat_session_tool_argument_error(args ...Value) (Value, error) {
@@ -61529,6 +61495,314 @@ func _parse_text_output_fields_impl(args ...Value) (Value, error) {
 	return v_values, nil
 }
 
+func _ace_normalize_curator_operations(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_normalize_curator_operations")
+	var v_operations Value
+	var v_already_seen Value
+	var v_bullet_id Value
+	var v_bullet_id_is_string Value
+	var v_bullet_id_key Value
+	var v_bullet_id_nonempty Value
+	var v_bullet_id_raw Value
+	var v_bullet_id_source Value
+	var v_bullet_id_trimmed Value
+	var v_content Value
+	var v_content_empty Value
+	var v_content_is_string Value
+	var v_content_raw Value
+	var v_content_trimmed Value
+	var v_empty_list Value
+	var v_empty_metadata Value
+	var v_entry Value
+	var v_fresh Value
+	var v_has_bullet_id Value
+	var v_has_bullet_id_field Value
+	var v_has_inner Value
+	var v_has_operations Value
+	var v_id_field Value
+	var v_inner Value
+	var v_is_add_type Value
+	var v_is_list Value
+	var v_is_noop Value
+	var v_is_object Value
+	var v_is_remove Value
+	var v_is_string Value
+	var v_is_update Value
+	var v_keep Value
+	var v_key Value
+	var v_key_a Value
+	var v_key_b Value
+	var v_lowered Value
+	var v_metadata_copy Value
+	var v_metadata_is_object Value
+	var v_metadata_raw Value
+	var v_missing Value
+	var v_none_value Value
+	var v_normalized Value
+	var v_normalized_entry Value
+	var v_normalized_from_object Value
+	var v_normalized_from_string Value
+	var v_not_remove Value
+	var v_parsed Value
+	var v_parsed_is_none Value
+	var v_section Value
+	var v_section_is_string Value
+	var v_section_nonempty Value
+	var v_section_raw Value
+	var v_section_trimmed Value
+	var v_seen Value
+	var v_type Value
+	var v_type_is_string Value
+	var v_type_lower Value
+	var v_type_raw Value
+	if len(args) > 0 { v_operations = args[0] }
+	_ = v_operations
+	_ = v_already_seen
+	_ = v_bullet_id
+	_ = v_bullet_id_is_string
+	_ = v_bullet_id_key
+	_ = v_bullet_id_nonempty
+	_ = v_bullet_id_raw
+	_ = v_bullet_id_source
+	_ = v_bullet_id_trimmed
+	_ = v_content
+	_ = v_content_empty
+	_ = v_content_is_string
+	_ = v_content_raw
+	_ = v_content_trimmed
+	_ = v_empty_list
+	_ = v_empty_metadata
+	_ = v_entry
+	_ = v_fresh
+	_ = v_has_bullet_id
+	_ = v_has_bullet_id_field
+	_ = v_has_inner
+	_ = v_has_operations
+	_ = v_id_field
+	_ = v_inner
+	_ = v_is_add_type
+	_ = v_is_list
+	_ = v_is_noop
+	_ = v_is_object
+	_ = v_is_remove
+	_ = v_is_string
+	_ = v_is_update
+	_ = v_keep
+	_ = v_key
+	_ = v_key_a
+	_ = v_key_b
+	_ = v_lowered
+	_ = v_metadata_copy
+	_ = v_metadata_is_object
+	_ = v_metadata_raw
+	_ = v_missing
+	_ = v_none_value
+	_ = v_normalized
+	_ = v_normalized_entry
+	_ = v_normalized_from_object
+	_ = v_normalized_from_string
+	_ = v_not_remove
+	_ = v_parsed
+	_ = v_parsed_is_none
+	_ = v_section
+	_ = v_section_is_string
+	_ = v_section_nonempty
+	_ = v_section_raw
+	_ = v_section_trimmed
+	_ = v_seen
+	_ = v_type
+	_ = v_type_is_string
+	_ = v_type_lower
+	_ = v_type_raw
+	v_empty_list = MutableArray()
+	v_has_operations = _core_is_not_none(v_operations)
+	v_missing = _core_not(v_has_operations)
+	if coreTruthy(v_missing) {
+		return v_empty_list, nil
+	} else {
+	// empty
+	}
+	v_is_list = coreTypeIs(v_operations, "list")
+	if coreTruthy(v_is_list) {
+		v_normalized = MutableArray()
+		v_seen = Object()
+		for _, v_entry = range coreIter(v_operations) {
+			v_is_object = coreTypeIs(v_entry, "object")
+			if coreTruthy(v_is_object) {
+				v_type_raw = coreGet(v_entry, "type", "ADD")
+				v_type_is_string = coreTypeIs(v_type_raw, "string")
+				v_type_lower = "add"
+				if coreTruthy(v_type_is_string) {
+					v_lowered = _core_string_lower(v_type_raw)
+					v_type_lower = v_lowered
+				} else {
+				// empty
+				}
+				v_is_update = _core_eq(v_type_lower, "update")
+				v_is_remove = _core_eq(v_type_lower, "remove")
+				v_type = "ADD"
+				if coreTruthy(v_is_update) {
+					v_type = "UPDATE"
+				} else {
+				// empty
+				}
+				if coreTruthy(v_is_remove) {
+					v_type = "REMOVE"
+				} else {
+				// empty
+				}
+				v_section_raw = coreGet(v_entry, "section", "Guidelines")
+				v_section_is_string = coreTypeIs(v_section_raw, "string")
+				v_section = "Guidelines"
+				if coreTruthy(v_section_is_string) {
+					v_section_trimmed = coreStringTrim(v_section_raw)
+					v_section_nonempty = _core_ne(v_section_trimmed, "")
+					if coreTruthy(v_section_nonempty) {
+						v_section = v_section_trimmed
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+				v_content_raw = coreGet(v_entry, "content", "")
+				v_content_is_string = coreTypeIs(v_content_raw, "string")
+				v_content = ""
+				if coreTruthy(v_content_is_string) {
+					v_content_trimmed = coreStringTrim(v_content_raw)
+					v_content = v_content_trimmed
+				} else {
+				// empty
+				}
+				v_not_remove = _core_ne(v_type, "REMOVE")
+				v_content_empty = _core_eq(v_content, "")
+				v_keep = true
+				if coreTruthy(v_not_remove) {
+					if coreTruthy(v_content_empty) {
+						v_keep = false
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+				v_is_add_type = _core_eq(v_type, "ADD")
+				if coreTruthy(v_is_add_type) {
+					{ v, err := _ace_is_noop_acknowledgment(v_content); if err != nil { return nil, err }; v_is_noop = v }
+					if coreTruthy(v_is_noop) {
+						v_keep = false
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+				if coreTruthy(v_keep) {
+					v_bullet_id_raw = coreGet(v_entry, "bulletId", nil)
+					v_has_bullet_id_field = _core_is_not_none(v_bullet_id_raw)
+					v_bullet_id_source = v_bullet_id_raw
+					if coreTruthy(v_has_bullet_id_field) {
+					// empty
+					} else {
+						v_id_field = coreGet(v_entry, "id", nil)
+						v_bullet_id_source = v_id_field
+					}
+					v_bullet_id_is_string = coreTypeIs(v_bullet_id_source, "string")
+					v_none_value = _core_none()
+					v_bullet_id = v_none_value
+					if coreTruthy(v_bullet_id_is_string) {
+						v_bullet_id_trimmed = coreStringTrim(v_bullet_id_source)
+						v_bullet_id_nonempty = _core_ne(v_bullet_id_trimmed, "")
+						if coreTruthy(v_bullet_id_nonempty) {
+							v_bullet_id = v_bullet_id_trimmed
+						} else {
+						// empty
+						}
+					} else {
+					// empty
+					}
+					v_bullet_id_key = ""
+					v_has_bullet_id = _core_is_not_none(v_bullet_id)
+					if coreTruthy(v_has_bullet_id) {
+						v_bullet_id_key = v_bullet_id
+					} else {
+					// empty
+					}
+					v_key_a = _core_string_format("{}:{}", v_type, v_section)
+					v_key_b = _core_string_format("{}:{}", v_content, v_bullet_id_key)
+					v_key = _core_string_format("{}:{}", v_key_a, v_key_b)
+					v_already_seen = _core_map_contains(v_seen, v_key)
+					v_fresh = _core_not(v_already_seen)
+					if coreTruthy(v_fresh) {
+						if err := coreSet(v_seen, v_key, true); err != nil { return nil, err }
+						v_normalized_entry = Object()
+						if err := coreSet(v_normalized_entry, "type", v_type); err != nil { return nil, err }
+						if err := coreSet(v_normalized_entry, "section", v_section); err != nil { return nil, err }
+						if coreTruthy(v_not_remove) {
+							if err := coreSet(v_normalized_entry, "content", v_content); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						if coreTruthy(v_has_bullet_id) {
+							if err := coreSet(v_normalized_entry, "bulletId", v_bullet_id); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						v_metadata_raw = coreGet(v_entry, "metadata", nil)
+						v_metadata_is_object = coreTypeIs(v_metadata_raw, "object")
+						if coreTruthy(v_metadata_is_object) {
+							v_empty_metadata = Object()
+							v_metadata_copy = _core_map_merge(v_empty_metadata, v_metadata_raw)
+							if err := coreSet(v_normalized_entry, "metadata", v_metadata_copy); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						v_normalized = coreAppend(v_normalized, v_normalized_entry)
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		return v_normalized, nil
+	} else {
+	// empty
+	}
+	v_is_string = coreTypeIs(v_operations, "string")
+	if coreTruthy(v_is_string) {
+		{ v, err := _core_json_parse(v_operations); if err != nil { return nil, err }; v_parsed = v }
+		v_parsed_is_none = _core_is_none(v_parsed)
+		if coreTruthy(v_parsed_is_none) {
+			return v_empty_list, nil
+		} else {
+		// empty
+		}
+		{ v, err := _ace_normalize_curator_operations(v_parsed); if err != nil { return nil, err }; v_normalized_from_string = v }
+		return v_normalized_from_string, nil
+	} else {
+	// empty
+	}
+	v_is_object = coreTypeIs(v_operations, "object")
+	if coreTruthy(v_is_object) {
+		v_inner = coreGet(v_operations, "operations", nil)
+		v_has_inner = _core_is_not_none(v_inner)
+		if coreTruthy(v_has_inner) {
+			{ v, err := _ace_normalize_curator_operations(v_inner); if err != nil { return nil, err }; v_normalized_from_object = v }
+			return v_normalized_from_object, nil
+		} else {
+		// empty
+		}
+		return v_empty_list, nil
+	} else {
+	// empty
+	}
+	return v_empty_list, nil
+}
+
 func _date_offset_minutes_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_offset_minutes_impl")
 	var v_units Value
@@ -61881,383 +62155,6 @@ func _stream_text_final_impl(args ...Value) (Value, error) {
 	if _, err := _stream_text_missed_fields_impl(v_values, v_content, v_fields); err != nil { return nil, err }
 	if _, err := _stream_text_required_check_impl(v_values, v_fields); err != nil { return nil, err }
 	return nil, nil
-}
-
-func _ace_locate_bullet_section(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_locate_bullet_section")
-	var v_playbook Value
-	var v_bullet_id Value
-	var v_already Value
-	var v_bullet Value
-	var v_bullets Value
-	var v_current_id Value
-	var v_empty_map Value
-	var v_found Value
-	var v_hit Value
-	var v_match Value
-	var v_none_value Value
-	var v_open Value
-	var v_section_name Value
-	var v_section_names Value
-	var v_sections Value
-	var v_still_open Value
-	if len(args) > 0 { v_playbook = args[0] }
-	_ = v_playbook
-	if len(args) > 1 { v_bullet_id = args[1] }
-	_ = v_bullet_id
-	_ = v_already
-	_ = v_bullet
-	_ = v_bullets
-	_ = v_current_id
-	_ = v_empty_map
-	_ = v_found
-	_ = v_hit
-	_ = v_match
-	_ = v_none_value
-	_ = v_open
-	_ = v_section_name
-	_ = v_section_names
-	_ = v_sections
-	_ = v_still_open
-	v_empty_map = Object()
-	v_sections = coreGet(v_playbook, "sections", v_empty_map)
-	v_section_names = _core_map_keys(v_sections)
-	v_none_value = _core_none()
-	v_found = v_none_value
-	for _, v_section_name = range coreIter(v_section_names) {
-		v_already = _core_is_not_none(v_found)
-		v_still_open = _core_not(v_already)
-		if coreTruthy(v_still_open) {
-			v_bullets = coreGet(v_sections, v_section_name, nil)
-			for _, v_bullet = range coreIter(v_bullets) {
-				v_open = _core_is_none(v_found)
-				if coreTruthy(v_open) {
-					v_current_id = coreGet(v_bullet, "id", "")
-					v_match = _core_eq(v_current_id, v_bullet_id)
-					if coreTruthy(v_match) {
-						v_hit = Object()
-						if err := coreSet(v_hit, "section", v_section_name); err != nil { return nil, err }
-						if err := coreSet(v_hit, "id", v_current_id); err != nil { return nil, err }
-						v_found = v_hit
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-	}
-	return v_found, nil
-}
-
-func _ace_resolve_curator_operation_targets(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_resolve_curator_operation_targets")
-	var v_operations Value
-	var v_playbook Value
-	var v_reflection Value
-	var v_generator_output Value
-	var v_already_used Value
-	var v_bullet_id Value
-	var v_bullet_tags Value
-	var v_candidate Value
-	var v_candidate_found Value
-	var v_current_bullet_id Value
-	var v_empty_list Value
-	var v_empty_op Value
-	var v_existing_bullet_id Value
-	var v_existing_is_string Value
-	var v_final_bullet_id Value
-	var v_final_has_bullet_id Value
-	var v_gen_already_used Value
-	var v_gen_found Value
-	var v_gen_generator Value
-	var v_gen_generator_list Value
-	var v_gen_harmful Value
-	var v_gen_has_queue Value
-	var v_gen_id_is_string Value
-	var v_gen_located Value
-	var v_gen_located_id Value
-	var v_gen_missing_queue Value
-	var v_gen_new_queue Value
-	var v_gen_not_used Value
-	var v_gen_primary Value
-	var v_gen_queue Value
-	var v_gen_section Value
-	var v_generator_bullet_ids Value
-	var v_generator_list Value
-	var v_generator_present Value
-	var v_harmful_list Value
-	var v_has_bullet_id Value
-	var v_has_existing Value
-	var v_has_queue Value
-	var v_is_empty Value
-	var v_is_harmful Value
-	var v_keep Value
-	var v_located Value
-	var v_located_found Value
-	var v_located_id Value
-	var v_located_section Value
-	var v_missing_bullet_id Value
-	var v_missing_queue Value
-	var v_needs_target Value
-	var v_new_queue Value
-	var v_not_used Value
-	var v_op Value
-	var v_op_count Value
-	var v_op_is_remove Value
-	var v_op_is_update Value
-	var v_op_section Value
-	var v_op_type Value
-	var v_primary_list Value
-	var v_priority Value
-	var v_priority_list Value
-	var v_queue Value
-	var v_reflection_present Value
-	var v_resolved Value
-	var v_resolved_op Value
-	var v_section_queues Value
-	var v_tag Value
-	var v_tag_id Value
-	var v_tag_value Value
-	var v_used_ids Value
-	if len(args) > 0 { v_operations = args[0] }
-	_ = v_operations
-	if len(args) > 1 { v_playbook = args[1] }
-	_ = v_playbook
-	if len(args) > 2 { v_reflection = args[2] }
-	_ = v_reflection
-	if len(args) > 3 { v_generator_output = args[3] }
-	_ = v_generator_output
-	_ = v_already_used
-	_ = v_bullet_id
-	_ = v_bullet_tags
-	_ = v_candidate
-	_ = v_candidate_found
-	_ = v_current_bullet_id
-	_ = v_empty_list
-	_ = v_empty_op
-	_ = v_existing_bullet_id
-	_ = v_existing_is_string
-	_ = v_final_bullet_id
-	_ = v_final_has_bullet_id
-	_ = v_gen_already_used
-	_ = v_gen_found
-	_ = v_gen_generator
-	_ = v_gen_generator_list
-	_ = v_gen_harmful
-	_ = v_gen_has_queue
-	_ = v_gen_id_is_string
-	_ = v_gen_located
-	_ = v_gen_located_id
-	_ = v_gen_missing_queue
-	_ = v_gen_new_queue
-	_ = v_gen_not_used
-	_ = v_gen_primary
-	_ = v_gen_queue
-	_ = v_gen_section
-	_ = v_generator_bullet_ids
-	_ = v_generator_list
-	_ = v_generator_present
-	_ = v_harmful_list
-	_ = v_has_bullet_id
-	_ = v_has_existing
-	_ = v_has_queue
-	_ = v_is_empty
-	_ = v_is_harmful
-	_ = v_keep
-	_ = v_located
-	_ = v_located_found
-	_ = v_located_id
-	_ = v_located_section
-	_ = v_missing_bullet_id
-	_ = v_missing_queue
-	_ = v_needs_target
-	_ = v_new_queue
-	_ = v_not_used
-	_ = v_op
-	_ = v_op_count
-	_ = v_op_is_remove
-	_ = v_op_is_update
-	_ = v_op_section
-	_ = v_op_type
-	_ = v_primary_list
-	_ = v_priority
-	_ = v_priority_list
-	_ = v_queue
-	_ = v_reflection_present
-	_ = v_resolved
-	_ = v_resolved_op
-	_ = v_section_queues
-	_ = v_tag
-	_ = v_tag_id
-	_ = v_tag_value
-	_ = v_used_ids
-	v_op_count = _core_len(v_operations)
-	v_is_empty = _core_eq(v_op_count, 0)
-	if coreTruthy(v_is_empty) {
-		return v_operations, nil
-	} else {
-	// empty
-	}
-	v_used_ids = Object()
-	for _, v_op = range coreIter(v_operations) {
-		v_existing_bullet_id = coreGet(v_op, "bulletId", nil)
-		v_has_existing = _core_is_not_none(v_existing_bullet_id)
-		if coreTruthy(v_has_existing) {
-			v_existing_is_string = coreTypeIs(v_existing_bullet_id, "string")
-			if coreTruthy(v_existing_is_string) {
-				if err := coreSet(v_used_ids, v_existing_bullet_id, true); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-	}
-	v_section_queues = Object()
-	v_empty_list = MutableArray()
-	v_reflection_present = _core_is_not_none(v_reflection)
-	if coreTruthy(v_reflection_present) {
-		{ v, err := _ace_normalize_reflection_bullet_tags(v_reflection); if err != nil { return nil, err }; v_bullet_tags = v }
-		for _, v_tag = range coreIter(v_bullet_tags) {
-			v_tag_id = coreGet(v_tag, "id", nil)
-			v_tag_value = coreGet(v_tag, "tag", nil)
-			v_is_harmful = _core_eq(v_tag_value, "harmful")
-			v_already_used = _core_map_contains(v_used_ids, v_tag_id)
-			v_not_used = _core_not(v_already_used)
-			if coreTruthy(v_not_used) {
-				{ v, err := _ace_locate_bullet_section(v_playbook, v_tag_id); if err != nil { return nil, err }; v_located = v }
-				v_located_found = _core_is_not_none(v_located)
-				if coreTruthy(v_located_found) {
-					v_located_section = coreGet(v_located, "section", nil)
-					v_located_id = coreGet(v_located, "id", nil)
-					v_priority = "primary"
-					if coreTruthy(v_is_harmful) {
-						v_priority = "harmful"
-					} else {
-					// empty
-					}
-					v_has_queue = _core_map_contains(v_section_queues, v_located_section)
-					v_missing_queue = _core_not(v_has_queue)
-					if coreTruthy(v_missing_queue) {
-						v_new_queue = Object()
-						v_harmful_list = MutableArray()
-						if err := coreSet(v_new_queue, "harmful", v_harmful_list); err != nil { return nil, err }
-						v_primary_list = MutableArray()
-						if err := coreSet(v_new_queue, "primary", v_primary_list); err != nil { return nil, err }
-						v_generator_list = MutableArray()
-						if err := coreSet(v_new_queue, "generator", v_generator_list); err != nil { return nil, err }
-						if err := coreSet(v_section_queues, v_located_section, v_new_queue); err != nil { return nil, err }
-					} else {
-					// empty
-					}
-					v_queue = coreGet(v_section_queues, v_located_section, nil)
-					v_priority_list = coreGet(v_queue, v_priority, nil)
-					v_priority_list = coreAppend(v_priority_list, v_located_id)
-					if err := coreSet(v_queue, v_priority, v_priority_list); err != nil { return nil, err }
-					if err := coreSet(v_section_queues, v_located_section, v_queue); err != nil { return nil, err }
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		}
-	} else {
-	// empty
-	}
-	v_generator_present = _core_is_not_none(v_generator_output)
-	if coreTruthy(v_generator_present) {
-		v_generator_bullet_ids = coreGet(v_generator_output, "bulletIds", v_empty_list)
-		for _, v_bullet_id = range coreIter(v_generator_bullet_ids) {
-			v_gen_id_is_string = coreTypeIs(v_bullet_id, "string")
-			if coreTruthy(v_gen_id_is_string) {
-				v_gen_already_used = _core_map_contains(v_used_ids, v_bullet_id)
-				v_gen_not_used = _core_not(v_gen_already_used)
-				if coreTruthy(v_gen_not_used) {
-					{ v, err := _ace_locate_bullet_section(v_playbook, v_bullet_id); if err != nil { return nil, err }; v_gen_located = v }
-					v_gen_found = _core_is_not_none(v_gen_located)
-					if coreTruthy(v_gen_found) {
-						v_gen_section = coreGet(v_gen_located, "section", nil)
-						v_gen_located_id = coreGet(v_gen_located, "id", nil)
-						v_gen_has_queue = _core_map_contains(v_section_queues, v_gen_section)
-						v_gen_missing_queue = _core_not(v_gen_has_queue)
-						if coreTruthy(v_gen_missing_queue) {
-							v_gen_new_queue = Object()
-							v_gen_harmful = MutableArray()
-							if err := coreSet(v_gen_new_queue, "harmful", v_gen_harmful); err != nil { return nil, err }
-							v_gen_primary = MutableArray()
-							if err := coreSet(v_gen_new_queue, "primary", v_gen_primary); err != nil { return nil, err }
-							v_gen_generator = MutableArray()
-							if err := coreSet(v_gen_new_queue, "generator", v_gen_generator); err != nil { return nil, err }
-							if err := coreSet(v_section_queues, v_gen_section, v_gen_new_queue); err != nil { return nil, err }
-						} else {
-						// empty
-						}
-						v_gen_queue = coreGet(v_section_queues, v_gen_section, nil)
-						v_gen_generator_list = coreGet(v_gen_queue, "generator", nil)
-						v_gen_generator_list = coreAppend(v_gen_generator_list, v_gen_located_id)
-						if err := coreSet(v_gen_queue, "generator", v_gen_generator_list); err != nil { return nil, err }
-						if err := coreSet(v_section_queues, v_gen_section, v_gen_queue); err != nil { return nil, err }
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		}
-	} else {
-	// empty
-	}
-	v_resolved = MutableArray()
-	for _, v_op = range coreIter(v_operations) {
-		v_op_type = coreGet(v_op, "type", "")
-		v_op_is_update = _core_eq(v_op_type, "UPDATE")
-		v_op_is_remove = _core_eq(v_op_type, "REMOVE")
-		v_needs_target = _core_or(v_op_is_update, v_op_is_remove)
-		v_current_bullet_id = coreGet(v_op, "bulletId", nil)
-		v_has_bullet_id = _core_is_not_none(v_current_bullet_id)
-		v_missing_bullet_id = _core_not(v_has_bullet_id)
-		v_empty_op = Object()
-		v_resolved_op = _core_map_merge(v_empty_op, v_op)
-		if coreTruthy(v_needs_target) {
-			if coreTruthy(v_missing_bullet_id) {
-				v_op_section = coreGet(v_op, "section", "")
-				{ v, err := _ace_dequeue_section_candidate(v_section_queues, v_op_section, v_used_ids, v_playbook); if err != nil { return nil, err }; v_candidate = v }
-				v_candidate_found = _core_is_not_none(v_candidate)
-				if coreTruthy(v_candidate_found) {
-					if err := coreSet(v_resolved_op, "bulletId", v_candidate); err != nil { return nil, err }
-					if err := coreSet(v_used_ids, v_candidate, true); err != nil { return nil, err }
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		v_final_bullet_id = coreGet(v_resolved_op, "bulletId", nil)
-		v_final_has_bullet_id = _core_is_not_none(v_final_bullet_id)
-		v_keep = true
-		if coreTruthy(v_needs_target) {
-			v_keep = v_final_has_bullet_id
-		} else {
-		// empty
-		}
-		if coreTruthy(v_keep) {
-			v_resolved = coreAppend(v_resolved, v_resolved_op)
-		} else {
-		// empty
-		}
-	}
-	return v_resolved, nil
 }
 
 func _parse_output_fields_impl(args ...Value) (Value, error) {
@@ -62751,6 +62648,76 @@ func _caller_function_call_impl(args ...Value) (Value, error) {
 	return v_none, nil
 }
 
+func _ace_locate_bullet_section(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_locate_bullet_section")
+	var v_playbook Value
+	var v_bullet_id Value
+	var v_already Value
+	var v_bullet Value
+	var v_bullets Value
+	var v_current_id Value
+	var v_empty_map Value
+	var v_found Value
+	var v_hit Value
+	var v_match Value
+	var v_none_value Value
+	var v_open Value
+	var v_section_name Value
+	var v_section_names Value
+	var v_sections Value
+	var v_still_open Value
+	if len(args) > 0 { v_playbook = args[0] }
+	_ = v_playbook
+	if len(args) > 1 { v_bullet_id = args[1] }
+	_ = v_bullet_id
+	_ = v_already
+	_ = v_bullet
+	_ = v_bullets
+	_ = v_current_id
+	_ = v_empty_map
+	_ = v_found
+	_ = v_hit
+	_ = v_match
+	_ = v_none_value
+	_ = v_open
+	_ = v_section_name
+	_ = v_section_names
+	_ = v_sections
+	_ = v_still_open
+	v_empty_map = Object()
+	v_sections = coreGet(v_playbook, "sections", v_empty_map)
+	v_section_names = _core_map_keys(v_sections)
+	v_none_value = _core_none()
+	v_found = v_none_value
+	for _, v_section_name = range coreIter(v_section_names) {
+		v_already = _core_is_not_none(v_found)
+		v_still_open = _core_not(v_already)
+		if coreTruthy(v_still_open) {
+			v_bullets = coreGet(v_sections, v_section_name, nil)
+			for _, v_bullet = range coreIter(v_bullets) {
+				v_open = _core_is_none(v_found)
+				if coreTruthy(v_open) {
+					v_current_id = coreGet(v_bullet, "id", "")
+					v_match = _core_eq(v_current_id, v_bullet_id)
+					if coreTruthy(v_match) {
+						v_hit = Object()
+						if err := coreSet(v_hit, "section", v_section_name); err != nil { return nil, err }
+						if err := coreSet(v_hit, "id", v_current_id); err != nil { return nil, err }
+						v_found = v_hit
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_found, nil
+}
+
 func _date_js_json_string_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_js_json_string_impl")
 	var v_text Value
@@ -63065,62 +63032,163 @@ func _function_call_names_output_impl(args ...Value) (Value, error) {
 	return v_reserved, nil
 }
 
-func _ace_normalize_reflection_bullet_tags(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_normalize_reflection_bullet_tags")
+func _ace_resolve_curator_operation_targets(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_resolve_curator_operation_targets")
+	var v_operations Value
+	var v_playbook Value
 	var v_reflection Value
-	var v_candidates Value
+	var v_generator_output Value
+	var v_already_used Value
+	var v_bullet_id Value
+	var v_bullet_tags Value
+	var v_candidate Value
+	var v_candidate_found Value
+	var v_current_bullet_id Value
 	var v_empty_list Value
-	var v_normalized Value
-	var v_raw_bullet_tags Value
+	var v_empty_op Value
+	var v_existing_bullet_id Value
+	var v_existing_is_string Value
+	var v_final_bullet_id Value
+	var v_final_has_bullet_id Value
+	var v_gen_already_used Value
+	var v_gen_found Value
+	var v_gen_generator Value
+	var v_gen_generator_list Value
+	var v_gen_harmful Value
+	var v_gen_has_queue Value
+	var v_gen_id_is_string Value
+	var v_gen_located Value
+	var v_gen_located_id Value
+	var v_gen_missing_queue Value
+	var v_gen_new_queue Value
+	var v_gen_not_used Value
+	var v_gen_primary Value
+	var v_gen_queue Value
+	var v_gen_section Value
+	var v_generator_bullet_ids Value
+	var v_generator_list Value
+	var v_generator_present Value
+	var v_harmful_list Value
+	var v_has_bullet_id Value
+	var v_has_existing Value
+	var v_has_queue Value
+	var v_is_empty Value
+	var v_is_harmful Value
+	var v_keep Value
+	var v_located Value
+	var v_located_found Value
+	var v_located_id Value
+	var v_located_section Value
+	var v_missing_bullet_id Value
+	var v_missing_queue Value
+	var v_needs_target Value
+	var v_new_queue Value
+	var v_not_used Value
+	var v_op Value
+	var v_op_count Value
+	var v_op_is_remove Value
+	var v_op_is_update Value
+	var v_op_section Value
+	var v_op_type Value
+	var v_primary_list Value
+	var v_priority Value
+	var v_priority_list Value
+	var v_queue Value
+	var v_reflection_present Value
+	var v_resolved Value
+	var v_resolved_op Value
+	var v_section_queues Value
 	var v_tag Value
 	var v_tag_id Value
-	var v_tag_id_is_string Value
-	var v_tag_is_object Value
 	var v_tag_value Value
-	var v_tag_value_is_string Value
-	var v_tags_is_list Value
-	var v_tags_is_object Value
-	var v_valid_tag_shape Value
-	if len(args) > 0 { v_reflection = args[0] }
+	var v_used_ids Value
+	if len(args) > 0 { v_operations = args[0] }
+	_ = v_operations
+	if len(args) > 1 { v_playbook = args[1] }
+	_ = v_playbook
+	if len(args) > 2 { v_reflection = args[2] }
 	_ = v_reflection
-	_ = v_candidates
+	if len(args) > 3 { v_generator_output = args[3] }
+	_ = v_generator_output
+	_ = v_already_used
+	_ = v_bullet_id
+	_ = v_bullet_tags
+	_ = v_candidate
+	_ = v_candidate_found
+	_ = v_current_bullet_id
 	_ = v_empty_list
-	_ = v_normalized
-	_ = v_raw_bullet_tags
+	_ = v_empty_op
+	_ = v_existing_bullet_id
+	_ = v_existing_is_string
+	_ = v_final_bullet_id
+	_ = v_final_has_bullet_id
+	_ = v_gen_already_used
+	_ = v_gen_found
+	_ = v_gen_generator
+	_ = v_gen_generator_list
+	_ = v_gen_harmful
+	_ = v_gen_has_queue
+	_ = v_gen_id_is_string
+	_ = v_gen_located
+	_ = v_gen_located_id
+	_ = v_gen_missing_queue
+	_ = v_gen_new_queue
+	_ = v_gen_not_used
+	_ = v_gen_primary
+	_ = v_gen_queue
+	_ = v_gen_section
+	_ = v_generator_bullet_ids
+	_ = v_generator_list
+	_ = v_generator_present
+	_ = v_harmful_list
+	_ = v_has_bullet_id
+	_ = v_has_existing
+	_ = v_has_queue
+	_ = v_is_empty
+	_ = v_is_harmful
+	_ = v_keep
+	_ = v_located
+	_ = v_located_found
+	_ = v_located_id
+	_ = v_located_section
+	_ = v_missing_bullet_id
+	_ = v_missing_queue
+	_ = v_needs_target
+	_ = v_new_queue
+	_ = v_not_used
+	_ = v_op
+	_ = v_op_count
+	_ = v_op_is_remove
+	_ = v_op_is_update
+	_ = v_op_section
+	_ = v_op_type
+	_ = v_primary_list
+	_ = v_priority
+	_ = v_priority_list
+	_ = v_queue
+	_ = v_reflection_present
+	_ = v_resolved
+	_ = v_resolved_op
+	_ = v_section_queues
 	_ = v_tag
 	_ = v_tag_id
-	_ = v_tag_id_is_string
-	_ = v_tag_is_object
 	_ = v_tag_value
-	_ = v_tag_value_is_string
-	_ = v_tags_is_list
-	_ = v_tags_is_object
-	_ = v_valid_tag_shape
-	v_empty_list = MutableArray()
-	v_raw_bullet_tags = coreGet(v_reflection, "bulletTags", v_empty_list)
-	v_candidates = MutableArray()
-	v_tags_is_list = coreTypeIs(v_raw_bullet_tags, "list")
-	if coreTruthy(v_tags_is_list) {
-		v_candidates = v_raw_bullet_tags
+	_ = v_used_ids
+	v_op_count = _core_len(v_operations)
+	v_is_empty = _core_eq(v_op_count, 0)
+	if coreTruthy(v_is_empty) {
+		return v_operations, nil
 	} else {
-		v_tags_is_object = coreTypeIs(v_raw_bullet_tags, "object")
-		if coreTruthy(v_tags_is_object) {
-			v_candidates = coreAppend(v_candidates, v_raw_bullet_tags)
-		} else {
-		// empty
-		}
+	// empty
 	}
-	v_normalized = MutableArray()
-	for _, v_tag = range coreIter(v_candidates) {
-		v_tag_is_object = coreTypeIs(v_tag, "object")
-		if coreTruthy(v_tag_is_object) {
-			v_tag_id = coreGet(v_tag, "id", nil)
-			v_tag_id_is_string = coreTypeIs(v_tag_id, "string")
-			v_tag_value = coreGet(v_tag, "tag", nil)
-			v_tag_value_is_string = coreTypeIs(v_tag_value, "string")
-			v_valid_tag_shape = _core_and(v_tag_id_is_string, v_tag_value_is_string)
-			if coreTruthy(v_valid_tag_shape) {
-				v_normalized = coreAppend(v_normalized, v_tag)
+	v_used_ids = Object()
+	for _, v_op = range coreIter(v_operations) {
+		v_existing_bullet_id = coreGet(v_op, "bulletId", nil)
+		v_has_existing = _core_is_not_none(v_existing_bullet_id)
+		if coreTruthy(v_has_existing) {
+			v_existing_is_string = coreTypeIs(v_existing_bullet_id, "string")
+			if coreTruthy(v_existing_is_string) {
+				if err := coreSet(v_used_ids, v_existing_bullet_id, true); err != nil { return nil, err }
 			} else {
 			// empty
 			}
@@ -63128,7 +63196,147 @@ func _ace_normalize_reflection_bullet_tags(args ...Value) (Value, error) {
 		// empty
 		}
 	}
-	return v_normalized, nil
+	v_section_queues = Object()
+	v_empty_list = MutableArray()
+	v_reflection_present = _core_is_not_none(v_reflection)
+	if coreTruthy(v_reflection_present) {
+		{ v, err := _ace_normalize_reflection_bullet_tags(v_reflection); if err != nil { return nil, err }; v_bullet_tags = v }
+		for _, v_tag = range coreIter(v_bullet_tags) {
+			v_tag_id = coreGet(v_tag, "id", nil)
+			v_tag_value = coreGet(v_tag, "tag", nil)
+			v_is_harmful = _core_eq(v_tag_value, "harmful")
+			v_already_used = _core_map_contains(v_used_ids, v_tag_id)
+			v_not_used = _core_not(v_already_used)
+			if coreTruthy(v_not_used) {
+				{ v, err := _ace_locate_bullet_section(v_playbook, v_tag_id); if err != nil { return nil, err }; v_located = v }
+				v_located_found = _core_is_not_none(v_located)
+				if coreTruthy(v_located_found) {
+					v_located_section = coreGet(v_located, "section", nil)
+					v_located_id = coreGet(v_located, "id", nil)
+					v_priority = "primary"
+					if coreTruthy(v_is_harmful) {
+						v_priority = "harmful"
+					} else {
+					// empty
+					}
+					v_has_queue = _core_map_contains(v_section_queues, v_located_section)
+					v_missing_queue = _core_not(v_has_queue)
+					if coreTruthy(v_missing_queue) {
+						v_new_queue = Object()
+						v_harmful_list = MutableArray()
+						if err := coreSet(v_new_queue, "harmful", v_harmful_list); err != nil { return nil, err }
+						v_primary_list = MutableArray()
+						if err := coreSet(v_new_queue, "primary", v_primary_list); err != nil { return nil, err }
+						v_generator_list = MutableArray()
+						if err := coreSet(v_new_queue, "generator", v_generator_list); err != nil { return nil, err }
+						if err := coreSet(v_section_queues, v_located_section, v_new_queue); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+					v_queue = coreGet(v_section_queues, v_located_section, nil)
+					v_priority_list = coreGet(v_queue, v_priority, nil)
+					v_priority_list = coreAppend(v_priority_list, v_located_id)
+					if err := coreSet(v_queue, v_priority, v_priority_list); err != nil { return nil, err }
+					if err := coreSet(v_section_queues, v_located_section, v_queue); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_generator_present = _core_is_not_none(v_generator_output)
+	if coreTruthy(v_generator_present) {
+		v_generator_bullet_ids = coreGet(v_generator_output, "bulletIds", v_empty_list)
+		for _, v_bullet_id = range coreIter(v_generator_bullet_ids) {
+			v_gen_id_is_string = coreTypeIs(v_bullet_id, "string")
+			if coreTruthy(v_gen_id_is_string) {
+				v_gen_already_used = _core_map_contains(v_used_ids, v_bullet_id)
+				v_gen_not_used = _core_not(v_gen_already_used)
+				if coreTruthy(v_gen_not_used) {
+					{ v, err := _ace_locate_bullet_section(v_playbook, v_bullet_id); if err != nil { return nil, err }; v_gen_located = v }
+					v_gen_found = _core_is_not_none(v_gen_located)
+					if coreTruthy(v_gen_found) {
+						v_gen_section = coreGet(v_gen_located, "section", nil)
+						v_gen_located_id = coreGet(v_gen_located, "id", nil)
+						v_gen_has_queue = _core_map_contains(v_section_queues, v_gen_section)
+						v_gen_missing_queue = _core_not(v_gen_has_queue)
+						if coreTruthy(v_gen_missing_queue) {
+							v_gen_new_queue = Object()
+							v_gen_harmful = MutableArray()
+							if err := coreSet(v_gen_new_queue, "harmful", v_gen_harmful); err != nil { return nil, err }
+							v_gen_primary = MutableArray()
+							if err := coreSet(v_gen_new_queue, "primary", v_gen_primary); err != nil { return nil, err }
+							v_gen_generator = MutableArray()
+							if err := coreSet(v_gen_new_queue, "generator", v_gen_generator); err != nil { return nil, err }
+							if err := coreSet(v_section_queues, v_gen_section, v_gen_new_queue); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						v_gen_queue = coreGet(v_section_queues, v_gen_section, nil)
+						v_gen_generator_list = coreGet(v_gen_queue, "generator", nil)
+						v_gen_generator_list = coreAppend(v_gen_generator_list, v_gen_located_id)
+						if err := coreSet(v_gen_queue, "generator", v_gen_generator_list); err != nil { return nil, err }
+						if err := coreSet(v_section_queues, v_gen_section, v_gen_queue); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_resolved = MutableArray()
+	for _, v_op = range coreIter(v_operations) {
+		v_op_type = coreGet(v_op, "type", "")
+		v_op_is_update = _core_eq(v_op_type, "UPDATE")
+		v_op_is_remove = _core_eq(v_op_type, "REMOVE")
+		v_needs_target = _core_or(v_op_is_update, v_op_is_remove)
+		v_current_bullet_id = coreGet(v_op, "bulletId", nil)
+		v_has_bullet_id = _core_is_not_none(v_current_bullet_id)
+		v_missing_bullet_id = _core_not(v_has_bullet_id)
+		v_empty_op = Object()
+		v_resolved_op = _core_map_merge(v_empty_op, v_op)
+		if coreTruthy(v_needs_target) {
+			if coreTruthy(v_missing_bullet_id) {
+				v_op_section = coreGet(v_op, "section", "")
+				{ v, err := _ace_dequeue_section_candidate(v_section_queues, v_op_section, v_used_ids, v_playbook); if err != nil { return nil, err }; v_candidate = v }
+				v_candidate_found = _core_is_not_none(v_candidate)
+				if coreTruthy(v_candidate_found) {
+					if err := coreSet(v_resolved_op, "bulletId", v_candidate); err != nil { return nil, err }
+					if err := coreSet(v_used_ids, v_candidate, true); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_final_bullet_id = coreGet(v_resolved_op, "bulletId", nil)
+		v_final_has_bullet_id = _core_is_not_none(v_final_bullet_id)
+		v_keep = true
+		if coreTruthy(v_needs_target) {
+			v_keep = v_final_has_bullet_id
+		} else {
+		// empty
+		}
+		if coreTruthy(v_keep) {
+			v_resolved = coreAppend(v_resolved, v_resolved_op)
+		} else {
+		// empty
+		}
+	}
+	return v_resolved, nil
 }
 
 func _append_structured_output_retry_messages_impl(args ...Value) (Value, error) {
@@ -63518,143 +63726,6 @@ func _stream_text_values_impl(args ...Value) (Value, error) {
 	}
 	if err := coreSet(v_xstate, "streamed_index", v_streamed); err != nil { return nil, err }
 	return v_deltas, nil
-}
-
-func _ace_dequeue_section_candidate(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_dequeue_section_candidate")
-	var v_section_queues Value
-	var v_section Value
-	var v_used_ids Value
-	var v_playbook Value
-	var v_bullet Value
-	var v_bullet_id Value
-	var v_candidate Value
-	var v_empty_list Value
-	var v_empty_map Value
-	var v_fallback_bullets Value
-	var v_fallback_present Value
-	var v_generator_list Value
-	var v_harmful_list Value
-	var v_has_queue Value
-	var v_none_value Value
-	var v_not_used Value
-	var v_open Value
-	var v_picked Value
-	var v_primary_list Value
-	var v_queue Value
-	var v_sections Value
-	var v_still_open Value
-	var v_used Value
-	if len(args) > 0 { v_section_queues = args[0] }
-	_ = v_section_queues
-	if len(args) > 1 { v_section = args[1] }
-	_ = v_section
-	if len(args) > 2 { v_used_ids = args[2] }
-	_ = v_used_ids
-	if len(args) > 3 { v_playbook = args[3] }
-	_ = v_playbook
-	_ = v_bullet
-	_ = v_bullet_id
-	_ = v_candidate
-	_ = v_empty_list
-	_ = v_empty_map
-	_ = v_fallback_bullets
-	_ = v_fallback_present
-	_ = v_generator_list
-	_ = v_harmful_list
-	_ = v_has_queue
-	_ = v_none_value
-	_ = v_not_used
-	_ = v_open
-	_ = v_picked
-	_ = v_primary_list
-	_ = v_queue
-	_ = v_sections
-	_ = v_still_open
-	_ = v_used
-	v_none_value = _core_none()
-	v_picked = v_none_value
-	v_has_queue = _core_map_contains(v_section_queues, v_section)
-	if coreTruthy(v_has_queue) {
-		v_queue = coreGet(v_section_queues, v_section, nil)
-		v_empty_list = MutableArray()
-		v_harmful_list = coreGet(v_queue, "harmful", v_empty_list)
-		for _, v_candidate = range coreIter(v_harmful_list) {
-			v_open = _core_is_none(v_picked)
-			if coreTruthy(v_open) {
-				v_used = _core_map_contains(v_used_ids, v_candidate)
-				v_not_used = _core_not(v_used)
-				if coreTruthy(v_not_used) {
-					v_picked = v_candidate
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		}
-		v_primary_list = coreGet(v_queue, "primary", v_empty_list)
-		for _, v_candidate = range coreIter(v_primary_list) {
-			v_open = _core_is_none(v_picked)
-			if coreTruthy(v_open) {
-				v_used = _core_map_contains(v_used_ids, v_candidate)
-				v_not_used = _core_not(v_used)
-				if coreTruthy(v_not_used) {
-					v_picked = v_candidate
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		}
-		v_generator_list = coreGet(v_queue, "generator", v_empty_list)
-		for _, v_candidate = range coreIter(v_generator_list) {
-			v_open = _core_is_none(v_picked)
-			if coreTruthy(v_open) {
-				v_used = _core_map_contains(v_used_ids, v_candidate)
-				v_not_used = _core_not(v_used)
-				if coreTruthy(v_not_used) {
-					v_picked = v_candidate
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		}
-	} else {
-	// empty
-	}
-	v_still_open = _core_is_none(v_picked)
-	if coreTruthy(v_still_open) {
-		v_empty_map = Object()
-		v_sections = coreGet(v_playbook, "sections", v_empty_map)
-		v_fallback_bullets = coreGet(v_sections, v_section, nil)
-		v_fallback_present = _core_is_not_none(v_fallback_bullets)
-		if coreTruthy(v_fallback_present) {
-			for _, v_bullet = range coreIter(v_fallback_bullets) {
-				v_open = _core_is_none(v_picked)
-				if coreTruthy(v_open) {
-					v_bullet_id = coreGet(v_bullet, "id", "")
-					v_used = _core_map_contains(v_used_ids, v_bullet_id)
-					v_not_used = _core_not(v_used)
-					if coreTruthy(v_not_used) {
-						v_picked = v_bullet_id
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return v_picked, nil
 }
 
 func _with_output_thought_impl(args ...Value) (Value, error) {
@@ -65106,6 +65177,72 @@ func _date_floor_div_impl(args ...Value) (Value, error) {
 	return v_quotient, nil
 }
 
+func _ace_normalize_reflection_bullet_tags(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_normalize_reflection_bullet_tags")
+	var v_reflection Value
+	var v_candidates Value
+	var v_empty_list Value
+	var v_normalized Value
+	var v_raw_bullet_tags Value
+	var v_tag Value
+	var v_tag_id Value
+	var v_tag_id_is_string Value
+	var v_tag_is_object Value
+	var v_tag_value Value
+	var v_tag_value_is_string Value
+	var v_tags_is_list Value
+	var v_tags_is_object Value
+	var v_valid_tag_shape Value
+	if len(args) > 0 { v_reflection = args[0] }
+	_ = v_reflection
+	_ = v_candidates
+	_ = v_empty_list
+	_ = v_normalized
+	_ = v_raw_bullet_tags
+	_ = v_tag
+	_ = v_tag_id
+	_ = v_tag_id_is_string
+	_ = v_tag_is_object
+	_ = v_tag_value
+	_ = v_tag_value_is_string
+	_ = v_tags_is_list
+	_ = v_tags_is_object
+	_ = v_valid_tag_shape
+	v_empty_list = MutableArray()
+	v_raw_bullet_tags = coreGet(v_reflection, "bulletTags", v_empty_list)
+	v_candidates = MutableArray()
+	v_tags_is_list = coreTypeIs(v_raw_bullet_tags, "list")
+	if coreTruthy(v_tags_is_list) {
+		v_candidates = v_raw_bullet_tags
+	} else {
+		v_tags_is_object = coreTypeIs(v_raw_bullet_tags, "object")
+		if coreTruthy(v_tags_is_object) {
+			v_candidates = coreAppend(v_candidates, v_raw_bullet_tags)
+		} else {
+		// empty
+		}
+	}
+	v_normalized = MutableArray()
+	for _, v_tag = range coreIter(v_candidates) {
+		v_tag_is_object = coreTypeIs(v_tag, "object")
+		if coreTruthy(v_tag_is_object) {
+			v_tag_id = coreGet(v_tag, "id", nil)
+			v_tag_id_is_string = coreTypeIs(v_tag_id, "string")
+			v_tag_value = coreGet(v_tag, "tag", nil)
+			v_tag_value_is_string = coreTypeIs(v_tag_value, "string")
+			v_valid_tag_shape = _core_and(v_tag_id_is_string, v_tag_value_is_string)
+			if coreTruthy(v_valid_tag_shape) {
+				v_normalized = coreAppend(v_normalized, v_tag)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_normalized, nil
+}
+
 func _regex_test(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_test")
 	var v_pattern Value
@@ -65477,6 +65614,143 @@ func _stream_json_context_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_marker, "in_array", v_in_array); err != nil { return nil, err }
 	if err := coreSet(v_marker, "in_object", v_in_object); err != nil { return nil, err }
 	return v_marker, nil
+}
+
+func _ace_dequeue_section_candidate(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_dequeue_section_candidate")
+	var v_section_queues Value
+	var v_section Value
+	var v_used_ids Value
+	var v_playbook Value
+	var v_bullet Value
+	var v_bullet_id Value
+	var v_candidate Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_fallback_bullets Value
+	var v_fallback_present Value
+	var v_generator_list Value
+	var v_harmful_list Value
+	var v_has_queue Value
+	var v_none_value Value
+	var v_not_used Value
+	var v_open Value
+	var v_picked Value
+	var v_primary_list Value
+	var v_queue Value
+	var v_sections Value
+	var v_still_open Value
+	var v_used Value
+	if len(args) > 0 { v_section_queues = args[0] }
+	_ = v_section_queues
+	if len(args) > 1 { v_section = args[1] }
+	_ = v_section
+	if len(args) > 2 { v_used_ids = args[2] }
+	_ = v_used_ids
+	if len(args) > 3 { v_playbook = args[3] }
+	_ = v_playbook
+	_ = v_bullet
+	_ = v_bullet_id
+	_ = v_candidate
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_fallback_bullets
+	_ = v_fallback_present
+	_ = v_generator_list
+	_ = v_harmful_list
+	_ = v_has_queue
+	_ = v_none_value
+	_ = v_not_used
+	_ = v_open
+	_ = v_picked
+	_ = v_primary_list
+	_ = v_queue
+	_ = v_sections
+	_ = v_still_open
+	_ = v_used
+	v_none_value = _core_none()
+	v_picked = v_none_value
+	v_has_queue = _core_map_contains(v_section_queues, v_section)
+	if coreTruthy(v_has_queue) {
+		v_queue = coreGet(v_section_queues, v_section, nil)
+		v_empty_list = MutableArray()
+		v_harmful_list = coreGet(v_queue, "harmful", v_empty_list)
+		for _, v_candidate = range coreIter(v_harmful_list) {
+			v_open = _core_is_none(v_picked)
+			if coreTruthy(v_open) {
+				v_used = _core_map_contains(v_used_ids, v_candidate)
+				v_not_used = _core_not(v_used)
+				if coreTruthy(v_not_used) {
+					v_picked = v_candidate
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		v_primary_list = coreGet(v_queue, "primary", v_empty_list)
+		for _, v_candidate = range coreIter(v_primary_list) {
+			v_open = _core_is_none(v_picked)
+			if coreTruthy(v_open) {
+				v_used = _core_map_contains(v_used_ids, v_candidate)
+				v_not_used = _core_not(v_used)
+				if coreTruthy(v_not_used) {
+					v_picked = v_candidate
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		v_generator_list = coreGet(v_queue, "generator", v_empty_list)
+		for _, v_candidate = range coreIter(v_generator_list) {
+			v_open = _core_is_none(v_picked)
+			if coreTruthy(v_open) {
+				v_used = _core_map_contains(v_used_ids, v_candidate)
+				v_not_used = _core_not(v_used)
+				if coreTruthy(v_not_used) {
+					v_picked = v_candidate
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_still_open = _core_is_none(v_picked)
+	if coreTruthy(v_still_open) {
+		v_empty_map = Object()
+		v_sections = coreGet(v_playbook, "sections", v_empty_map)
+		v_fallback_bullets = coreGet(v_sections, v_section, nil)
+		v_fallback_present = _core_is_not_none(v_fallback_bullets)
+		if coreTruthy(v_fallback_present) {
+			for _, v_bullet = range coreIter(v_fallback_bullets) {
+				v_open = _core_is_none(v_picked)
+				if coreTruthy(v_open) {
+					v_bullet_id = coreGet(v_bullet, "id", "")
+					v_used = _core_map_contains(v_used_ids, v_bullet_id)
+					v_not_used = _core_not(v_used)
+					if coreTruthy(v_not_used) {
+						v_picked = v_bullet_id
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_picked, nil
 }
 
 func _date_civil_from_days_impl(args ...Value) (Value, error) {
@@ -67814,28 +68088,6 @@ func _stream_json_validate_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func _parse_text_contract_output_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_text_contract_output_impl")
-	var v_content Value
-	var v_output_fields Value
-	var v_strict_mode Value
-	var v_out Value
-	var v_values Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
-	if len(args) > 1 { v_output_fields = args[1] }
-	_ = v_output_fields
-	if len(args) > 2 { v_strict_mode = args[2] }
-	_ = v_strict_mode
-	_ = v_out
-	_ = v_values
-	v_out = Object()
-	{ v, err := _stream_text_extract_values_impl(v_content, v_output_fields, v_strict_mode); if err != nil { return nil, err }; v_values = v }
-	if err := coreSet(v_out, "values", v_values); err != nil { return nil, err }
-	if err := coreSet(v_out, "extracted", true); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func _stream_json_validate_value_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_json_validate_value_impl")
 	var v_field Value
@@ -68022,6 +68274,28 @@ func _stream_json_validate_value_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_value, nil
+}
+
+func _parse_text_contract_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_text_contract_output_impl")
+	var v_content Value
+	var v_output_fields Value
+	var v_strict_mode Value
+	var v_out Value
+	var v_values Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	if len(args) > 1 { v_output_fields = args[1] }
+	_ = v_output_fields
+	if len(args) > 2 { v_strict_mode = args[2] }
+	_ = v_strict_mode
+	_ = v_out
+	_ = v_values
+	v_out = Object()
+	{ v, err := _stream_text_extract_values_impl(v_content, v_output_fields, v_strict_mode); if err != nil { return nil, err }; v_values = v }
+	if err := coreSet(v_out, "values", v_values); err != nil { return nil, err }
+	if err := coreSet(v_out, "extracted", true); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _generate_failed_impl(args ...Value) (Value, error) {
@@ -68380,46 +68654,6 @@ func _feedback_message_impl(args ...Value) (Value, error) {
 	return v_message, nil
 }
 
-func _caching_function_option_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_caching_function_option_impl")
-	var v_gen Value
-	var v_options Value
-	var v_base_options Value
-	var v_cache_fn Value
-	var v_call_options Value
-	var v_control Value
-	var v_controlled Value
-	var v_empty Value
-	var v_no_cache Value
-	var v_run_options Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_options = args[1] }
-	_ = v_options
-	_ = v_base_options
-	_ = v_cache_fn
-	_ = v_call_options
-	_ = v_control
-	_ = v_controlled
-	_ = v_empty
-	_ = v_no_cache
-	_ = v_run_options
-	v_empty = Object()
-	v_call_options = _core_map_merge(v_empty, v_options)
-	v_base_options = coreGet(v_gen, "options", v_empty)
-	v_run_options = _core_map_merge(v_base_options, v_call_options)
-	v_control = coreGet(v_run_options, "control", nil)
-	v_controlled = _core_is_not_none(v_control)
-	if coreTruthy(v_controlled) {
-		v_no_cache = _core_none()
-		return v_no_cache, nil
-	} else {
-	// empty
-	}
-	v_cache_fn = _core_axgen_caching_function(v_gen, v_call_options)
-	return v_cache_fn, nil
-}
-
 func _stream_json_select_fields_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_json_select_fields_impl")
 	var v_fields Value
@@ -68465,6 +68699,46 @@ func _stream_json_select_fields_impl(args ...Value) (Value, error) {
 		}
 	}
 	return v_out, nil
+}
+
+func _caching_function_option_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_caching_function_option_impl")
+	var v_gen Value
+	var v_options Value
+	var v_base_options Value
+	var v_cache_fn Value
+	var v_call_options Value
+	var v_control Value
+	var v_controlled Value
+	var v_empty Value
+	var v_no_cache Value
+	var v_run_options Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_base_options
+	_ = v_cache_fn
+	_ = v_call_options
+	_ = v_control
+	_ = v_controlled
+	_ = v_empty
+	_ = v_no_cache
+	_ = v_run_options
+	v_empty = Object()
+	v_call_options = _core_map_merge(v_empty, v_options)
+	v_base_options = coreGet(v_gen, "options", v_empty)
+	v_run_options = _core_map_merge(v_base_options, v_call_options)
+	v_control = coreGet(v_run_options, "control", nil)
+	v_controlled = _core_is_not_none(v_control)
+	if coreTruthy(v_controlled) {
+		v_no_cache = _core_none()
+		return v_no_cache, nil
+	} else {
+	// empty
+	}
+	v_cache_fn = _core_axgen_caching_function(v_gen, v_call_options)
+	return v_cache_fn, nil
 }
 
 func _cache_key_impl(args ...Value) (Value, error) {
@@ -73513,148 +73787,6 @@ func _resolve_agent_auto_upgrade(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _map_optimization_judge_quality_to_score(args ...Value) (Value, error) {
-	axirCoverageMark("_map_optimization_judge_quality_to_score")
-	var v_quality Value
-	var v_is_acceptable Value
-	var v_is_excellent Value
-	var v_is_good Value
-	var v_is_poor Value
-	var v_is_unacceptable Value
-	var v_normalized Value
-	if len(args) > 0 { v_quality = args[0] }
-	_ = v_quality
-	_ = v_is_acceptable
-	_ = v_is_excellent
-	_ = v_is_good
-	_ = v_is_poor
-	_ = v_is_unacceptable
-	_ = v_normalized
-	v_normalized = _core_string_lower(v_quality)
-	v_is_excellent = _core_eq(v_normalized, "excellent")
-	if coreTruthy(v_is_excellent) {
-		return 1, nil
-	} else {
-	// empty
-	}
-	v_is_good = _core_eq(v_normalized, "good")
-	if coreTruthy(v_is_good) {
-		return 0.8, nil
-	} else {
-	// empty
-	}
-	v_is_acceptable = _core_eq(v_normalized, "acceptable")
-	if coreTruthy(v_is_acceptable) {
-		return 0.5, nil
-	} else {
-	// empty
-	}
-	v_is_poor = _core_eq(v_normalized, "poor")
-	if coreTruthy(v_is_poor) {
-		return 0.2, nil
-	} else {
-	// empty
-	}
-	v_is_unacceptable = _core_eq(v_normalized, "unacceptable")
-	if coreTruthy(v_is_unacceptable) {
-		return 0, nil
-	} else {
-	// empty
-	}
-	return 0.5, nil
-}
-
-func _build_optimization_judge_payload(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimization_judge_payload")
-	var v_task Value
-	var v_prediction Value
-	var v_criteria Value
-	var v_action_log Value
-	var v_clarification Value
-	var v_completion_type Value
-	var v_empty_failure_signals Value
-	var v_empty_list Value
-	var v_expected_actions Value
-	var v_expected_output Value
-	var v_failure_signals Value
-	var v_final_output Value
-	var v_forbidden_actions Value
-	var v_function_calls Value
-	var v_guidance_log Value
-	var v_metadata Value
-	var v_out Value
-	var v_task_criteria Value
-	var v_task_input Value
-	var v_tool_errors Value
-	var v_trace Value
-	var v_turn_count Value
-	var v_usage Value
-	if len(args) > 0 { v_task = args[0] }
-	_ = v_task
-	if len(args) > 1 { v_prediction = args[1] }
-	_ = v_prediction
-	if len(args) > 2 { v_criteria = args[2] }
-	_ = v_criteria
-	_ = v_action_log
-	_ = v_clarification
-	_ = v_completion_type
-	_ = v_empty_failure_signals
-	_ = v_empty_list
-	_ = v_expected_actions
-	_ = v_expected_output
-	_ = v_failure_signals
-	_ = v_final_output
-	_ = v_forbidden_actions
-	_ = v_function_calls
-	_ = v_guidance_log
-	_ = v_metadata
-	_ = v_out
-	_ = v_task_criteria
-	_ = v_task_input
-	_ = v_tool_errors
-	_ = v_trace
-	_ = v_turn_count
-	_ = v_usage
-	v_empty_list = MutableArray()
-	v_out = Object()
-	v_task_input = coreGet(v_task, "input", v_task)
-	if err := coreSet(v_out, "taskInput", v_task_input); err != nil { return nil, err }
-	v_task_criteria = coreGet(v_task, "criteria", v_criteria)
-	if err := coreSet(v_out, "criteria", v_task_criteria); err != nil { return nil, err }
-	v_expected_output = coreGet(v_task, "expectedOutput", nil)
-	if err := coreSet(v_out, "expectedOutput", v_expected_output); err != nil { return nil, err }
-	v_expected_actions = coreGet(v_task, "expectedActions", v_empty_list)
-	if err := coreSet(v_out, "expectedActions", v_expected_actions); err != nil { return nil, err }
-	v_forbidden_actions = coreGet(v_task, "forbiddenActions", v_empty_list)
-	if err := coreSet(v_out, "forbiddenActions", v_forbidden_actions); err != nil { return nil, err }
-	v_metadata = coreGet(v_task, "metadata", nil)
-	if err := coreSet(v_out, "metadata", v_metadata); err != nil { return nil, err }
-	v_completion_type = coreGet(v_prediction, "completionType", "error")
-	if err := coreSet(v_out, "completionType", v_completion_type); err != nil { return nil, err }
-	v_clarification = coreGet(v_prediction, "clarification", nil)
-	if err := coreSet(v_out, "clarification", v_clarification); err != nil { return nil, err }
-	v_final_output = coreGet(v_prediction, "output", v_prediction)
-	if err := coreSet(v_out, "finalOutput", v_final_output); err != nil { return nil, err }
-	v_guidance_log = coreGet(v_prediction, "guidanceLog", "")
-	if err := coreSet(v_out, "guidanceLog", v_guidance_log); err != nil { return nil, err }
-	v_action_log = coreGet(v_prediction, "actionLog", v_empty_list)
-	if err := coreSet(v_out, "actionLog", v_action_log); err != nil { return nil, err }
-	v_function_calls = coreGet(v_prediction, "functionCalls", v_empty_list)
-	if err := coreSet(v_out, "functionCalls", v_function_calls); err != nil { return nil, err }
-	v_tool_errors = coreGet(v_prediction, "toolErrors", v_empty_list)
-	if err := coreSet(v_out, "toolErrors", v_tool_errors); err != nil { return nil, err }
-	v_turn_count = coreGet(v_prediction, "turnCount", 0)
-	if err := coreSet(v_out, "turnCount", v_turn_count); err != nil { return nil, err }
-	v_usage = coreGet(v_prediction, "usage", v_empty_list)
-	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
-	v_trace = coreGet(v_prediction, "trace", nil)
-	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_empty_failure_signals = MutableArray()
-	v_failure_signals = coreGet(v_prediction, "failureSignals", v_empty_failure_signals)
-	if err := coreSet(v_out, "failureSignals", v_failure_signals); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func _agent_discoverable_doc_chars(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_discoverable_doc_chars")
 	var v_callable_split Value
@@ -74114,6 +74246,148 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _map_optimization_judge_quality_to_score(args ...Value) (Value, error) {
+	axirCoverageMark("_map_optimization_judge_quality_to_score")
+	var v_quality Value
+	var v_is_acceptable Value
+	var v_is_excellent Value
+	var v_is_good Value
+	var v_is_poor Value
+	var v_is_unacceptable Value
+	var v_normalized Value
+	if len(args) > 0 { v_quality = args[0] }
+	_ = v_quality
+	_ = v_is_acceptable
+	_ = v_is_excellent
+	_ = v_is_good
+	_ = v_is_poor
+	_ = v_is_unacceptable
+	_ = v_normalized
+	v_normalized = _core_string_lower(v_quality)
+	v_is_excellent = _core_eq(v_normalized, "excellent")
+	if coreTruthy(v_is_excellent) {
+		return 1, nil
+	} else {
+	// empty
+	}
+	v_is_good = _core_eq(v_normalized, "good")
+	if coreTruthy(v_is_good) {
+		return 0.8, nil
+	} else {
+	// empty
+	}
+	v_is_acceptable = _core_eq(v_normalized, "acceptable")
+	if coreTruthy(v_is_acceptable) {
+		return 0.5, nil
+	} else {
+	// empty
+	}
+	v_is_poor = _core_eq(v_normalized, "poor")
+	if coreTruthy(v_is_poor) {
+		return 0.2, nil
+	} else {
+	// empty
+	}
+	v_is_unacceptable = _core_eq(v_normalized, "unacceptable")
+	if coreTruthy(v_is_unacceptable) {
+		return 0, nil
+	} else {
+	// empty
+	}
+	return 0.5, nil
+}
+
+func _build_optimization_judge_payload(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_judge_payload")
+	var v_task Value
+	var v_prediction Value
+	var v_criteria Value
+	var v_action_log Value
+	var v_clarification Value
+	var v_completion_type Value
+	var v_empty_failure_signals Value
+	var v_empty_list Value
+	var v_expected_actions Value
+	var v_expected_output Value
+	var v_failure_signals Value
+	var v_final_output Value
+	var v_forbidden_actions Value
+	var v_function_calls Value
+	var v_guidance_log Value
+	var v_metadata Value
+	var v_out Value
+	var v_task_criteria Value
+	var v_task_input Value
+	var v_tool_errors Value
+	var v_trace Value
+	var v_turn_count Value
+	var v_usage Value
+	if len(args) > 0 { v_task = args[0] }
+	_ = v_task
+	if len(args) > 1 { v_prediction = args[1] }
+	_ = v_prediction
+	if len(args) > 2 { v_criteria = args[2] }
+	_ = v_criteria
+	_ = v_action_log
+	_ = v_clarification
+	_ = v_completion_type
+	_ = v_empty_failure_signals
+	_ = v_empty_list
+	_ = v_expected_actions
+	_ = v_expected_output
+	_ = v_failure_signals
+	_ = v_final_output
+	_ = v_forbidden_actions
+	_ = v_function_calls
+	_ = v_guidance_log
+	_ = v_metadata
+	_ = v_out
+	_ = v_task_criteria
+	_ = v_task_input
+	_ = v_tool_errors
+	_ = v_trace
+	_ = v_turn_count
+	_ = v_usage
+	v_empty_list = MutableArray()
+	v_out = Object()
+	v_task_input = coreGet(v_task, "input", v_task)
+	if err := coreSet(v_out, "taskInput", v_task_input); err != nil { return nil, err }
+	v_task_criteria = coreGet(v_task, "criteria", v_criteria)
+	if err := coreSet(v_out, "criteria", v_task_criteria); err != nil { return nil, err }
+	v_expected_output = coreGet(v_task, "expectedOutput", nil)
+	if err := coreSet(v_out, "expectedOutput", v_expected_output); err != nil { return nil, err }
+	v_expected_actions = coreGet(v_task, "expectedActions", v_empty_list)
+	if err := coreSet(v_out, "expectedActions", v_expected_actions); err != nil { return nil, err }
+	v_forbidden_actions = coreGet(v_task, "forbiddenActions", v_empty_list)
+	if err := coreSet(v_out, "forbiddenActions", v_forbidden_actions); err != nil { return nil, err }
+	v_metadata = coreGet(v_task, "metadata", nil)
+	if err := coreSet(v_out, "metadata", v_metadata); err != nil { return nil, err }
+	v_completion_type = coreGet(v_prediction, "completionType", "error")
+	if err := coreSet(v_out, "completionType", v_completion_type); err != nil { return nil, err }
+	v_clarification = coreGet(v_prediction, "clarification", nil)
+	if err := coreSet(v_out, "clarification", v_clarification); err != nil { return nil, err }
+	v_final_output = coreGet(v_prediction, "output", v_prediction)
+	if err := coreSet(v_out, "finalOutput", v_final_output); err != nil { return nil, err }
+	v_guidance_log = coreGet(v_prediction, "guidanceLog", "")
+	if err := coreSet(v_out, "guidanceLog", v_guidance_log); err != nil { return nil, err }
+	v_action_log = coreGet(v_prediction, "actionLog", v_empty_list)
+	if err := coreSet(v_out, "actionLog", v_action_log); err != nil { return nil, err }
+	v_function_calls = coreGet(v_prediction, "functionCalls", v_empty_list)
+	if err := coreSet(v_out, "functionCalls", v_function_calls); err != nil { return nil, err }
+	v_tool_errors = coreGet(v_prediction, "toolErrors", v_empty_list)
+	if err := coreSet(v_out, "toolErrors", v_tool_errors); err != nil { return nil, err }
+	v_turn_count = coreGet(v_prediction, "turnCount", 0)
+	if err := coreSet(v_out, "turnCount", v_turn_count); err != nil { return nil, err }
+	v_usage = coreGet(v_prediction, "usage", v_empty_list)
+	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	v_trace = coreGet(v_prediction, "trace", nil)
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_empty_failure_signals = MutableArray()
+	v_failure_signals = coreGet(v_prediction, "failureSignals", v_empty_failure_signals)
+	if err := coreSet(v_out, "failureSignals", v_failure_signals); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _agent_policy_action(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_policy_action")
 	var v_id Value
@@ -74450,6 +74724,20 @@ func _agent_policy_vocabulary_registry(args ...Value) (Value, error) {
 	return v_registry, nil
 }
 
+func _agent_context_policy_registry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_context_policy_registry")
+	var v_context Value
+	var v_empty_map Value
+	var v_registry Value
+	_ = v_context
+	_ = v_empty_map
+	_ = v_registry
+	{ v, err := _agent_policy_vocabulary_registry(); if err != nil { return nil, err }; v_registry = v }
+	v_empty_map = Object()
+	v_context = coreGet(v_registry, "context_policy", v_empty_map)
+	return v_context, nil
+}
+
 func _build_agent_eval_prediction(args ...Value) (Value, error) {
 	axirCoverageMark("_build_agent_eval_prediction")
 	var v_output Value
@@ -74484,20 +74772,6 @@ func _build_agent_eval_prediction(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "toolErrors", v_empty_list); err != nil { return nil, err }
 	if err := coreSet(v_out, "turnCount", 0); err != nil { return nil, err }
 	return v_out, nil
-}
-
-func _agent_context_policy_registry(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_context_policy_registry")
-	var v_context Value
-	var v_empty_map Value
-	var v_registry Value
-	_ = v_context
-	_ = v_empty_map
-	_ = v_registry
-	{ v, err := _agent_policy_vocabulary_registry(); if err != nil { return nil, err }; v_registry = v }
-	v_empty_map = Object()
-	v_context = coreGet(v_registry, "context_policy", v_empty_map)
-	return v_context, nil
 }
 
 func _agent_context_policy_migration_error(args ...Value) (Value, error) {
@@ -76322,138 +76596,6 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _agent_eval_marks(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_eval_marks")
-	var v_state Value
-	var v_empty_list Value
-	var v_empty_map Value
-	var v_fresh_stage_logs Value
-	var v_log Value
-	var v_log_count Value
-	var v_marks Value
-	var v_stage_logs Value
-	var v_trace_count Value
-	var v_traces Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_empty_list
-	_ = v_empty_map
-	_ = v_fresh_stage_logs
-	_ = v_log
-	_ = v_log_count
-	_ = v_marks
-	_ = v_stage_logs
-	_ = v_trace_count
-	_ = v_traces
-	v_empty_list = MutableArray()
-	v_log = coreGet(v_state, "action_log", v_empty_list)
-	v_traces = coreGet(v_state, "function_call_traces", v_empty_list)
-	v_log_count = _core_len(v_log)
-	v_trace_count = _core_len(v_traces)
-	v_marks = Object()
-	if err := coreSet(v_marks, "action_log", v_log_count); err != nil { return nil, err }
-	if err := coreSet(v_marks, "function_call_traces", v_trace_count); err != nil { return nil, err }
-	v_empty_map = Object()
-	v_stage_logs = coreGet(v_state, "stage_action_logs", v_empty_map)
-	if err := coreSet(v_marks, "stage_action_logs", v_stage_logs); err != nil { return nil, err }
-	v_fresh_stage_logs = Object()
-	if err := coreSet(v_state, "stage_action_logs", v_fresh_stage_logs); err != nil { return nil, err }
-	return v_marks, nil
-}
-
-func _agent_eval_function_calls(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_eval_function_calls")
-	var v_traces Value
-	var v_arguments Value
-	var v_call Value
-	var v_calls Value
-	var v_derive_name Value
-	var v_empty_map Value
-	var v_error Value
-	var v_error_text Value
-	var v_failed Value
-	var v_has_value Value
-	var v_name Value
-	var v_name_missing Value
-	var v_name_part Value
-	var v_name_parts Value
-	var v_name_qualified Value
-	var v_qualified Value
-	var v_result Value
-	var v_result_is_map Value
-	var v_status Value
-	var v_trace Value
-	var v_value Value
-	if len(args) > 0 { v_traces = args[0] }
-	_ = v_traces
-	_ = v_arguments
-	_ = v_call
-	_ = v_calls
-	_ = v_derive_name
-	_ = v_empty_map
-	_ = v_error
-	_ = v_error_text
-	_ = v_failed
-	_ = v_has_value
-	_ = v_name
-	_ = v_name_missing
-	_ = v_name_part
-	_ = v_name_parts
-	_ = v_name_qualified
-	_ = v_qualified
-	_ = v_result
-	_ = v_result_is_map
-	_ = v_status
-	_ = v_trace
-	_ = v_value
-	v_calls = MutableArray()
-	v_empty_map = Object()
-	for _, v_trace = range coreIter(v_traces) {
-		v_qualified = coreGet(v_trace, "qualified_name", "")
-		v_name = coreGet(v_trace, "name", "")
-		v_name_missing = _core_eq(v_name, "")
-		v_name_qualified = _core_eq(v_name, v_qualified)
-		v_derive_name = _core_or(v_name_missing, v_name_qualified)
-		if coreTruthy(v_derive_name) {
-			v_name_parts = _core_string_split(v_qualified, ".")
-			for _, v_name_part = range coreIter(v_name_parts) {
-				v_name = v_name_part
-			}
-		} else {
-		// empty
-		}
-		v_arguments = coreGet(v_trace, "arguments", nil)
-		v_result = coreGet(v_trace, "result", v_empty_map)
-		v_result_is_map = coreTypeIs(v_result, "object")
-		if coreTruthy(v_result_is_map) {
-		// empty
-		} else {
-			v_result = v_empty_map
-		}
-		v_status = coreGet(v_trace, "status", "ok")
-		v_call = Object()
-		if err := coreSet(v_call, "qualifiedName", v_qualified); err != nil { return nil, err }
-		if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_call, "arguments", v_arguments); err != nil { return nil, err }
-		v_failed = _core_eq(v_status, "error")
-		if coreTruthy(v_failed) {
-			v_error = coreGet(v_result, "error", "unknown error")
-			v_error_text = _core_string_str(v_error)
-			if err := coreSet(v_call, "error", v_error_text); err != nil { return nil, err }
-		} else {
-			v_value = coreGet(v_result, "value", nil)
-			v_has_value = _core_is_not_none(v_value)
-			if coreTruthy(v_has_value) {
-				if err := coreSet(v_call, "result", v_value); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-		}
-		v_calls = coreAppend(v_calls, v_call)
-	}
-	return v_calls, nil
-}
-
 func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	axirCoverageMark("_resolve_agent_executor_model_policy")
 	var v_options Value
@@ -76696,6 +76838,232 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _agent_eval_marks(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_eval_marks")
+	var v_state Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_fresh_stage_logs Value
+	var v_log Value
+	var v_log_count Value
+	var v_marks Value
+	var v_stage_logs Value
+	var v_trace_count Value
+	var v_traces Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_fresh_stage_logs
+	_ = v_log
+	_ = v_log_count
+	_ = v_marks
+	_ = v_stage_logs
+	_ = v_trace_count
+	_ = v_traces
+	v_empty_list = MutableArray()
+	v_log = coreGet(v_state, "action_log", v_empty_list)
+	v_traces = coreGet(v_state, "function_call_traces", v_empty_list)
+	v_log_count = _core_len(v_log)
+	v_trace_count = _core_len(v_traces)
+	v_marks = Object()
+	if err := coreSet(v_marks, "action_log", v_log_count); err != nil { return nil, err }
+	if err := coreSet(v_marks, "function_call_traces", v_trace_count); err != nil { return nil, err }
+	v_empty_map = Object()
+	v_stage_logs = coreGet(v_state, "stage_action_logs", v_empty_map)
+	if err := coreSet(v_marks, "stage_action_logs", v_stage_logs); err != nil { return nil, err }
+	v_fresh_stage_logs = Object()
+	if err := coreSet(v_state, "stage_action_logs", v_fresh_stage_logs); err != nil { return nil, err }
+	return v_marks, nil
+}
+
+func _agent_eval_function_calls(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_eval_function_calls")
+	var v_traces Value
+	var v_arguments Value
+	var v_call Value
+	var v_calls Value
+	var v_derive_name Value
+	var v_empty_map Value
+	var v_error Value
+	var v_error_text Value
+	var v_failed Value
+	var v_has_value Value
+	var v_name Value
+	var v_name_missing Value
+	var v_name_part Value
+	var v_name_parts Value
+	var v_name_qualified Value
+	var v_qualified Value
+	var v_result Value
+	var v_result_is_map Value
+	var v_status Value
+	var v_trace Value
+	var v_value Value
+	if len(args) > 0 { v_traces = args[0] }
+	_ = v_traces
+	_ = v_arguments
+	_ = v_call
+	_ = v_calls
+	_ = v_derive_name
+	_ = v_empty_map
+	_ = v_error
+	_ = v_error_text
+	_ = v_failed
+	_ = v_has_value
+	_ = v_name
+	_ = v_name_missing
+	_ = v_name_part
+	_ = v_name_parts
+	_ = v_name_qualified
+	_ = v_qualified
+	_ = v_result
+	_ = v_result_is_map
+	_ = v_status
+	_ = v_trace
+	_ = v_value
+	v_calls = MutableArray()
+	v_empty_map = Object()
+	for _, v_trace = range coreIter(v_traces) {
+		v_qualified = coreGet(v_trace, "qualified_name", "")
+		v_name = coreGet(v_trace, "name", "")
+		v_name_missing = _core_eq(v_name, "")
+		v_name_qualified = _core_eq(v_name, v_qualified)
+		v_derive_name = _core_or(v_name_missing, v_name_qualified)
+		if coreTruthy(v_derive_name) {
+			v_name_parts = _core_string_split(v_qualified, ".")
+			for _, v_name_part = range coreIter(v_name_parts) {
+				v_name = v_name_part
+			}
+		} else {
+		// empty
+		}
+		v_arguments = coreGet(v_trace, "arguments", nil)
+		v_result = coreGet(v_trace, "result", v_empty_map)
+		v_result_is_map = coreTypeIs(v_result, "object")
+		if coreTruthy(v_result_is_map) {
+		// empty
+		} else {
+			v_result = v_empty_map
+		}
+		v_status = coreGet(v_trace, "status", "ok")
+		v_call = Object()
+		if err := coreSet(v_call, "qualifiedName", v_qualified); err != nil { return nil, err }
+		if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_call, "arguments", v_arguments); err != nil { return nil, err }
+		v_failed = _core_eq(v_status, "error")
+		if coreTruthy(v_failed) {
+			v_error = coreGet(v_result, "error", "unknown error")
+			v_error_text = _core_string_str(v_error)
+			if err := coreSet(v_call, "error", v_error_text); err != nil { return nil, err }
+		} else {
+			v_value = coreGet(v_result, "value", nil)
+			v_has_value = _core_is_not_none(v_value)
+			if coreTruthy(v_has_value) {
+				if err := coreSet(v_call, "result", v_value); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+		v_calls = coreAppend(v_calls, v_call)
+	}
+	return v_calls, nil
+}
+
+func _select_agent_executor_model(args ...Value) (Value, error) {
+	axirCoverageMark("_select_agent_executor_model")
+	var v_policy Value
+	var v_actor_model_state Value
+	var v_above Value
+	var v_entry Value
+	var v_error_trigger Value
+	var v_errors Value
+	var v_has_above Value
+	var v_is_list Value
+	var v_matched Value
+	var v_matched_is_list Value
+	var v_model Value
+	var v_namespace Value
+	var v_namespace_match Value
+	var v_namespaces Value
+	var v_namespaces_is_list Value
+	var v_none Value
+	var v_selected Value
+	var v_trigger Value
+	if len(args) > 0 { v_policy = args[0] }
+	_ = v_policy
+	if len(args) > 1 { v_actor_model_state = args[1] }
+	_ = v_actor_model_state
+	_ = v_above
+	_ = v_entry
+	_ = v_error_trigger
+	_ = v_errors
+	_ = v_has_above
+	_ = v_is_list
+	_ = v_matched
+	_ = v_matched_is_list
+	_ = v_model
+	_ = v_namespace
+	_ = v_namespace_match
+	_ = v_namespaces
+	_ = v_namespaces_is_list
+	_ = v_none
+	_ = v_selected
+	_ = v_trigger
+	v_none = _core_none()
+	v_is_list = coreTypeIs(v_policy, "list")
+	if coreTruthy(v_is_list) {
+	// empty
+	} else {
+		return v_none, nil
+	}
+	v_errors = coreGet(v_actor_model_state, "consecutiveErrorTurns", 0)
+	v_matched = coreGet(v_actor_model_state, "matchedNamespaces", nil)
+	v_matched_is_list = coreTypeIs(v_matched, "list")
+	if coreTruthy(v_matched_is_list) {
+	// empty
+	} else {
+		v_matched = MutableArray()
+	}
+	v_selected = _core_none()
+	for _, v_entry = range coreIter(v_policy) {
+		v_model = coreGet(v_entry, "model", "")
+		v_above = coreGet(v_entry, "aboveErrorTurns", nil)
+		v_namespaces = coreGet(v_entry, "namespaces", nil)
+		v_trigger = false
+		v_has_above = _core_is_not_none(v_above)
+		if coreTruthy(v_has_above) {
+			v_error_trigger = _core_gte(v_errors, v_above)
+			if coreTruthy(v_error_trigger) {
+				v_trigger = true
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_namespaces_is_list = coreTypeIs(v_namespaces, "list")
+		if coreTruthy(v_namespaces_is_list) {
+			for _, v_namespace = range coreIter(v_namespaces) {
+				v_namespace_match = _core_contains(v_matched, v_namespace)
+				if coreTruthy(v_namespace_match) {
+					v_trigger = true
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		if coreTruthy(v_trigger) {
+			v_selected = v_model
+		} else {
+		// empty
+		}
+	}
+	return v_selected, nil
+}
+
 func _agent_eval_run(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_eval_run")
 	var v_state Value
@@ -76873,195 +77241,6 @@ func _agent_eval_run(args ...Value) (Value, error) {
 	if err := coreSet(v_run, "turnCount", v_turn_count); err != nil { return nil, err }
 	if err := coreSet(v_run, "failureSignals", v_signals); err != nil { return nil, err }
 	return v_run, nil
-}
-
-func _select_agent_executor_model(args ...Value) (Value, error) {
-	axirCoverageMark("_select_agent_executor_model")
-	var v_policy Value
-	var v_actor_model_state Value
-	var v_above Value
-	var v_entry Value
-	var v_error_trigger Value
-	var v_errors Value
-	var v_has_above Value
-	var v_is_list Value
-	var v_matched Value
-	var v_matched_is_list Value
-	var v_model Value
-	var v_namespace Value
-	var v_namespace_match Value
-	var v_namespaces Value
-	var v_namespaces_is_list Value
-	var v_none Value
-	var v_selected Value
-	var v_trigger Value
-	if len(args) > 0 { v_policy = args[0] }
-	_ = v_policy
-	if len(args) > 1 { v_actor_model_state = args[1] }
-	_ = v_actor_model_state
-	_ = v_above
-	_ = v_entry
-	_ = v_error_trigger
-	_ = v_errors
-	_ = v_has_above
-	_ = v_is_list
-	_ = v_matched
-	_ = v_matched_is_list
-	_ = v_model
-	_ = v_namespace
-	_ = v_namespace_match
-	_ = v_namespaces
-	_ = v_namespaces_is_list
-	_ = v_none
-	_ = v_selected
-	_ = v_trigger
-	v_none = _core_none()
-	v_is_list = coreTypeIs(v_policy, "list")
-	if coreTruthy(v_is_list) {
-	// empty
-	} else {
-		return v_none, nil
-	}
-	v_errors = coreGet(v_actor_model_state, "consecutiveErrorTurns", 0)
-	v_matched = coreGet(v_actor_model_state, "matchedNamespaces", nil)
-	v_matched_is_list = coreTypeIs(v_matched, "list")
-	if coreTruthy(v_matched_is_list) {
-	// empty
-	} else {
-		v_matched = MutableArray()
-	}
-	v_selected = _core_none()
-	for _, v_entry = range coreIter(v_policy) {
-		v_model = coreGet(v_entry, "model", "")
-		v_above = coreGet(v_entry, "aboveErrorTurns", nil)
-		v_namespaces = coreGet(v_entry, "namespaces", nil)
-		v_trigger = false
-		v_has_above = _core_is_not_none(v_above)
-		if coreTruthy(v_has_above) {
-			v_error_trigger = _core_gte(v_errors, v_above)
-			if coreTruthy(v_error_trigger) {
-				v_trigger = true
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		v_namespaces_is_list = coreTypeIs(v_namespaces, "list")
-		if coreTruthy(v_namespaces_is_list) {
-			for _, v_namespace = range coreIter(v_namespaces) {
-				v_namespace_match = _core_contains(v_matched, v_namespace)
-				if coreTruthy(v_namespace_match) {
-					v_trigger = true
-				} else {
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		if coreTruthy(v_trigger) {
-			v_selected = v_model
-		} else {
-		// empty
-		}
-	}
-	return v_selected, nil
-}
-
-func _build_agent_run_prediction(args ...Value) (Value, error) {
-	axirCoverageMark("_build_agent_run_prediction")
-	var v_state Value
-	var v_marks Value
-	var v_completion Value
-	var v_usage Value
-	var v_trace Value
-	var v_calls Value
-	var v_clarification Value
-	var v_error Value
-	var v_error_tool_errors Value
-	var v_is_clarification Value
-	var v_is_error Value
-	var v_is_final Value
-	var v_message Value
-	var v_out Value
-	var v_output Value
-	var v_run Value
-	var v_run_log Value
-	var v_signals Value
-	var v_tool_errors Value
-	var v_turn_count Value
-	var v_type Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	if len(args) > 1 { v_marks = args[1] }
-	_ = v_marks
-	if len(args) > 2 { v_completion = args[2] }
-	_ = v_completion
-	if len(args) > 3 { v_usage = args[3] }
-	_ = v_usage
-	if len(args) > 4 { v_trace = args[4] }
-	_ = v_trace
-	_ = v_calls
-	_ = v_clarification
-	_ = v_error
-	_ = v_error_tool_errors
-	_ = v_is_clarification
-	_ = v_is_error
-	_ = v_is_final
-	_ = v_message
-	_ = v_out
-	_ = v_output
-	_ = v_run
-	_ = v_run_log
-	_ = v_signals
-	_ = v_tool_errors
-	_ = v_turn_count
-	_ = v_type
-	{ v, err := _agent_eval_run(v_state, v_marks); if err != nil { return nil, err }; v_run = v }
-	v_type = coreGet(v_completion, "type", "final")
-	v_out = Object()
-	if err := coreSet(v_out, "completionType", v_type); err != nil { return nil, err }
-	v_is_final = _core_eq(v_type, "final")
-	if coreTruthy(v_is_final) {
-		v_output = coreGet(v_completion, "output", nil)
-		if err := coreSet(v_out, "output", v_output); err != nil { return nil, err }
-		if err := coreSet(v_out, "finalOutput", v_output); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_is_clarification = _core_eq(v_type, "askClarification")
-	if coreTruthy(v_is_clarification) {
-		v_clarification = coreGet(v_completion, "clarification", nil)
-		if err := coreSet(v_out, "clarification", v_clarification); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_tool_errors = coreGet(v_run, "toolErrors", nil)
-	v_is_error = _core_eq(v_type, "error")
-	if coreTruthy(v_is_error) {
-		v_message = coreGet(v_completion, "message", "")
-		v_error = Object()
-		if err := coreSet(v_error, "message", v_message); err != nil { return nil, err }
-		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
-		v_error_tool_errors = MutableArray()
-		v_error_tool_errors = coreAppend(v_error_tool_errors, v_message)
-		v_tool_errors = v_error_tool_errors
-	} else {
-	// empty
-	}
-	v_run_log = coreGet(v_run, "actionLog", nil)
-	if err := coreSet(v_out, "actionLog", v_run_log); err != nil { return nil, err }
-	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
-	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_signals = coreGet(v_run, "failureSignals", nil)
-	if err := coreSet(v_out, "failureSignals", v_signals); err != nil { return nil, err }
-	v_calls = coreGet(v_run, "functionCalls", nil)
-	if err := coreSet(v_out, "functionCalls", v_calls); err != nil { return nil, err }
-	if err := coreSet(v_out, "toolErrors", v_tool_errors); err != nil { return nil, err }
-	v_turn_count = coreGet(v_run, "turnCount", nil)
-	if err := coreSet(v_out, "turnCount", v_turn_count); err != nil { return nil, err }
-	return v_out, nil
 }
 
 func _agent_compute_effective_chat_budget(args ...Value) (Value, error) {
@@ -77314,6 +77493,101 @@ func _agent_context_pressure(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_ok_id, nil
+}
+
+func _build_agent_run_prediction(args ...Value) (Value, error) {
+	axirCoverageMark("_build_agent_run_prediction")
+	var v_state Value
+	var v_marks Value
+	var v_completion Value
+	var v_usage Value
+	var v_trace Value
+	var v_calls Value
+	var v_clarification Value
+	var v_error Value
+	var v_error_tool_errors Value
+	var v_is_clarification Value
+	var v_is_error Value
+	var v_is_final Value
+	var v_message Value
+	var v_out Value
+	var v_output Value
+	var v_run Value
+	var v_run_log Value
+	var v_signals Value
+	var v_tool_errors Value
+	var v_turn_count Value
+	var v_type Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_marks = args[1] }
+	_ = v_marks
+	if len(args) > 2 { v_completion = args[2] }
+	_ = v_completion
+	if len(args) > 3 { v_usage = args[3] }
+	_ = v_usage
+	if len(args) > 4 { v_trace = args[4] }
+	_ = v_trace
+	_ = v_calls
+	_ = v_clarification
+	_ = v_error
+	_ = v_error_tool_errors
+	_ = v_is_clarification
+	_ = v_is_error
+	_ = v_is_final
+	_ = v_message
+	_ = v_out
+	_ = v_output
+	_ = v_run
+	_ = v_run_log
+	_ = v_signals
+	_ = v_tool_errors
+	_ = v_turn_count
+	_ = v_type
+	{ v, err := _agent_eval_run(v_state, v_marks); if err != nil { return nil, err }; v_run = v }
+	v_type = coreGet(v_completion, "type", "final")
+	v_out = Object()
+	if err := coreSet(v_out, "completionType", v_type); err != nil { return nil, err }
+	v_is_final = _core_eq(v_type, "final")
+	if coreTruthy(v_is_final) {
+		v_output = coreGet(v_completion, "output", nil)
+		if err := coreSet(v_out, "output", v_output); err != nil { return nil, err }
+		if err := coreSet(v_out, "finalOutput", v_output); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_is_clarification = _core_eq(v_type, "askClarification")
+	if coreTruthy(v_is_clarification) {
+		v_clarification = coreGet(v_completion, "clarification", nil)
+		if err := coreSet(v_out, "clarification", v_clarification); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_tool_errors = coreGet(v_run, "toolErrors", nil)
+	v_is_error = _core_eq(v_type, "error")
+	if coreTruthy(v_is_error) {
+		v_message = coreGet(v_completion, "message", "")
+		v_error = Object()
+		if err := coreSet(v_error, "message", v_message); err != nil { return nil, err }
+		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
+		v_error_tool_errors = MutableArray()
+		v_error_tool_errors = coreAppend(v_error_tool_errors, v_message)
+		v_tool_errors = v_error_tool_errors
+	} else {
+	// empty
+	}
+	v_run_log = coreGet(v_run, "actionLog", nil)
+	if err := coreSet(v_out, "actionLog", v_run_log); err != nil { return nil, err }
+	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_signals = coreGet(v_run, "failureSignals", nil)
+	if err := coreSet(v_out, "failureSignals", v_signals); err != nil { return nil, err }
+	v_calls = coreGet(v_run, "functionCalls", nil)
+	if err := coreSet(v_out, "functionCalls", v_calls); err != nil { return nil, err }
+	if err := coreSet(v_out, "toolErrors", v_tool_errors); err != nil { return nil, err }
+	v_turn_count = coreGet(v_run, "turnCount", nil)
+	if err := coreSet(v_out, "turnCount", v_turn_count); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _agent_render_context_pressure(args ...Value) (Value, error) {
@@ -115045,7 +115319,7 @@ func (b *AxBootstrapFewShot) Optimize(request map[string]Value, evaluator Optimi
 					row := asMap(rows[0])
 					if num(coreGet(row, "scalar", 0)) >= threshold {
 						accepted[exampleKey] = true
-						demos = append(demos, Object("programId", "root", "traces", Array(cloneValue(coreGet(row, "prediction", coreGet(row, "input", Object()))))))
+						demos = append(demos, mustCore(_optimization_bootstrap_demo(row)))
 					}
 				}
 			}
@@ -115068,10 +115342,26 @@ func Optimize(program AxProgram, examples Value, options map[string]Value) (Valu
 		if data == nil {
 			data = Array()
 		}
-		bootstrapSetting := coreGet(options, "bootstrap", len(asSlice(data)) <= 8)
-		evaluator := &axOptimizeDatasetEvaluator{Dataset: data, Options: options}
+		normalized := asMap(mustCore(_normalize_optimization_dataset(data)))
+		train := asSlice(coreGet(normalized, "train", Array()))
+		validation := asSlice(coreGet(options, "validationExamples", coreGet(options, "validation_examples", coreGet(normalized, "validation", Array()))))
+		if len(validation) == 0 { validation = train }
+		bootstrapSetting := coreGet(options, "bootstrap", len(train) <= 8)
+		studentClient, _ := student.(AIClient)
+		teacherClient, _ := teacher.(AIClient)
+		evaluator := &axOptimizeDatasetEvaluator{Dataset: data, Options: options, Program: program, Client: studentClient}
+		gepaOptions := cloneMap(options)
+		coreSet(gepaOptions, "bootstrap", false)
+		coreSet(gepaOptions, "maxMetricCalls", mustCore(_gepa_helper_metric_budget(options, len(validation), !isFalse(bootstrapSetting))))
+		coreSet(gepaOptions, "apply", false)
 		var demos Value = Array()
+		bootstrapCalls := 0
 		if !isFalse(bootstrapSetting) {
+			baselineOptions := cloneMap(gepaOptions)
+			coreSet(baselineOptions, "numTrials", 0)
+			baseline := NewGEPA(teacherClient, baselineOptions)
+			optimizeWithEngine(program, baseline, data, baselineOptions, evaluator)
+			coreSet(gepaOptions, "_baselineEvaluation", baseline.baselineEvaluation)
 			bootstrapOptions := cloneMap(options)
 			for key, value := range asMap(bootstrapSetting) {
 				if key != "__order" {
@@ -115080,16 +115370,15 @@ func Optimize(program AxProgram, examples Value, options map[string]Value) (Valu
 			}
 			coreSet(bootstrapOptions, "apply", false)
 			bootstrap := NewBootstrapFewShot(bootstrapOptions)
-			artifact := optimizeWithEngine(program, bootstrap, data, bootstrapOptions, evaluator)
+			teacherEvaluator := &axOptimizeDatasetEvaluator{Dataset: data, Options: bootstrapOptions, Program: program, Client: teacherClient}
+			artifact := optimizeWithEngine(program, bootstrap, data, bootstrapOptions, teacherEvaluator)
 			demos = coreGet(artifact, "demos", Array())
+			if len(asSlice(demos)) == 0 { panic(AxError{Category: "optimize", Message: "No demonstrations found. Either provide more examples or improve the existing ones."}) }
+			bootstrapCalls = int(num(coreGet(coreGet(artifact, "metadata", Object()), "totalMetricCalls", 0)))
 			applyProgramDemos(program, demos)
 		}
-		gepaOptions := cloneMap(options)
-		coreSet(gepaOptions, "bootstrap", false)
-		if coreGet(gepaOptions, "maxMetricCalls", nil) == nil && coreGet(gepaOptions, "max_metric_calls", nil) == nil {
-			coreSet(gepaOptions, "maxMetricCalls", 100)
-		}
-		coreSet(gepaOptions, "apply", false)
+		coreSet(gepaOptions, "_bootstrapDemos", demos)
+		coreSet(gepaOptions, "_bootstrapMetricCalls", bootstrapCalls)
 		reflection, _ := teacher.(AIClient)
 		gepa := NewGEPA(reflection, gepaOptions)
 		artifact := optimizeWithEngine(program, gepa, data, gepaOptions, evaluator)
@@ -115147,9 +115436,22 @@ func applyProgramDemos(program AxProgram, demos Value) {
 type axOptimizeDatasetEvaluator struct {
 	Dataset Value
 	Options map[string]Value
+	Program AxProgram
+	Client AIClient
 }
 
 func (e *axOptimizeDatasetEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value, error) {
+	if e.Client != nil {
+		opts := cloneMap(e.Options)
+		for key, value := range options { if key != "__order" { coreSet(opts, key, value) } }
+		if demos := coreGet(opts, "demos", nil); demos != nil { applyProgramDemos(e.Program, demos) }
+		dataset := coreGet(options, "dataset", e.Dataset)
+		switch program := e.Program.(type) {
+		case *AxGen: return safeValue(func() Value { return program.EvaluateOptimization(e.Client, dataset, candidateMap, opts) })
+		case *AxFlow: return safeValue(func() Value { return program.EvaluateOptimization(e.Client, dataset, candidateMap, opts) })
+		case *AxAgent: return safeValue(func() Value { return program.EvaluateOptimization(e.Client, dataset, candidateMap, opts) })
+		}
+	}
 	normalized := asMap(mustCore(_normalize_optimization_dataset(coreGet(options, "dataset", e.Dataset))))
 	rows := Array()
 	for _, rawTask := range asSlice(coreGet(normalized, "train", Array())) {
@@ -115166,6 +115468,7 @@ func (e *axOptimizeDatasetEvaluator) Evaluate(candidateMap map[string]Value, opt
 type AxGEPA struct {
 	Options          map[string]Value
 	ReflectionClient AIClient
+	baselineEvaluation Value
 }
 
 func NewGEPA(reflectionClient AIClient, options map[string]Value) *AxGEPA {
@@ -115212,10 +115515,7 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 	if minibatchSize <= 0 {
 		minibatchSize = 1
 	}
-	paretoSize := int(num(coreGet(options, "paretoSetSize", coreGet(options, "pareto_set_size", minibatchSize*3))))
-	if paretoSize <= 0 {
-		paretoSize = 1
-	}
+	paretoSize := int(num(mustCore(_gepa_pareto_set_size(options))))
 	if paretoSize > len(validation) {
 		paretoSize = len(validation)
 	}
@@ -115226,19 +115526,37 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 	baseCfg := gepaCurrentMap(components)
 	selectorState := gepaSelectorState(components, asMap(coreGet(options, "selectorState", coreGet(options, "selector_state", Object()))))
 	totalCalls := 0
-	demos := Array()
+	baselineEval := asMap(coreGet(options, "_baselineEvaluation", nil))
+	if baselineEval == nil || len(baselineEval) == 0 {
+		var nextCalls int
+		baselineEval, nextCalls = gepaEvaluate(evaluator, baseCfg, paretoSet, "baseline evaluation", maxCalls, 0, true)
+		totalCalls = nextCalls
+	} else {
+		totalCalls = int(num(coreGet(baselineEval, "count", len(paretoSet))))
+	}
+	g.baselineEvaluation = cloneValue(baselineEval)
+	baselineReport := asMap(mustCore(_gepa_baseline_report(baselineEval, options)))
+	bootstrapCalls := int(num(coreGet(options, "_bootstrapMetricCalls", 0)))
+	demos := asSlice(coreGet(options, "_bootstrapDemos", Array()))
 	if bootstrap := coreGet(options, "bootstrap", nil); bootstrap != nil && !isFalse(bootstrap) {
 		var nextCalls int
-		demos, nextCalls = g.gepaBootstrap(evaluator, baseCfg, train, asMap(bootstrap), totalCalls, maxCalls)
+		bootOptions := asMap(bootstrap)
+		bootLimit := int(num(coreGet(bootOptions, "maxBootstrapMetricCalls", coreGet(bootOptions, "max_bootstrap_metric_calls", min(len(train), 8)))))
+		if bootLimit < 1 { bootLimit = 1 }
+		demos, nextCalls = g.gepaBootstrap(evaluator, baseCfg, train, bootOptions, 0, bootLimit)
+		bootstrapCalls = nextCalls
+	}
+	if len(demos) > 0 {
+		evaluator = &gepaDemoEvaluator{inner: evaluator, demos: demos}
+	}
+	baseEval := baselineEval
+	if len(demos) > 0 {
+		var nextCalls int
+		baseEval, nextCalls = gepaEvaluate(evaluator, baseCfg, paretoSet, "bootstrapped Pareto evaluation", maxCalls, totalCalls, true)
 		totalCalls = nextCalls
 	}
-	if maxCalls <= len(paretoSet) {
-		panic(AxError{Category: "optimize", Message: fmt.Sprintf("AxGEPA: options.maxMetricCalls=%d is too small to evaluate the initial Pareto set; need at least %d metric calls", maxCalls, len(paretoSet))})
-	}
-	baseEval, nextCalls := gepaEvaluate(evaluator, baseCfg, paretoSet, "initial Pareto evaluation", maxCalls, totalCalls, true)
-	totalCalls = nextCalls
 	bestCfg := cloneMap(baseCfg)
-	bestScore := num(coreGet(baseEval, "avg", 0))
+	bestScore := num(coreGet(mustCore(_gepa_baseline_report(baseEval, options)), "baselineScore", 0))
 	candidatesExplored := 1
 	if numTrials > 0 {
 		if g.ReflectionClient == nil {
@@ -115274,7 +115592,7 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 					if validationOK {
 						totalCalls = int(num(coreGet(validationEval, "_totalCalls", totalCalls)))
 						bestCfg = cloneMap(proposed)
-						bestScore = num(coreGet(validationEval, "avg", coreGet(childEval, "avg", bestScore)))
+						bestScore = num(coreGet(mustCore(_gepa_baseline_report(validationEval, options)), "baselineScore", 0))
 						candidatesExplored = 2
 					}
 				}
@@ -115289,7 +115607,19 @@ func (g *AxGEPA) optimize(request map[string]Value, evaluator OptimizerEvaluator
 		coreSet(owners, id, owner)
 	}
 	metadata := Object("optimizer", "GEPA", "selectorState", selectorState, "bestScore", bestScore, "totalMetricCalls", totalCalls, "candidatesExplored", candidatesExplored, "report", Object("summary", "GEPA Multi-Objective Optimization Complete", "statistics", Object("totalEvaluations", totalCalls, "candidatesExplored", candidatesExplored, "converged", true), "paretoFrontier", Object("solutionCount", 1, "hypervolume", 0)))
-	return Object("artifactVersion", "axir-optimized-artifact-v1", "optimizerName", "GEPA", "optimizerVersion", "axir-gepa-v1", "componentMap", bestCfg, "demos", demos, "metadata", metadata, "evidence", Object("avg", bestScore, "count", len(paretoSet), "totalMetricCalls", totalCalls), "provenance", Object("sourceProgramKind", coreGet(request, "programKind", "unknown"), "componentOwners", owners))
+	coreSet(metadata, "bootstrapMetricCalls", bootstrapCalls)
+	coreSet(metadata, "totalCalls", totalCalls + bootstrapCalls)
+	for key, value := range baselineReport { if key != "__order" { coreSet(metadata, key, value) } }
+	artifact := Object("artifactVersion", "axir-optimized-artifact-v1", "optimizerName", "GEPA", "optimizerVersion", "axir-gepa-v1", "componentMap", bestCfg, "demos", demos, "metadata", metadata, "evidence", Object("avg", bestScore, "count", len(paretoSet), "totalMetricCalls", totalCalls), "provenance", Object("sourceProgramKind", coreGet(request, "programKind", "unknown"), "componentOwners", owners))
+	for key, value := range baselineReport { if key != "__order" { coreSet(artifact, key, value) } }
+	return artifact
+}
+
+type gepaDemoEvaluator struct { inner OptimizerEvaluator; demos Value }
+func (e *gepaDemoEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value, error) {
+	opts := cloneMap(options)
+	coreSet(opts, "demos", e.demos)
+	return e.inner.Evaluate(candidateMap, opts)
 }
 
 func gepaCurrentMap(components []Value) map[string]Value {
@@ -115314,7 +115644,7 @@ func gepaEvaluate(evaluator OptimizerEvaluator, cfg map[string]Value, examples [
 	needed := len(examples)
 	if totalCalls+needed > maxCalls {
 		if throw {
-			panic(AxError{Category: "optimize", Message: fmt.Sprintf("AxGEPA: options.maxMetricCalls=%d is too small to evaluate the initial Pareto set; need at least %d metric calls", maxCalls, needed)})
+			panic(AxError{Category: "optimize", Message: fmt.Sprintf("AxGEPA: options.maxMetricCalls=%d is too small for %s; need at least %d metric calls", maxCalls, phase, totalCalls+needed)})
 		}
 		return nil, totalCalls
 	}
@@ -115343,7 +115673,7 @@ func valuesToArray(values []Value) Value {
 func (g *AxGEPA) gepaBootstrap(evaluator OptimizerEvaluator, cfg map[string]Value, train []Value, options map[string]Value, totalCalls int, maxCalls int) ([]Value, int) {
 	threshold := num(coreGet(options, "scoreThreshold", coreGet(options, "score_threshold", 0.8)))
 	maxDemos := int(num(coreGet(options, "maxBootstrapDemos", coreGet(options, "max_bootstrap_demos", 4))))
-	maxBootCalls := int(num(coreGet(options, "maxBootstrapMetricCalls", coreGet(options, "max_bootstrap_metric_calls", len(train)))))
+	maxBootCalls := int(num(coreGet(options, "maxBootstrapMetricCalls", coreGet(options, "max_bootstrap_metric_calls", min(len(train), 8)))))
 	if maxDemos <= 0 {
 		maxDemos = 1
 	}
@@ -115368,7 +115698,7 @@ func (g *AxGEPA) gepaBootstrap(evaluator OptimizerEvaluator, cfg map[string]Valu
 		}
 		row := asMap(rows[0])
 		if num(coreGet(row, "scalar", 0)) >= threshold {
-			demos = append(demos, Object("programId", "root", "traces", Array(cloneValue(coreGet(row, "prediction", coreGet(row, "input", Object()))))))
+			demos = append(demos, mustCore(_optimization_bootstrap_demo(row)))
 		}
 	}
 	return demos, totalCalls
@@ -122331,6 +122661,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil {
 			assertListSubset(evaluator.Evaluations, expected, "GEPA evaluations")
 		}
+		if expected := coreGet(fixture, "expected_gepa_phases", nil); expected != nil {
+			phases := Array()
+			for _, evaluation := range asSlice(evaluator.Evaluations) { phases = append(phases, coreGet(evaluation, "phase", nil)) }
+			assertEqual(phases, expected, "GEPA evaluation phases")
+		}
 		if expected := coreGet(fixture, "expected_reflection_request_count", nil); expected != nil && len(reflection.Requests) != int(num(expected)) {
 			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d reflection requests, got %d", int(num(expected)), len(reflection.Requests))})
 		}
@@ -122363,7 +122698,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 			assertListSubset(evaluator.EvaluateOptions, expected, "BootstrapFewShot evaluate options")
 		}
 	case "helper":
-		artifact, err := Optimize(program, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "optimize_options", Object())))
+		helperOptions := cloneMap(asMap(coreGet(fixture, "optimize_options", Object())))
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array()))}
+		coreSet(helperOptions, "studentAI", client)
+		coreSet(helperOptions, "teacherAI", client)
+		artifact, err := Optimize(program, coreGet(fixture, "dataset", Array()), helperOptions)
 		if err != nil {
 			panic(err)
 		}

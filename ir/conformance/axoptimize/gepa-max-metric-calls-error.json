@@ -24,7 +24,7 @@
       "score": 1
     }
   ],
-  "expected_error_contains": "AxGEPA: options.maxMetricCalls=1 is too small to evaluate the initial Pareto set",
+  "expected_error_contains": "AxGEPA: options.maxMetricCalls=1 is too small for baseline evaluation; need at least 2 metric calls",
   "gepa_scores": {
     "Base answer instruction": 0.5
   },

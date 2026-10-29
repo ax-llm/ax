@@ -1,0 +1,91 @@
+{
+  "dataset": [
+    {
+      "expectedOutput": {
+        "answer": "ok"
+      },
+      "input": {
+        "question": "training-only-0"
+      }
+    },
+    {
+      "expectedOutput": {
+        "answer": "ok"
+      },
+      "input": {
+        "question": "training-only-1"
+      }
+    }
+  ],
+  "expected_artifact_subset": {
+    "baselineScore": 0,
+    "baselineScores": {
+      "score": 0
+    },
+    "metadata": {
+      "baselineScore": 0,
+      "baselineScores": {
+        "score": 0
+      },
+      "bestScore": 1,
+      "bootstrapMetricCalls": 1,
+      "totalCalls": 5,
+      "totalMetricCalls": 4
+    }
+  },
+  "expected_demo_count": 1,
+  "kind": "optimize",
+  "name": "baseline-helper-improves-after-bootstrap",
+  "operation": "helper",
+  "optimize_options": {
+    "bootstrap": {
+      "maxDemos": 1,
+      "maxExamples": 1,
+      "maxRounds": 1
+    },
+    "maxMetricCalls": 4,
+    "numTrials": 0,
+    "validationExamples": [
+      {
+        "expectedOutput": {
+          "answer": "ok"
+        },
+        "input": {
+          "question": "held-out-0"
+        }
+      },
+      {
+        "expectedOutput": {
+          "answer": "ok"
+        },
+        "input": {
+          "question": "held-out-1"
+        }
+      }
+    ]
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "Answer: incomplete",
+      "finish_reason": "length"
+    },
+    {
+      "content": "Answer: incomplete",
+      "finish_reason": "length"
+    },
+    {
+      "content": "Answer: ok",
+      "finish_reason": "stop"
+    },
+    {
+      "content": "Answer: ok",
+      "finish_reason": "stop"
+    },
+    {
+      "content": "Answer: ok",
+      "finish_reason": "stop"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
