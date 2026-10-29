@@ -25,8 +25,7 @@ const llm = ai({
   name: 'openai',
   apiKey,
   config: {
-    model: AxAIOpenAIModel.GPT56Luna,
-    temperature: 0,
+    model: AxAIOpenAIModel.GPT6Luna,
   },
 });
 

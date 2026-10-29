@@ -47,8 +47,7 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.6-luna" : model},
-      {"model_config", axllm::object({{"temperature", 0}})},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-6-luna" : model},
   }));
   axllm::AxGen program = axllm::ax("emailText:string -> priority:class \"high, normal, low\", rationale:string", axllm::object({{"id", "priority"}, {"instruction", "Classify the email priority."}}));
   axllm::Value baseline = program.forward(*client, axllm::object({{"emailText", "Production checkout is failing for enterprise customers."}}));

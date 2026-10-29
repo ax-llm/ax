@@ -20,8 +20,7 @@ if not api_key:
 client = ai(
     "openai",
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.6-luna"),
-    model_config={"temperature": 0},
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-6-luna"),
 )
 program = ax('emailText:string -> priority:class "high, normal, low", rationale:string', {"id": "priority", "instruction": "Classify the email priority."})
 baseline = program.forward(client, {"emailText": "Production checkout is failing for enterprise customers."})

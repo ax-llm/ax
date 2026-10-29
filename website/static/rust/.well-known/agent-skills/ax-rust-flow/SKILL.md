@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-flow"
 description: "Use when writing Rust code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components."
-version: "25.4.6"
+version: "25.4.7"
 ---
 # AxFlow For Rust
 

@@ -13,8 +13,8 @@ use std::{cell::RefCell, env, rc::Rc};
 
 fn openai_client() -> AxResult<OpenAICompatibleClient> {
     let api_key = env::var("OPENAI_API_KEY").or_else(|_| env::var("OPENAI_APIKEY")).map_err(|_| axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example."))?;
-    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.6-luna".to_string());
-    axllm::ai("openai", json!({"api_key": api_key, "model": model, "model_config": {"temperature": 0}}))
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-6-luna".to_string());
+    axllm::ai("openai", json!({"api_key": api_key, "model": model}))
 }
 fn task(text: &str, priority: &str) -> Value {
     json!({"input": {"emailText": text}, "expectedOutput": {"priority": priority}})

@@ -1,7 +1,7 @@
 ---
 name: ax-llm
 description: Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.
-version: "25.4.6"
+version: "25.4.7"
 ---
 
 # Ax For TypeScript
