@@ -121,7 +121,6 @@ describe('AxMCPStdioTransport', () => {
 
   it('terminates a live child after stdin fails', async () => {
     const transport = createTransport(`
-      require('node:fs').closeSync(0);
       console.log(JSON.stringify({ jsonrpc: '2.0', method: 'ready' }));
       setInterval(() => {}, 1000);
     `);
@@ -129,8 +128,10 @@ describe('AxMCPStdioTransport', () => {
     await once(child.stdout, 'data');
     const failedWrite = once(child.stdin, 'error');
     const rejected = expect(transport.send(request)).rejects.toThrow();
-    await failedWrite;
-    await rejected;
+    // Trigger the stream error directly: closing fd 0 in the child does not
+    // reliably break the parent's pipe on every operating system.
+    child.stdin.destroy(new Error('Test stdin failure'));
+    await Promise.all([failedWrite, rejected]);
     expect(child.exitCode).toBeNull();
     expect(child.signalCode).toBeNull();
     await transport.terminate();
