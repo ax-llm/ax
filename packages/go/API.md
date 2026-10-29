@@ -844,13 +844,13 @@ bootstrap := axllm.NewBootstrapFewShot(map[string]axllm.Value{"qualityThreshold"
 
 ### `axllm.AxGEPA`
 
-Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.
+GEPA engine with Core-owned reflection, Pareto and bootstrap behavior. Artifacts report original-program baselineScore/baselineScores at the top level and in metadata, independently of the final frontier.
 
 - Canonical Ax concept: `AxGEPA`
 - Kind: `type`
 - Form: `axllm.NewGEPA(reflection, options)`
 - Returns: `optimizer engine`
-- Important options: reflection client, budget, metric, candidate count
+- Important options: reflection client, budget, metric, candidate count, baselineScore, baselineScores
 
 ```go
 engine := axllm.NewGEPA(reflectionClient, nil)

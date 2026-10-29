@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-rust-llm/skill.tar.gz",
-      "digest": "sha256:851115034377988fe5c76a2d385f84193cd01d50d3d6ff9a4997253466ce10fb"
+      "digest": "sha256:0fad0e75d0b106460016a94a321ca47cde160f6ec4f11db6f04efd638b1667f3"
     },
     {
       "name": "ax-rust-ai",
@@ -83,35 +83,35 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-rust-agent-optimize/SKILL.md",
-      "digest": "sha256:3b23bfba8dbd6d0cc89260f6adb21648c8bd3a20f8de1094d26cc08e0972ed8c"
+      "digest": "sha256:69b85117fc90102f17ae15f45d52be83f30fe7b603bf48babf9a670bd9cb6338"
     },
     {
       "name": "ax-rust-agent-context",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-rust-agent-context/SKILL.md",
-      "digest": "sha256:9029ac56d64e22da7933903fc0a02dc8ac780c2e4e0fb333664415410b0a2a24"
+      "digest": "sha256:2907a196d562f17ddd6824b8e8df40592922ad3852a74a51bd5876c6027352f5"
     },
     {
       "name": "ax-rust-gepa",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-rust-gepa/SKILL.md",
-      "digest": "sha256:f65af37ee8ee4c4413252835b273bcfcb9d741cd0b07742c27d9c74af16dbb79"
+      "digest": "sha256:9795e3677d72493d431e38d909fd5476e2f96fba7d7dcfd87d9b6b932ce15cbc"
     },
     {
       "name": "ax-rust-refine",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-rust-refine/SKILL.md",
-      "digest": "sha256:09e55d124761085e1d869596b8fd33b164053e1d5f4ff6e1ea82372be69c57f7"
+      "digest": "sha256:778cfab3067ad38dbc5b00f94a287539d97203f11aa880081cdb02e48dbf609f"
     },
     {
       "name": "ax-rust-playbook",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-rust-playbook/SKILL.md",
-      "digest": "sha256:4e0066e10a3d6ca83207f7a1ac662283f061b2ea2cdae6851c12ad87d3884f40"
+      "digest": "sha256:cb1d87eb5855c0b39a1cd14a50c8e5f3df576b12a49a349309a149ebc8084e4b"
     }
   ]
 }

@@ -412,6 +412,7 @@ public final class AxGen implements AxProgram {
 
   public Map<String, Object> evaluateOptimization(AiClient client, Object dataset, Map<String, Object> candidateMap, Map<String, Object> options) {
     Map<String, Object> opts = options == null ? Map.of() : options;
+    if (opts.get("demos") instanceof List<?> demos && !demos.isEmpty()) setDemos(Core.asMapList(demos));
     Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(dataset == null ? List.of() : dataset));
     List<Object> rows = new ArrayList<>();
     Map<String, Object> original = Core.asMap(Core._optimization_component_current_map(getOptimizableComponents()));

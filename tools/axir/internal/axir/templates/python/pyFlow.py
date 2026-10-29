@@ -359,6 +359,8 @@ class AxFlow(AxProgram):
         return self.apply_optimized_components(artifact.get("componentMap") or {})
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        if (options or {}).get("demos"):
+            self.set_demos(options["demos"])
         return _flow_evaluate_optimization(self.state, client, dataset or [], candidate_map or {}, options or {})
 
     def optimize_with(self, engine: OptimizerEngine, dataset, options: dict[str, Any] | None = None):

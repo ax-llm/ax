@@ -1,0 +1,62 @@
+{
+  "expected_last_request_tail": [
+    {
+      "content": "Question: Status?\n",
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "answer": "recovered"
+  },
+  "expected_request_count": 2,
+  "expected_request_roles": [["system", "user"], ["system", "user"]],
+  "forward_options": {
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "refusal-retry-forward-thought",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "refused thinking"
+            }
+          ]
+        },
+        {
+          "error": {
+            "message": "refused partial turn",
+            "type": "refusal"
+          }
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: recovered",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

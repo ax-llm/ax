@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-go-llm/skill.tar.gz",
-      "digest": "sha256:efc29e3b6ac8bc7949235afb8372fcf1f3b94734774107da8c7c55642fce8bd0"
+      "digest": "sha256:03e1d084a0de4902b8f5876b336d3cbc7578e9589917727a4e4fa14d9de6c5f4"
     },
     {
       "name": "ax-go-ai",
@@ -83,7 +83,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-go-agent-optimize/SKILL.md",
-      "digest": "sha256:7aa58352606de0f177eb97cfa73ea63d4073132ae493158c859e025639396364"
+      "digest": "sha256:563058b1a3dd1242d217fec6b114befaaca68bade8248986046e08537cd4bbd0"
     },
     {
       "name": "ax-go-agent-context",
@@ -97,7 +97,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-go-gepa/SKILL.md",
-      "digest": "sha256:3cb7deadafd84119d2ee7fb987e1a18032762ebef59615c6cf47a18dad3c9df4"
+      "digest": "sha256:1b5755a2fc10df5abb03cad212bd4f851d59ccd719ed953a234e3f629a8773a4"
     },
     {
       "name": "ax-go-refine",

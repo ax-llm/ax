@@ -1,0 +1,109 @@
+{
+  "components": [
+    {
+      "current": "",
+      "id": "root::instruction",
+      "kind": "instruction",
+      "owner": "root"
+    }
+  ],
+  "dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "training-only-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      },
+      {
+        "input": {
+          "question": "training-only-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      }
+    ],
+    "validation": [
+      {
+        "input": {
+          "question": "held-out-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": {
+          "brevity": 0.8,
+          "quality": 0.2
+        }
+      },
+      {
+        "input": {
+          "question": "held-out-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": {
+          "brevity": 0.6,
+          "quality": 0.8
+        }
+      }
+    ]
+  },
+  "expected_artifact_subset": {
+    "baselineScore": 0.5,
+    "baselineScores": {
+      "brevity": 0.7,
+      "quality": 0.5
+    },
+    "metadata": {
+      "baselineScore": 0.5,
+      "baselineScores": {
+        "brevity": 0.7,
+        "quality": 0.5
+      },
+      "bestScore": 0.5,
+      "bootstrapMetricCalls": 0,
+      "totalCalls": 2,
+      "totalMetricCalls": 2
+    }
+  },
+  "expected_demo_count": 0,
+  "expected_gepa_phases": ["baseline evaluation"],
+  "kind": "optimize",
+  "name": "baseline-gepa-objectives-held-out",
+  "operation": "gepa",
+  "optimize_options": {
+    "bootstrap": false,
+    "maxMetricCalls": 2,
+    "numTrials": 0,
+    "paretoMetricKey": "quality"
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

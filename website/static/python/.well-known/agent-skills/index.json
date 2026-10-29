@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/skill.tar.gz",
-      "digest": "sha256:ca822e37bc04e221a1bedb02b88ff238ba9cdc647b95224089632c0207c4f8a8"
+      "digest": "sha256:589d090c513a19654678114eb81832e9dabc75c59ebe21e6f5c13d254a7c6587"
     },
     {
       "name": "ax-python-ai",
@@ -83,7 +83,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-python-agent-optimize/SKILL.md",
-      "digest": "sha256:1848f240d6f2eb52f5421a7dbdab3c38e2d46cfebbb0f1cf891a54c2071450f3"
+      "digest": "sha256:3270dc54518edf42aa31863c01601d20bbd2d8998d85bd3183645475e7face24"
     },
     {
       "name": "ax-python-agent-context",
@@ -97,7 +97,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-python-gepa/SKILL.md",
-      "digest": "sha256:ccfed8e5186cf54898451087eedc8fea5bb82824bc7870bba0089f4abae9995a"
+      "digest": "sha256:9c056867b5e3e292d129a257f5103a7fe3ebc5e46840aef9962d220ccc02a42f"
     },
     {
       "name": "ax-python-refine",

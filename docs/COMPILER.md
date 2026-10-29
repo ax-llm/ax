@@ -392,6 +392,15 @@ engine API and still owns reflection, selection, Pareto metadata, bootstrapping,
 selector state, metric budgets, and descendant component optimization while
 reusing the shared optimizer evaluator/artifact boundary.
 
+GEPA artifacts retain `baselineScore` and `baselineScores` at the top level and
+in `metadata`, measured on the original program before bootstrap. Core owns the
+validation cap, objective averaging, scalarization, and helper budget sizing.
+Baseline and seeded validation consume `maxMetricCalls`; bootstrap generation
+has separate limits. Fresh training inputs and outputs form demonstrations,
+excluding retained validation or inactive-child traces. Rust's
+`optimize_with_client(...)` runs live student evaluations; its client-free
+`optimize(...)` requires explicitly pre-scored tasks.
+
 ## Text In Core Messages
 
 `intrinsic.string.format(template, args...)` and `intrinsic.string.str(value)`

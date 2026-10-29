@@ -1130,7 +1130,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Example:          apiReferenceExample(target, canonical),
 		}
 	}
-	return []APIReferenceSection{
+	sections := []APIReferenceSection{
 		{
 			ID:      "signatures",
 			Title:   "Signatures",
@@ -1262,7 +1262,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("playbook", "function", "Bind an ACE-backed playbook to a program; agents also expose an agent-bound playbook handle.", []string{"student/client", "teacher", "seed snapshot", "online updates", "verification budget"}, "AxPlaybook"),
 				sym("AxPlaybook", "type", "Persistent playbook with render/update/snapshot operations and agent-bound verified evolve over train/validation task sets.", []string{"verify", "minHeldInGain", "epsilon", "runsPerTask", "maxMetricCalls", "maxProposals"}, "playbook handle"),
 				sym("AxBootstrapFewShot", "type", "Few-shot demonstration optimizer that selects successful evaluator rollouts before prompt/component evolution.", []string{"quality threshold", "max demos", "max rounds", "batch size"}, "optimizer engine"),
-				sym("AxGEPA", "type", "Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.", []string{"reflection client", "budget", "metric", "candidate count"}, "optimizer engine"),
+				sym("AxGEPA", "type", "GEPA engine with Core-owned reflection, Pareto and bootstrap behavior. Artifacts report original-program baselineScore/baselineScores at the top level and in metadata, independently of the final frontier.", []string{"reflection client", "budget", "metric", "candidate count", "baselineScore", "baselineScores"}, "optimizer engine"),
 				sym("OptimizerEngine", "interface", "Optimizer boundary consumed by AxGen, AxAgent, and AxFlow optimization helpers.", []string{"request", "evaluator"}, "optimized artifact"),
 				sym("OptimizerEvaluator", "interface", "Evaluator callback boundary used by generated optimizers.", []string{"dataset rows", "candidate map", "evidence"}, "score/evidence result"),
 			},
@@ -1279,6 +1279,14 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			},
 		},
 	}
+	if target == "rust" {
+		for i := range sections {
+			if sections[i].ID == "optimizers" {
+				sections[i].Symbols = append(sections[i].Symbols, sym("optimize_with_client", "function", "Run BootstrapFewShot and GEPA against a live student client. Reports the original baseline before bootstrap. The client-free optimize helper requires pre-scored tasks.", []string{"Rc<RefCell<Client>>", "examples", "validationExamples", "bootstrap", "maxMetricCalls"}, "AxResult<OptimizedArtifact>"))
+			}
+		}
+	}
+	return sections
 }
 
 func apiRuntimeProfileSymbols(target string) []APIReferenceSymbol {
@@ -1513,11 +1521,13 @@ func apiReferenceForm(target, canonical, publicName string) string {
 	case "RuntimeEnvelope":
 		return mapTarget(target, "RuntimeEnvelope.from_result(...)", "AxRuntimeEnvelope", "axllm::RuntimeEnvelope", "runtime envelope map", "RuntimeEnvelope")
 	case "AxGEPA":
-		return mapTarget(target, "AxGEPA(reflection, **options)", "new AxGEPA(reflection, options)", "axllm::AxGEPA(reflection, options)", "axllm.NewGEPA(reflection, options)", "AxGEPA::new(reflection, options)")
+		return mapTarget(target, "AxGEPA(reflection, **options)", "new AxGEPA(reflection, options)", "axllm::AxGEPA(reflection, options)", "axllm.NewGEPA(reflection, options)", "AxGEPA::new().with_reflection_client(reflection)")
 	case "AxBootstrapFewShot":
 		return mapTarget(target, "AxBootstrapFewShot(**options)", "new AxBootstrapFewShot(options)", "axllm::AxBootstrapFewShot(options)", "axllm.NewBootstrapFewShot(options)", "AxBootstrapFewShot::new(options)")
 	case "optimize":
 		return mapTarget(target, "optimize(program, examples, options=None)", "Ax.optimize(program, examples, options)", "axllm::optimize(program, student, examples, options, teacher)", "axllm.Optimize(program, examples, options)", "optimize(program, examples, options)")
+	case "optimize_with_client":
+		return "optimize_with_client(&mut program, Rc<RefCell<Client>>, examples, options)"
 	case "playbook":
 		return mapTarget(target, "playbook(program, options=None)", "Ax.playbook(program, options)", "axllm::playbook(program, student, options)", "axllm.Playbook(program, options)", "playbook(program, student, teacher, options)")
 	case "AxPlaybook":
@@ -1730,6 +1740,8 @@ func apiReferenceExample(target, canonical string) string {
 			`artifact, err := axllm.Optimize(qa, train, map[string]axllm.Value{"studentAI": client})`,
 			`let artifact = optimize(&mut qa, train, json!({"maxMetricCalls": 100}))?;`,
 		)
+	case "optimize_with_client":
+		return `let artifact = optimize_with_client(&mut qa, student.clone(), train, json!({"maxMetricCalls": 100}))?;`
 	case "playbook":
 		return mapTarget(target,
 			`pb = playbook(program, {"studentAI": client})`,

@@ -1,0 +1,74 @@
+{
+  "components": [
+    {
+      "current": "",
+      "id": "root::instruction",
+      "kind": "instruction",
+      "owner": "root"
+    }
+  ],
+  "dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "training-only-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      },
+      {
+        "input": {
+          "question": "training-only-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      }
+    ],
+    "validation": [
+      {
+        "input": {
+          "question": "held-out-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.1
+      },
+      {
+        "input": {
+          "question": "held-out-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.2
+      },
+      {
+        "input": {
+          "question": "held-out-2"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.3
+      }
+    ]
+  },
+  "expected_error_contains": "AxGEPA: options.maxMetricCalls=5 is too small for bootstrapped Pareto evaluation; need at least 6 metric calls",
+  "kind": "optimize",
+  "name": "baseline-gepa-bootstrap-insufficient-budget",
+  "operation": "gepa",
+  "optimize_options": {
+    "bootstrap": {
+      "maxBootstrapDemos": 1,
+      "maxBootstrapMetricCalls": 1
+    },
+    "maxMetricCalls": 5,
+    "numTrials": 0
+  },
+  "program": "axgen"
+}

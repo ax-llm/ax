@@ -375,7 +375,8 @@ module @ax.optimize version "0.1" {
     attr private = true
     type signature = "(scores:json, options:json) -> f64"
     body @entry(%scores: json, %options: json) {
-      %metric_key = core.get %options["paretoMetricKey"] default ""
+      %metric_key_snake = core.get %options["pareto_metric_key"] default ""
+      %metric_key = core.get %options["paretoMetricKey"] default %metric_key_snake
       %has_metric = core.call intrinsic.ne(%metric_key, "")
       core.if %has_metric {
         %picked = core.get %scores[%metric_key] default 0
@@ -396,6 +397,125 @@ module @ax.optimize version "0.1" {
       }
       %avg = core.call intrinsic.div(%sum, %count)
       core.return %avg
+    }
+  }
+
+  // The original-program report is independent of Pareto frontier membership.
+  // Average objective vectors before applying the same selection scalarization.
+  op ax.optimize.semantic @gepa_baseline_report {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    type signature = "(evaluation:json, options:json) -> json"
+    body @entry(%evaluation: json, %options: json) {
+      %empty = core.list
+      %rows = core.get %evaluation["rows"] default %empty
+      %sums = core.map
+      %counts = core.map
+      core.for %row in %rows {
+        %raw = core.get %row["scores"] default 0
+        %scores = core.call @normalize_optimization_metric_scores(%raw)
+        %keys = core.call intrinsic.map.keys(%scores)
+        core.for %key in %keys {
+          %value = core.get %scores[%key]
+          %number = core.type_is %value type "number"
+          core.if %number {
+            %sum = core.get %sums[%key] default 0
+            %count = core.get %counts[%key] default 0
+            %sum_next = core.call intrinsic.add(%sum, %value)
+            %count_next = core.call intrinsic.add(%count, 1)
+            core.set %sums[%key] = %sum_next
+            core.set %counts[%key] = %count_next
+          }
+        }
+      }
+      %averages = core.map
+      %objective_keys = core.call intrinsic.map.keys(%sums)
+      core.for %objective in %objective_keys {
+        %total = core.get %sums[%objective]
+        %n = core.get %counts[%objective]
+        %average = core.call intrinsic.div(%total, %n)
+        core.set %averages[%objective] = %average
+      }
+      %scalar = core.call @scalarize_optimization_scores(%averages, %options)
+      %out = core.map
+      core.set %out["baselineScores"] = %averages
+      core.set %out["baselineScore"] = %scalar
+      core.return %out
+    }
+  }
+
+  // A demonstration comes only from this training row, never from a program's
+  // retained trace tree, which may still contain held-out or inactive children.
+  op ax.optimize.semantic @optimization_bootstrap_demo {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    type signature = "(row:json) -> json"
+    body @entry(%row: json) {
+      %empty = core.map
+      %task = core.get %row["input"] default %empty
+      %input = core.get %task["input"] default %task
+      %prediction = core.get %row["prediction"] default %empty
+      %output_fallback = core.get %prediction["output"] default %prediction
+      %output = core.get %prediction["finalOutput"] default %output_fallback
+      %trace = core.call intrinsic.map.merge(%input, %output)
+      %traces = core.list
+      core.append %traces, %trace
+      %demo = core.map
+      core.set %demo["programId"] = "root"
+      core.set %demo["traces"] = %traces
+      core.return %demo
+    }
+  }
+
+  op ax.optimize.semantic @gepa_pareto_set_size {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    type signature = "(options:json) -> i64"
+    body @entry(%options: json) {
+      %snake = core.get %options["pareto_set_size"] default 0
+      %size = core.get %options["paretoSetSize"] default %snake
+      %explicit = core.call intrinsic.gt(%size, 0)
+      core.if %explicit {
+        %rounded = core.call intrinsic.math.floor(%size)
+        %small = core.call intrinsic.lt(%rounded, 5)
+        core.if %small { core.return 5 }
+        %large = core.call intrinsic.gt(%rounded, 1000)
+        core.if %large { core.return 1000 }
+        core.return %rounded
+      }
+      %mini_snake = core.get %options["minibatch_size"] default 20
+      %mini = core.get %options["minibatchSize"] default %mini_snake
+      %default_size = core.call intrinsic.mul(%mini, 3)
+      %too_small = core.call intrinsic.lt(%default_size, 10)
+      core.if %too_small { core.return 10 }
+      %too_large = core.call intrinsic.gt(%default_size, 200)
+      core.if %too_large { core.return 200 }
+      core.return %default_size
+    }
+  }
+
+  op ax.optimize.semantic @gepa_helper_metric_budget {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    type signature = "(options:json, validation_count:i64, bootstrap:bool) -> i64"
+    body @entry(%options: json, %validation_count: i64, %bootstrap: bool) {
+      %none = core.call intrinsic.none()
+      %snake = core.get %options["max_metric_calls"] default %none
+      %explicit = core.get %options["maxMetricCalls"] default %snake
+      %supplied = core.call intrinsic.is_not_none(%explicit)
+      core.if %supplied { core.return %explicit }
+      %cap = core.call @gepa_pareto_set_size(%options)
+      %count = core.let %validation_count
+      %capped = core.call intrinsic.gt(%count, %cap)
+      core.if %capped { %count = core.let %cap }
+      core.if %bootstrap { %count = core.call intrinsic.mul(%count, 2) }
+      %minimum = core.call intrinsic.lt(%count, 100)
+      core.if %minimum { core.return 100 }
+      core.return %count
     }
   }
 
@@ -704,6 +824,13 @@ module @ax.optimize version "0.1" {
         %opts = core.let %empty_map
       }
       %normalized = core.call @normalize_optimization_dataset(%dataset)
+      %validation_none = core.call intrinsic.none()
+      %validation_snake = core.get %opts["validation_examples"] default %validation_none
+      %validation_examples = core.get %opts["validationExamples"] default %validation_snake
+      %has_validation_examples = core.call intrinsic.is_not_none(%validation_examples)
+      core.if %has_validation_examples {
+        core.set %normalized["validation"] = %validation_examples
+      }
       %target = core.get %opts["target"] default "all"
       %selected = core.call @filter_optimization_components(%components, %target)
       %request_options = core.call intrinsic.map.merge(%empty_map, %opts)

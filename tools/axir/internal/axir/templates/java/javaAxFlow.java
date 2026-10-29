@@ -231,6 +231,7 @@ public final class AxFlow implements AxProgram {
   }
 
   public Map<String, Object> evaluateOptimization(AiClient client, Object dataset, Map<String, Object> candidateMap, Map<String, Object> options) {
+    if (options != null && options.get("demos") instanceof List<?> demos && !demos.isEmpty()) setDemos(demos);
     return Core.asMap(Core._flow_evaluate_optimization(state, client, dataset == null ? List.of() : dataset, candidateMap == null ? Map.of() : candidateMap, options == null ? Map.of() : options));
   }
 

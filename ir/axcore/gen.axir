@@ -2464,6 +2464,10 @@ module @ax.gen version "0.1" {
                   %stream_provider_failure = core.call @generate_failed_impl(%attempt_error)
                   core.raise %stream_provider_failure
                 }
+                // Refused content and thinking stay provisional: unlike a
+                // validation retry, this branch must never append %events to
+                // messages or memory. Preserve completed tool turns and retry
+                // from the same user/function message, even without cleanup.
                 %refusal_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
                 core.if %refusal_exhausted {
                   %stream_refusal_failure = core.call @unable_to_fix_impl(%attempt_error, "")

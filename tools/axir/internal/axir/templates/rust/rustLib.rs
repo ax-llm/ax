@@ -5778,6 +5778,7 @@ impl AxGen {
         options: &Value,
     ) -> AxResult<Value> {
         let opts = if options.is_object() { options.clone() } else { json!({}) };
+        if let Some(demos) = opts.get("demos").and_then(Value::as_array).filter(|items| !items.is_empty()) { self.set_demos(demos.clone()); }
         let normalized = core_value_to_json(&_normalize_optimization_dataset(&[
             core_value_from_json(dataset),
         ])?);
@@ -6101,12 +6102,18 @@ impl AxExecutableProgram for AxFlow {
 
 pub trait AxProgram {
     fn program_kind(&self) -> &'static str;
+    fn optimization_components(&self) -> AxResult<Value> { Err(AxError::runtime("program must expose optimization components")) }
+    fn optimization_apply(&mut self, _artifact: &Value) -> AxResult<()> { Err(AxError::runtime("program must support applying optimizer artifacts")) }
+    fn optimization_evaluate<C: AxAIClient>(&mut self, _client: &mut C, _dataset: &Value, _candidate: &Value, _options: &Value) -> AxResult<Value> where Self: Sized { Err(AxError::runtime("program must provide an optimization evaluator")) }
 }
 
 impl AxProgram for AxGen {
     fn program_kind(&self) -> &'static str {
         "AxGen"
     }
+    fn optimization_components(&self) -> AxResult<Value> { Ok(json!(self.get_optimizable_components())) }
+    fn optimization_apply(&mut self, artifact: &Value) -> AxResult<()> { self.apply_optimization(artifact)?; Ok(()) }
+    fn optimization_evaluate<C: AxAIClient>(&mut self, client: &mut C, dataset: &Value, candidate: &Value, options: &Value) -> AxResult<Value> { self.evaluate_optimization(client, dataset, candidate, options) }
 }
 
 pub struct AxAgent {
@@ -7572,6 +7579,9 @@ impl AxProgram for AxAgent {
     fn program_kind(&self) -> &'static str {
         "AxAgent"
     }
+    fn optimization_components(&self) -> AxResult<Value> { Ok(json!(self.get_optimizable_components()?)) }
+    fn optimization_apply(&mut self, artifact: &Value) -> AxResult<()> { self.apply_optimization(artifact)?; Ok(()) }
+    fn optimization_evaluate<C: AxAIClient>(&mut self, client: &mut C, dataset: &Value, candidate: &Value, options: &Value) -> AxResult<Value> { self.evaluate_optimization(client, dataset, candidate, options) }
 }
 
 pub struct AxFlow {
@@ -7908,6 +7918,9 @@ impl AxFlow {
         candidate_map: &Value,
         options: &Value,
     ) -> AxResult<Value> {
+        if let Some(demos) = options.get("demos").filter(|demos| demos.as_array().is_some_and(|items| !items.is_empty())) {
+            self.set_demos(demos)?;
+        }
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
@@ -7959,6 +7972,13 @@ impl AxProgram for AxFlow {
     fn program_kind(&self) -> &'static str {
         "AxFlow"
     }
+    fn optimization_components(&self) -> AxResult<Value> { self.get_optimizable_components() }
+    fn optimization_apply(&mut self, artifact: &Value) -> AxResult<()> {
+        if let Some(demos) = artifact.get("demos") { self.set_demos(demos)?; }
+        self.apply_optimized_components(&artifact.get("componentMap").cloned().unwrap_or_else(|| json!({})))?;
+        Ok(())
+    }
+    fn optimization_evaluate<C: AxAIClient>(&mut self, client: &mut C, dataset: &Value, candidate: &Value, options: &Value) -> AxResult<Value> { self.evaluate_optimization(client, dataset, candidate, options) }
 }
 
 pub trait OptimizerEngine {
@@ -8050,6 +8070,7 @@ impl OptimizerEngine for AxBootstrapFewShot {
         let sampled = examples.into_iter().take(max_examples).collect::<Vec<_>>();
         let mut demos = Vec::new();
         let mut accepted = BTreeSet::new();
+        let mut total_calls = 0usize;
         for round in 0..max_rounds {
             if demos.len() >= max_demos {
                 break;
@@ -8073,14 +8094,18 @@ impl OptimizerEngine for AxBootstrapFewShot {
                         step["options"] = json!({"forward_options": forward_options.clone()});
                     }
                     let score = evaluator(step)?;
+                    total_calls += score.get("count").and_then(Value::as_u64).unwrap_or(1) as usize;
+                    let row = score.get("rows").and_then(Value::as_array).and_then(|rows| rows.first()).cloned();
                     let scalar = score
                         .get("scalar")
                         .and_then(Value::as_f64)
+                        .or_else(|| row.as_ref().and_then(|value| value.get("scalar")).and_then(Value::as_f64))
                         .or_else(|| score.as_f64())
                         .unwrap_or(1.0);
                     if scalar >= threshold {
                         accepted.insert(example_key);
-                        demos.push(json!({"programId": "root", "traces": [example.clone()]}));
+                        let row = row.unwrap_or_else(|| json!({"input": example, "prediction": example.get("output").unwrap_or(example)}));
+                        demos.push(core_value_to_json(&_optimization_bootstrap_demo(&[core_value_from_json(&row)])?));
                     }
                 }
             }
@@ -8091,7 +8116,7 @@ impl OptimizerEngine for AxBootstrapFewShot {
             "optimizerVersion": "axir-bootstrap-fewshot-v1",
             "componentMap": {},
             "demos": demos,
-            "metadata": {"optimizer": "BootstrapFewShot", "qualityThreshold": threshold}
+            "metadata": {"optimizer": "BootstrapFewShot", "qualityThreshold": threshold, "totalMetricCalls": total_calls, "demosGenerated": demos.len()}
         }))
     }
 }
@@ -8104,6 +8129,7 @@ pub struct AxGEPA {
     pub max_rounds: usize,
     reflection_client: Option<Rc<RefCell<dyn AxAIClient>>>,
     logger: Option<AxGEPALogger>,
+    baseline_evaluation: Value,
 }
 
 #[derive(Clone)]
@@ -8114,7 +8140,7 @@ struct AxGEPACandidate {
 
 impl AxGEPA {
     pub fn new() -> Self {
-        Self { max_rounds: 30, reflection_client: None, logger: None }
+        Self { max_rounds: 30, reflection_client: None, logger: None, baseline_evaluation: Value::Null }
     }
 
     /// Propose new component values with this teacher (reflection) client. Its
@@ -8270,17 +8296,13 @@ impl OptimizerEngine for AxGEPA {
         let num_trials = ax_gepa_option_usize(&options, &["numTrials", "num_trials"], 30);
         let minibatch_size = ax_gepa_option_usize(&options, &["minibatchSize", "minibatch_size"], 20).max(1);
         let min_improvement = ax_gepa_option_f64(&options, &["minImprovementThreshold", "min_improvement_threshold"], 0.0);
-        let pareto_set_size = ax_gepa_option_usize(
-            &options,
-            &["paretoSetSize", "pareto_set_size"],
-            std::cmp::max(10, std::cmp::min(200, minibatch_size * 3)),
-        )
-        .clamp(1, 1000);
+        let pareto_set_size = core_value_to_json(&_gepa_pareto_set_size(&[core_value_from_json(&options)])?).as_f64().unwrap_or(60.0) as usize;
         let tie_eps = ax_gepa_option_f64(&options, &["tieEpsilon", "tie_epsilon"], 0.0);
-        let score_options = request
-            .get("score_options")
-            .or_else(|| request.get("scoreOptions"))
-            .unwrap_or(&options);
+        let mut score_options = options.as_object().cloned().unwrap_or_default();
+        if let Some(extra) = request.get("score_options").or_else(|| request.get("scoreOptions")).and_then(Value::as_object) {
+            score_options.extend(extra.clone());
+        }
+        let score_options = &Value::Object(score_options);
         let mut total_calls = 0usize;
         let base_cfg = ax_gepa_current_map(&components);
         let pareto_set = validation
@@ -8289,7 +8311,18 @@ impl OptimizerEngine for AxGEPA {
             .cloned()
             .collect::<Vec<_>>();
 
-        let mut demos = Vec::new();
+        let baseline_eval = if let Some(cached) = options.get("_baselineEvaluation") {
+            total_calls = cached.get("count").and_then(Value::as_u64).unwrap_or(pareto_set.len() as u64) as usize;
+            cached.clone()
+        } else {
+            let (evaluation, calls) = ax_gepa_evaluate(evaluator, &base_cfg, &pareto_set, "baseline evaluation", max_calls, 0, true)?;
+            total_calls = calls;
+            evaluation
+        };
+        self.baseline_evaluation = baseline_eval.clone();
+        let baseline_report = core_value_to_json(&_gepa_baseline_report(&[core_value_from_json(&baseline_eval), core_value_from_json(score_options)])?);
+        let mut bootstrap_calls = options.get("_bootstrapMetricCalls").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let mut demos = options.get("_bootstrapDemos").and_then(Value::as_array).cloned().unwrap_or_default();
         if let Some(bootstrap) = options.get("bootstrap") {
             if bootstrap.as_bool().unwrap_or(true) {
                 let bootstrap_opts = if bootstrap.is_object() { bootstrap } else { &options };
@@ -8300,7 +8333,6 @@ impl OptimizerEngine for AxGEPA {
                     &["maxBootstrapMetricCalls", "max_bootstrap_metric_calls"],
                     std::cmp::max(1, std::cmp::min(train.len(), 8)),
                 );
-                let mut bootstrap_calls = 0usize;
                 for example in &train {
                     if demos.len() >= max_demos || bootstrap_calls >= max_bootstrap_calls {
                         break;
@@ -8310,12 +8342,11 @@ impl OptimizerEngine for AxGEPA {
                         &base_cfg,
                         std::slice::from_ref(example),
                         "bootstrap",
-                        max_calls,
-                        total_calls,
+                        max_bootstrap_calls,
+                        bootstrap_calls,
                         false,
                     )?;
-                    total_calls = next_calls;
-                    bootstrap_calls += 1;
+                    bootstrap_calls = next_calls;
                     let row = result
                         .get("rows")
                         .and_then(Value::as_array)
@@ -8323,27 +8354,26 @@ impl OptimizerEngine for AxGEPA {
                         .cloned()
                         .unwrap_or_else(|| json!({}));
                     if row.get("scalar").and_then(Value::as_f64).unwrap_or(0.0) >= threshold {
-                        let trace = row
-                            .get("prediction")
-                            .cloned()
-                            .or_else(|| row.get("input").cloned())
-                            .unwrap_or_else(|| json!({}));
-                        demos.push(json!({"programId": "root", "traces": [trace]}));
+                        demos.push(core_value_to_json(&_optimization_bootstrap_demo(&[core_value_from_json(&row)])?));
                     }
                 }
             }
         }
 
-        let (base_eval, next_calls) = ax_gepa_evaluate(
-            evaluator,
-            &base_cfg,
-            &pareto_set,
-            "initial Pareto evaluation",
-            max_calls,
-            total_calls,
-            true,
-        )?;
-        total_calls = next_calls;
+        let mut with_demos = |mut step: Value| -> AxResult<Value> {
+            if !demos.is_empty() {
+                step["options"]["demos"] = json!(demos);
+            }
+            evaluator(step)
+        };
+        let evaluator: &mut dyn FnMut(Value) -> AxResult<Value> = &mut with_demos;
+        let base_eval = if demos.is_empty() {
+            baseline_eval
+        } else {
+            let (evaluation, calls) = ax_gepa_evaluate(evaluator, &base_cfg, &pareto_set, "bootstrapped Pareto evaluation", max_calls, total_calls, true)?;
+            total_calls = calls;
+            evaluation
+        };
         let mut candidates = vec![AxGEPACandidate {
             cfg: base_cfg.clone(),
             scores: ax_gepa_eval_scores(&base_eval),
@@ -8430,13 +8460,19 @@ impl OptimizerEngine for AxGEPA {
             "artifactVersion": "axir-optimized-artifact-v1",
             "optimizerName": "GEPA",
             "optimizerVersion": "axir-gepa-v1",
+            "baselineScore": baseline_report["baselineScore"],
+            "baselineScores": baseline_report["baselineScores"],
             "componentMap": Value::Object(candidates[best_idx].cfg.clone()),
             "demos": demos,
             "metadata": {
                 "optimizer": "GEPA",
                 "selectorState": options.get("selectorState").or_else(|| options.get("selector_state")).cloned().unwrap_or_else(|| json!({})),
                 "bestScore": json_number(best_score),
+                "baselineScore": baseline_report["baselineScore"],
+                "baselineScores": baseline_report["baselineScores"],
                 "totalMetricCalls": total_calls,
+                "bootstrapMetricCalls": bootstrap_calls,
+                "totalCalls": total_calls + bootstrap_calls,
                 "candidatesExplored": candidates.len(),
                 "report": {
                     "summary": "GEPA Multi-Objective Optimization Complete",
@@ -8513,13 +8549,13 @@ fn ax_gepa_evaluate(
     if total_calls + needed > max_calls {
         if required {
             return Err(AxError::runtime(format!(
-                "AxGEPA: options.maxMetricCalls={max_calls} is too small to evaluate the initial Pareto set; need at least {needed} metric calls"
+                "AxGEPA: options.maxMetricCalls={max_calls} is too small for {phase}; need at least {} metric calls", total_calls + needed
             )));
         }
         return Ok((json!({"rows": [], "avg": 0.0, "sum": 0.0, "count": 0}), total_calls));
     }
     let dataset = json!({"train": examples, "validation": []});
-    let result = evaluator(json!({
+    let mut result = evaluator(json!({
         "candidateMap": Value::Object(cfg.clone()),
         "componentMap": Value::Object(cfg.clone()),
         "candidate": Value::Object(cfg.clone()),
@@ -8530,6 +8566,8 @@ fn ax_gepa_evaluate(
             "captureTraces": true,
         },
     }))?;
+    let score_report = core_value_to_json(&_gepa_baseline_report(&[core_value_from_json(&result), core_value_from_json(&json!({}))])?);
+    result["avgScores"] = score_report["baselineScores"].clone();
     let count = result
         .get("count")
         .and_then(Value::as_u64)
@@ -10210,68 +10248,83 @@ pub fn optimize<P: AxProgram>(
     examples: Value,
     options: Value,
 ) -> AxResult<OptimizedArtifact> {
-    let max_metric_calls = options
-        .get("maxMetricCalls")
-        .or_else(|| options.get("max_metric_calls"))
-        .and_then(Value::as_u64)
-        .unwrap_or(100);
-    let train = if examples.is_array() {
-        examples.as_array().cloned().unwrap_or_default()
-    } else {
-        examples
-            .get("train")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-    };
-    let bootstrap_enabled = options
-        .get("bootstrap")
-        .and_then(Value::as_bool)
-        .unwrap_or(train.len() <= 8);
-    let bootstrap_options = options
-        .get("bootstrap")
-        .and_then(Value::as_object);
-    let quality_threshold = bootstrap_options
-        .and_then(|opts| opts.get("qualityThreshold").or_else(|| opts.get("quality_threshold")))
-        .or_else(|| options.get("qualityThreshold").or_else(|| options.get("quality_threshold")))
-        .and_then(Value::as_f64)
-        .unwrap_or(0.5);
-    let max_demos = bootstrap_options
-        .and_then(|opts| opts.get("maxDemos").or_else(|| opts.get("max_demos")))
-        .or_else(|| options.get("maxDemos").or_else(|| options.get("max_demos")))
-        .and_then(Value::as_u64)
-        .unwrap_or(4) as usize;
-    let demos = if bootstrap_enabled {
-        train
-            .iter()
-            .filter(|example| {
-                example
-                    .get("score")
-                    .or_else(|| example.get("metric_score"))
-                    .and_then(Value::as_f64)
-                    .unwrap_or(1.0)
-                    >= quality_threshold
-            })
-            .take(max_demos)
-            .cloned()
-            .map(|example| json!({"programId": "root", "traces": [example]}))
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    Ok(json!({
-        "artifactVersion": "axir-optimized-artifact-v1",
-        "optimizerName": "optimize",
-        "optimizerVersion": "axir-optimize-helper-v1",
-        "componentMap": {},
-        "demos": demos,
-        "metadata": {
-            "optimizer": "BootstrapFewShot->GEPA",
-            "programKind": program.program_kind(),
-            "maxMetricCalls": max_metric_calls,
-            "bootstrap": bootstrap_enabled
+    optimize_program::<P, OpenAICompatibleClient>(program, examples, options, None)
+}
+
+/// Optimize against a live student client, reporting its original score before
+/// generating demonstrations or proposing component changes.
+pub fn optimize_with_client<P: AxProgram, C: AxAIClient + 'static>(
+    program: &mut P, client: Rc<RefCell<C>>, examples: Value, options: Value,
+) -> AxResult<OptimizedArtifact> {
+    optimize_program(program, examples, options, Some(client))
+}
+
+fn optimize_program<P: AxProgram, C: AxAIClient + 'static>(
+    program: &mut P, examples: Value, options: Value, client: Option<Rc<RefCell<C>>>,
+) -> AxResult<OptimizedArtifact> {
+    let dataset = core_value_to_json(&_normalize_optimization_dataset(&[core_value_from_json(&examples)])?);
+    let train_count = dataset.get("train").and_then(Value::as_array).map_or(0, Vec::len);
+    let validation_count = options.get("validationExamples").or_else(|| options.get("validation_examples")).or_else(|| dataset.get("validation")).and_then(Value::as_array).filter(|items| !items.is_empty()).map_or(train_count, Vec::len);
+    let bootstrap_setting = options.get("bootstrap").cloned().unwrap_or(json!(train_count <= 8));
+    let bootstrap_enabled = bootstrap_setting != json!(false);
+    let mut gepa_options = if options.is_object() { options.clone() } else { json!({}) };
+    gepa_options["bootstrap"] = json!(false);
+    gepa_options["apply"] = json!(false);
+    let budget = core_value_to_json(&_gepa_helper_metric_budget(&[core_value_from_json(&options), CoreValue::Num(validation_count as f64), CoreValue::Bool(bootstrap_enabled)])?);
+    gepa_options["maxMetricCalls"] = json!(budget.as_f64().unwrap_or(100.0) as u64);
+    let mut demos = json!([]);
+    let mut bootstrap_calls = 0;
+    if bootstrap_enabled {
+        let mut baseline_options = gepa_options.clone();
+        baseline_options["numTrials"] = json!(0);
+        let mut baseline = AxGEPA::new();
+        optimize_program_run(program, &mut baseline, &examples, &baseline_options, client.clone())?;
+        gepa_options["_baselineEvaluation"] = baseline.baseline_evaluation;
+        let mut bootstrap_options = options.as_object().cloned().unwrap_or_default();
+        if let Some(extra) = bootstrap_setting.as_object() { bootstrap_options.extend(extra.clone()); }
+        let mut bootstrap = AxBootstrapFewShot::new(Value::Object(bootstrap_options.clone()));
+        let artifact = optimize_program_run(program, &mut bootstrap, &examples, &Value::Object(bootstrap_options), client.clone())?;
+        demos = artifact.get("demos").cloned().unwrap_or(json!([]));
+        if demos.as_array().is_none_or(Vec::is_empty) { return Err(AxError::runtime("No demonstrations found. Either provide more examples or improve the existing ones.")); }
+        bootstrap_calls = artifact["metadata"]["totalMetricCalls"].as_u64().unwrap_or(0);
+        if demos.as_array().is_some_and(|items| !items.is_empty()) { program.optimization_apply(&artifact)?; }
+    }
+    gepa_options["_bootstrapDemos"] = demos;
+    gepa_options["_bootstrapMetricCalls"] = json!(bootstrap_calls);
+    let mut engine = AxGEPA::new();
+    if let Some(reflection) = client.clone() { engine = engine.with_reflection_client(reflection); }
+    optimize_program_run(program, &mut engine, &examples, &gepa_options, client)
+}
+
+fn optimize_program_run<P: AxProgram, C: AxAIClient>(
+    program: &mut P, engine: &mut dyn OptimizerEngine, dataset: &Value, options: &Value, client: Option<Rc<RefCell<C>>>,
+) -> AxResult<Value> {
+    let components = program.optimization_components()?;
+    let prepared = core_value_to_json(&_prepare_optimizer_run(&[CoreValue::from(program.program_kind()), core_value_from_json(&components), core_value_from_json(dataset), core_value_from_json(options), CoreValue::new_map(), CoreValue::Bool(true)])?);
+    let request = prepared.get("request").cloned().unwrap_or(json!({}));
+    let current = core_value_to_json(&_optimization_component_current_map(&[core_value_from_json(&components)])?);
+    let mut evaluator = |step: Value| -> AxResult<Value> {
+        let mut opts = options.as_object().cloned().unwrap_or_default();
+        if let Some(extra) = step.get("options").and_then(Value::as_object) { opts.extend(extra.clone()); }
+        let bootstrap_task = step.get("phase") == Some(&json!("bootstrap")) && step.get("candidateMap").is_none();
+        let selected_dataset = if bootstrap_task { json!({"train": [step["candidate"]], "validation": []}) } else { opts.get("dataset").or_else(|| step.get("dataset")).cloned().unwrap_or_else(|| dataset.clone()) };
+        let candidate = step.get("candidateMap").or_else(|| step.get("componentMap")).cloned().unwrap_or_else(|| current.clone());
+        let phase = step.get("phase").cloned().or_else(|| opts.get("phase").cloned()).unwrap_or(json!("train"));
+        opts.insert("phase".into(), phase.clone());
+        if let Some(client) = &client { return program.optimization_evaluate(&mut *client.borrow_mut(), &selected_dataset, &candidate, &Value::Object(opts)); }
+        let normalized = core_value_to_json(&_normalize_optimization_dataset(&[core_value_from_json(&selected_dataset)])?);
+        let mut rows = Vec::new();
+        for task in normalized["train"].as_array().into_iter().flatten() {
+            let raw = task.get("metric_score").or_else(|| task.get("scores")).or_else(|| task.get("score")).ok_or_else(|| AxError::runtime("optimize() requires pre-scored examples; use optimize_with_client() for live evaluation"))?;
+            let scores = core_value_to_json(&_normalize_optimization_metric_scores(&[core_value_from_json(raw)])?);
+            let scalar = core_value_to_json(&_scalarize_optimization_scores(&[core_value_from_json(&scores), core_value_from_json(&Value::Object(opts.clone()))])?);
+            let prediction = json!({"output": task.get("output").cloned().unwrap_or_else(|| candidate.clone())});
+            rows.push(core_value_to_json(&_build_optimization_eval_row(&[core_value_from_json(task), core_value_from_json(&prediction), core_value_from_json(&scores), core_value_from_json(&scalar), CoreValue::Null, CoreValue::Null])?));
         }
-    }))
+        Ok(core_value_to_json(&_build_optimization_eval_result(&[core_value_from_json(&json!(rows)), core_value_from_json(&candidate), core_value_from_json(&phase)])?))
+    };
+    let artifact = engine.optimize(request, &mut evaluator)?;
+    Ok(core_value_to_json(&_normalize_optimizer_engine_response(&[core_value_from_json(&artifact), CoreValue::from(artifact["optimizerName"].as_str().unwrap_or("optimizer")), CoreValue::from(artifact["optimizerVersion"].as_str().unwrap_or("host")), core_value_from_json(&components)])?))
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -16448,6 +16501,9 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
         }
         "gepa" => {
             let result = conformance_gepa_result(fixture)?;
+            if let Some(expected) = fixture.get("expected_gepa_phases") {
+                expect_json_equal("GEPA evaluation phases", &json!(result.evaluations.iter().map(|item| item.get("phase").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>()), expected)?;
+            }
             if let Some(expected) = fixture.get("expected_artifact_subset") {
                 expect_json_subset("GEPA artifact", &result.artifact, expected)?;
             }
@@ -16509,8 +16565,11 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
         }
         "helper" => {
             let mut program = AxGen::new("question:string -> answer:string")?;
-            let artifact = optimize(
+            let responses = fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();
+            let client = Rc::new(RefCell::new(FixtureClient::scripted(responses, router_default_features())));
+            let artifact = optimize_with_client(
                 &mut program,
+                client,
                 fixture
                     .get("dataset")
                     .cloned()

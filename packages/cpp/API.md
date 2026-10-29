@@ -854,13 +854,13 @@ axllm::AxBootstrapFewShot bootstrap(axllm::object({{"qualityThreshold", 0.7}}));
 
 ### `axllm::AxGEPA`
 
-Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.
+GEPA engine with Core-owned reflection, Pareto and bootstrap behavior. Artifacts report original-program baselineScore/baselineScores at the top level and in metadata, independently of the final frontier.
 
 - Canonical Ax concept: `AxGEPA`
 - Kind: `type`
 - Form: `axllm::AxGEPA(reflection, options)`
 - Returns: `optimizer engine`
-- Important options: reflection client, budget, metric, candidate count
+- Important options: reflection client, budget, metric, candidate count, baselineScore, baselineScores
 
 ```cpp
 axllm::AxGEPA engine(reflection_client);

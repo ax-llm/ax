@@ -1159,13 +1159,15 @@
           "canonical_name": "AxGEPA",
           "public_name": "axllm.AxGEPA",
           "kind": "type",
-          "description": "Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.",
+          "description": "GEPA engine with Core-owned reflection, Pareto and bootstrap behavior. Artifacts report original-program baselineScore/baselineScores at the top level and in metadata, independently of the final frontier.",
           "form": "axllm.NewGEPA(reflection, options)",
           "important_options": [
             "reflection client",
             "budget",
             "metric",
-            "candidate count"
+            "candidate count",
+            "baselineScore",
+            "baselineScores"
           ],
           "returns": "optimizer engine",
           "example": "engine := axllm.NewGEPA(reflectionClient, nil)"

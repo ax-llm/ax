@@ -496,6 +496,8 @@ class AxGen:
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         opts = options or {}
+        if opts.get("demos"):
+            self.set_demos(opts["demos"])
         normalized = _normalize_optimization_dataset(dataset or [])
         rows = []
         original = _optimization_component_current_map(self.get_optimizable_components())

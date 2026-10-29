@@ -73,7 +73,7 @@ public final class AxBootstrapFewShot implements OptimizerEngine {
           Map<String, Object> row = Core.asMap(rows.get(0));
           if (num(row.get("scalar"), 0) >= threshold) {
             accepted.add(exampleKey);
-            demos.add(Map.of("programId", "root", "traces", List.of(row.getOrDefault("prediction", row.getOrDefault("input", Map.of())))));
+            demos.add(Core._optimization_bootstrap_demo(row));
           }
         }
       }

@@ -1,0 +1,988 @@
+{
+  "components": [
+    {
+      "current": "",
+      "id": "root::instruction",
+      "kind": "instruction",
+      "owner": "root"
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "training-only-0"
+      },
+      "output": {
+        "answer": "ok"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "training-only-1"
+      },
+      "output": {
+        "answer": "ok"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "baselineScore": 3.05,
+    "baselineScores": {
+      "score": 3.05
+    },
+    "metadata": {
+      "baselineScore": 3.05,
+      "baselineScores": {
+        "score": 3.05
+      },
+      "bestScore": 3.05,
+      "bootstrapMetricCalls": 1,
+      "totalCalls": 121,
+      "totalMetricCalls": 120
+    }
+  },
+  "expected_demo_count": 1,
+  "kind": "optimize",
+  "name": "baseline-helper-implicit-validation-budget",
+  "operation": "helper",
+  "optimize_options": {
+    "bootstrap": {
+      "maxDemos": 1,
+      "maxExamples": 1,
+      "maxRounds": 1
+    },
+    "numTrials": 0,
+    "validationExamples": [
+      {
+        "input": {
+          "question": "held-out-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.1
+      },
+      {
+        "input": {
+          "question": "held-out-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.2
+      },
+      {
+        "input": {
+          "question": "held-out-2"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.3
+      },
+      {
+        "input": {
+          "question": "held-out-3"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.4
+      },
+      {
+        "input": {
+          "question": "held-out-4"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.5
+      },
+      {
+        "input": {
+          "question": "held-out-5"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.6
+      },
+      {
+        "input": {
+          "question": "held-out-6"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.7
+      },
+      {
+        "input": {
+          "question": "held-out-7"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.8
+      },
+      {
+        "input": {
+          "question": "held-out-8"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.9
+      },
+      {
+        "input": {
+          "question": "held-out-9"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      },
+      {
+        "input": {
+          "question": "held-out-10"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.1
+      },
+      {
+        "input": {
+          "question": "held-out-11"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.2
+      },
+      {
+        "input": {
+          "question": "held-out-12"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.3
+      },
+      {
+        "input": {
+          "question": "held-out-13"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.4
+      },
+      {
+        "input": {
+          "question": "held-out-14"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.5
+      },
+      {
+        "input": {
+          "question": "held-out-15"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.6
+      },
+      {
+        "input": {
+          "question": "held-out-16"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.7
+      },
+      {
+        "input": {
+          "question": "held-out-17"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.8
+      },
+      {
+        "input": {
+          "question": "held-out-18"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1.9
+      },
+      {
+        "input": {
+          "question": "held-out-19"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2
+      },
+      {
+        "input": {
+          "question": "held-out-20"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.1
+      },
+      {
+        "input": {
+          "question": "held-out-21"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.2
+      },
+      {
+        "input": {
+          "question": "held-out-22"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.3
+      },
+      {
+        "input": {
+          "question": "held-out-23"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.4
+      },
+      {
+        "input": {
+          "question": "held-out-24"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.5
+      },
+      {
+        "input": {
+          "question": "held-out-25"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.6
+      },
+      {
+        "input": {
+          "question": "held-out-26"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.7
+      },
+      {
+        "input": {
+          "question": "held-out-27"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.8
+      },
+      {
+        "input": {
+          "question": "held-out-28"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 2.9
+      },
+      {
+        "input": {
+          "question": "held-out-29"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3
+      },
+      {
+        "input": {
+          "question": "held-out-30"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.1
+      },
+      {
+        "input": {
+          "question": "held-out-31"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.2
+      },
+      {
+        "input": {
+          "question": "held-out-32"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.3
+      },
+      {
+        "input": {
+          "question": "held-out-33"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.4
+      },
+      {
+        "input": {
+          "question": "held-out-34"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.5
+      },
+      {
+        "input": {
+          "question": "held-out-35"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.6
+      },
+      {
+        "input": {
+          "question": "held-out-36"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.7
+      },
+      {
+        "input": {
+          "question": "held-out-37"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.8
+      },
+      {
+        "input": {
+          "question": "held-out-38"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 3.9
+      },
+      {
+        "input": {
+          "question": "held-out-39"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4
+      },
+      {
+        "input": {
+          "question": "held-out-40"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.1
+      },
+      {
+        "input": {
+          "question": "held-out-41"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.2
+      },
+      {
+        "input": {
+          "question": "held-out-42"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.3
+      },
+      {
+        "input": {
+          "question": "held-out-43"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.4
+      },
+      {
+        "input": {
+          "question": "held-out-44"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.5
+      },
+      {
+        "input": {
+          "question": "held-out-45"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.6
+      },
+      {
+        "input": {
+          "question": "held-out-46"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.7
+      },
+      {
+        "input": {
+          "question": "held-out-47"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.8
+      },
+      {
+        "input": {
+          "question": "held-out-48"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 4.9
+      },
+      {
+        "input": {
+          "question": "held-out-49"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5
+      },
+      {
+        "input": {
+          "question": "held-out-50"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.1
+      },
+      {
+        "input": {
+          "question": "held-out-51"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.2
+      },
+      {
+        "input": {
+          "question": "held-out-52"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.3
+      },
+      {
+        "input": {
+          "question": "held-out-53"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.4
+      },
+      {
+        "input": {
+          "question": "held-out-54"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.5
+      },
+      {
+        "input": {
+          "question": "held-out-55"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.6
+      },
+      {
+        "input": {
+          "question": "held-out-56"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.7
+      },
+      {
+        "input": {
+          "question": "held-out-57"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.8
+      },
+      {
+        "input": {
+          "question": "held-out-58"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 5.9
+      },
+      {
+        "input": {
+          "question": "held-out-59"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 6
+      },
+      {
+        "input": {
+          "question": "held-out-60"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 6.1
+      }
+    ]
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

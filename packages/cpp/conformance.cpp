@@ -1797,6 +1797,11 @@ static void run_optimize(Value fixture) {
       ScriptedGEPAEvaluator evaluator(fixture);
       Value artifact = engine.optimize(request, &evaluator);
       if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "GEPA artifact");
+      if (!Core::get(fixture, "expected_gepa_phases").is_null()) {
+        Value phases = Value::array();
+        for (const auto& evaluation : evaluator.evaluations) Core::append(phases, Core::get(evaluation, "phase"));
+        assert_equal(phases, Core::get(fixture, "expected_gepa_phases"), "GEPA evaluation phases");
+      }
       if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "GEPA evaluations");
       Value expected_reflection_requests = Core::get(fixture, "expected_reflection_request_count");
       if (!expected_reflection_requests.is_null()) {

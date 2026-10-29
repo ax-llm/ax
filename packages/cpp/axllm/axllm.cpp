@@ -24627,7 +24627,8 @@ Value Core::_normalize_optimization_metric_scores(Value raw) {
 
 Value Core::_scalarize_optimization_scores(Value scores, Value options) {
   axir_coverage_mark("_scalarize_optimization_scores");
-  Value metric_key = Core::get(options, Value("paretoMetricKey"), Value(""));
+  Value metric_key_snake = Core::get(options, Value("pareto_metric_key"), Value(""));
+  Value metric_key = Core::get(options, Value("paretoMetricKey"), metric_key_snake);
   Value has_metric = Core::ne(metric_key, Value(""));
   if (Core::truthy(has_metric)) {
     Value picked = Core::get(scores, metric_key, Value(0));
@@ -24648,19 +24649,6 @@ Value Core::_scalarize_optimization_scores(Value scores, Value options) {
   }
   Value avg = Core::div(sum, count);
   return avg;
-}
-
-Value Core::_optimization_action_name_matches(Value expected, Value call) {
-  axir_coverage_mark("_optimization_action_name_matches");
-  Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
-  Value name = Core::get(call, Value("name"), Value(""));
-  Value qualified_match = Core::eq(qualified, expected);
-  Value name_match = Core::eq(name, expected);
-  Value dot_expected = Core::add(Value("."), expected);
-  Value suffix_match = Core::string_ends_with(qualified, dot_expected);
-  Value direct_match = Core::or_(qualified_match, name_match);
-  Value any_match = Core::or_(direct_match, suffix_match);
-  return any_match;
 }
 
 Value Core::_stream_strip_leading_fence_impl(Value text) {
@@ -24714,56 +24702,48 @@ Value Core::_stream_strip_leading_fence_impl(Value text) {
   return stripped;
 }
 
+Value Core::_gepa_baseline_report(Value evaluation, Value options) {
+  axir_coverage_mark("_gepa_baseline_report");
+  Value empty = Value::array();
+  Value rows = Core::get(evaluation, Value("rows"), empty);
+  Value sums = Value::object();
+  Value counts = Value::object();
+  for (auto row : Core::iter(rows)) {
+    Value raw = Core::get(row, Value("scores"), Value(0));
+    Value scores = Core::_normalize_optimization_metric_scores(raw);
+    Value keys = Core::map_keys(scores);
+    for (auto key : Core::iter(keys)) {
+      Value value = Core::get(scores, key, Value());
+      Value number = Core::type_is(value, Value("number"));
+      if (Core::truthy(number)) {
+        Value sum = Core::get(sums, key, Value(0));
+        Value count = Core::get(counts, key, Value(0));
+        Value sum_next = Core::add(sum, value);
+        Value count_next = Core::add(count, Value(1));
+        Core::set(sums, key, sum_next);
+        Core::set(counts, key, count_next);
+      }
+    }
+  }
+  Value averages = Value::object();
+  Value objective_keys = Core::map_keys(sums);
+  for (auto objective : Core::iter(objective_keys)) {
+    Value total = Core::get(sums, objective, Value());
+    Value n = Core::get(counts, objective, Value());
+    Value average = Core::div(total, n);
+    Core::set(averages, objective, average);
+  }
+  Value scalar = Core::_scalarize_optimization_scores(averages, options);
+  Value out = Value::object();
+  Core::set(out, Value("baselineScores"), averages);
+  Core::set(out, Value("baselineScore"), scalar);
+  return out;
+}
+
 Value Core::_date_datetime_format_error_impl() {
   axir_coverage_mark("_date_datetime_format_error_impl");
   Value error = Core::runtime_error(Value("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted."));
   return error;
-}
-
-Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
-  axir_coverage_mark("_adjust_optimization_score_for_actions");
-  Value empty_list = Value::array();
-  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
-  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
-  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
-  Value adjusted = score;
-  Value expected_count = Core::len(expected_actions);
-  Value has_expected = Core::gt(expected_count, Value(0));
-  if (Core::truthy(has_expected)) {
-    Value matched = Value(0);
-    for (auto expected : Core::iter(expected_actions)) {
-      Value found = Value(false);
-      for (auto call : Core::iter(function_calls)) {
-        Value call_matches = Core::_optimization_action_name_matches(expected, call);
-        if (Core::truthy(call_matches)) {
-          found = Value(true);
-        }
-      }
-      if (Core::truthy(found)) {
-        Value matched_next = Core::add(matched, Value(1));
-        matched = matched_next;
-      }
-    }
-    Value ratio = Core::div(matched, expected_count);
-    Value half_ratio = Core::mul(Value(0.5), ratio);
-    Value factor = Core::add(Value(0.5), half_ratio);
-    Value adjusted_next = Core::mul(adjusted, factor);
-    adjusted = adjusted_next;
-  }
-  for (auto forbidden : Core::iter(forbidden_actions)) {
-    Value bad_found = Value(false);
-    for (auto call : Core::iter(function_calls)) {
-      Value bad_match = Core::_optimization_action_name_matches(forbidden, call);
-      if (Core::truthy(bad_match)) {
-        bad_found = Value(true);
-      }
-    }
-    if (Core::truthy(bad_found)) {
-      Value penalized = Core::mul(adjusted, Value(0.2));
-      adjusted = penalized;
-    }
-  }
-  return adjusted;
 }
 
 Value Core::_date_values_error_impl() {
@@ -24807,6 +24787,23 @@ Value Core::_date_datetime_parts_impl(Value prefix) {
     Core::raise_error(calendar_error);
   }
   return parts;
+}
+
+Value Core::_optimization_bootstrap_demo(Value row) {
+  axir_coverage_mark("_optimization_bootstrap_demo");
+  Value empty = Value::object();
+  Value task = Core::get(row, Value("input"), empty);
+  Value input = Core::get(task, Value("input"), task);
+  Value prediction = Core::get(row, Value("prediction"), empty);
+  Value output_fallback = Core::get(prediction, Value("output"), prediction);
+  Value output = Core::get(prediction, Value("finalOutput"), output_fallback);
+  Value trace = Core::map_merge(input, output);
+  Value traces = Value::array();
+  Core::append(traces, trace);
+  Value demo = Value::object();
+  Core::set(demo, Value("programId"), Value("root"));
+  Core::set(demo, Value("traces"), traces);
+  return demo;
 }
 
 Value Core::_evidence_decode_one_impl(Value typ, Value raw, Value context, Value path) {
@@ -25131,6 +25128,37 @@ Value Core::_parse_sample_outputs(Value gen, Value output_fields, Value response
   return bundle;
 }
 
+Value Core::_gepa_pareto_set_size(Value options) {
+  axir_coverage_mark("_gepa_pareto_set_size");
+  Value snake = Core::get(options, Value("pareto_set_size"), Value(0));
+  Value size = Core::get(options, Value("paretoSetSize"), snake);
+  Value explicit_ = Core::gt(size, Value(0));
+  if (Core::truthy(explicit_)) {
+    Value rounded = Core::math_floor(size);
+    Value small = Core::lt(rounded, Value(5));
+    if (Core::truthy(small)) {
+      return Value(5);
+    }
+    Value large = Core::gt(rounded, Value(1000));
+    if (Core::truthy(large)) {
+      return Value(1000);
+    }
+    return rounded;
+  }
+  Value mini_snake = Core::get(options, Value("minibatch_size"), Value(20));
+  Value mini = Core::get(options, Value("minibatchSize"), mini_snake);
+  Value default_size = Core::mul(mini, Value(3));
+  Value too_small = Core::lt(default_size, Value(10));
+  if (Core::truthy(too_small)) {
+    return Value(10);
+  }
+  Value too_large = Core::gt(default_size, Value(200));
+  if (Core::truthy(too_large)) {
+    return Value(200);
+  }
+  return default_size;
+}
+
 Value Core::_date_abbreviation_offset_impl(Value units, Value start, Value end, Value zone) {
   axir_coverage_mark("_date_abbreviation_offset_impl");
   Value none = Core::none();
@@ -25248,6 +25276,44 @@ Value Core::_stream_markdown_list_impl(Value input) {
   return items;
 }
 
+Value Core::_gepa_helper_metric_budget(Value options, Value validation_count, Value bootstrap) {
+  axir_coverage_mark("_gepa_helper_metric_budget");
+  Value none = Core::none();
+  Value snake = Core::get(options, Value("max_metric_calls"), none);
+  Value explicit_ = Core::get(options, Value("maxMetricCalls"), snake);
+  Value supplied = Core::is_not_none(explicit_);
+  if (Core::truthy(supplied)) {
+    return explicit_;
+  }
+  Value cap = Core::_gepa_pareto_set_size(options);
+  Value count = validation_count;
+  Value capped = Core::gt(count, cap);
+  if (Core::truthy(capped)) {
+    count = cap;
+  }
+  if (Core::truthy(bootstrap)) {
+    count = Core::mul(count, Value(2));
+  }
+  Value minimum = Core::lt(count, Value(100));
+  if (Core::truthy(minimum)) {
+    return Value(100);
+  }
+  return count;
+}
+
+Value Core::_optimization_action_name_matches(Value expected, Value call) {
+  axir_coverage_mark("_optimization_action_name_matches");
+  Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
+  Value name = Core::get(call, Value("name"), Value(""));
+  Value qualified_match = Core::eq(qualified, expected);
+  Value name_match = Core::eq(name, expected);
+  Value dot_expected = Core::add(Value("."), expected);
+  Value suffix_match = Core::string_ends_with(qualified, dot_expected);
+  Value direct_match = Core::or_(qualified_match, name_match);
+  Value any_match = Core::or_(direct_match, suffix_match);
+  return any_match;
+}
+
 Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value zone, Value probe) {
   axir_coverage_mark("_date_zone_resolve_impl");
   Value resolved = Value::object();
@@ -25310,19 +25376,50 @@ Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value z
   Core::raise_error(missing_error);
 }
 
-Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
-  axir_coverage_mark("_build_optimization_eval_row");
-  Value out = Value::object();
-  Core::set(out, Value("input"), task);
-  Core::set(out, Value("prediction"), prediction);
-  Core::set(out, Value("scores"), scores);
-  Core::set(out, Value("scalar"), scalar);
-  Core::set(out, Value("trace"), trace);
-  Value has_error = Core::is_not_none(error);
-  if (Core::truthy(has_error)) {
-    Core::set(out, Value("error"), error);
+Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
+  axir_coverage_mark("_adjust_optimization_score_for_actions");
+  Value empty_list = Value::array();
+  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
+  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
+  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
+  Value adjusted = score;
+  Value expected_count = Core::len(expected_actions);
+  Value has_expected = Core::gt(expected_count, Value(0));
+  if (Core::truthy(has_expected)) {
+    Value matched = Value(0);
+    for (auto expected : Core::iter(expected_actions)) {
+      Value found = Value(false);
+      for (auto call : Core::iter(function_calls)) {
+        Value call_matches = Core::_optimization_action_name_matches(expected, call);
+        if (Core::truthy(call_matches)) {
+          found = Value(true);
+        }
+      }
+      if (Core::truthy(found)) {
+        Value matched_next = Core::add(matched, Value(1));
+        matched = matched_next;
+      }
+    }
+    Value ratio = Core::div(matched, expected_count);
+    Value half_ratio = Core::mul(Value(0.5), ratio);
+    Value factor = Core::add(Value(0.5), half_ratio);
+    Value adjusted_next = Core::mul(adjusted, factor);
+    adjusted = adjusted_next;
   }
-  return out;
+  for (auto forbidden : Core::iter(forbidden_actions)) {
+    Value bad_found = Value(false);
+    for (auto call : Core::iter(function_calls)) {
+      Value bad_match = Core::_optimization_action_name_matches(forbidden, call);
+      if (Core::truthy(bad_match)) {
+        bad_found = Value(true);
+      }
+    }
+    if (Core::truthy(bad_found)) {
+      Value penalized = Core::mul(adjusted, Value(0.2));
+      adjusted = penalized;
+    }
+  }
+  return adjusted;
 }
 
 Value Core::_stream_js_string_impl(Value value) {
@@ -25369,33 +25466,6 @@ Value Core::_stream_js_string_impl(Value value) {
     return joined;
   }
   return Value("[object Object]");
-}
-
-Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
-  axir_coverage_mark("_build_optimization_eval_result");
-  Value sum = Value(0);
-  Value count = Value(0);
-  for (auto row : Core::iter(rows)) {
-    Value scalar = Core::get(row, Value("scalar"), Value(0));
-    Value sum_next = Core::add(sum, scalar);
-    Value count_next = Core::add(count, Value(1));
-    sum = sum_next;
-    count = count_next;
-  }
-  Value avg = Value(0);
-  Value has_rows = Core::gt(count, Value(0));
-  if (Core::truthy(has_rows)) {
-    Value avg_next = Core::div(sum, count);
-    avg = avg_next;
-  }
-  Value out = Value::object();
-  Core::set(out, Value("phase"), phase);
-  Core::set(out, Value("candidateMap"), candidate_map);
-  Core::set(out, Value("rows"), rows);
-  Core::set(out, Value("sum"), sum);
-  Core::set(out, Value("avg"), avg);
-  Core::set(out, Value("count"), count);
-  return out;
 }
 
 Value Core::chat_session_record_result(Value gen, Value state, Value call, Value result, Value ok, Value options) {
@@ -25493,69 +25563,6 @@ Value Core::_select_sample_index(Value samples, Value options) {
     Core::raise_error(error);
   }
   return selected;
-}
-
-Value Core::_filter_optimization_components(Value components, Value target) {
-  axir_coverage_mark("_filter_optimization_components");
-  Value out = Value::array();
-  Value is_list = Core::type_is(target, Value("list"));
-  Value is_all = Core::eq(target, Value("all"));
-  Value is_actor = Core::eq(target, Value("actor"));
-  Value is_responder = Core::eq(target, Value("responder"));
-  Value is_flow = Core::eq(target, Value("flow"));
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value kind = Core::get(component, Value("kind"), Value(""));
-    Value include = Value(false);
-    if (Core::truthy(is_all)) {
-      include = Value(true);
-    }
-    if (Core::truthy(is_list)) {
-      Value listed = Core::contains(target, id);
-      if (Core::truthy(listed)) {
-        include = Value(true);
-      }
-    }
-    if (Core::truthy(is_actor)) {
-      Value actor_match = Core::string_ends_with(id, Value(".actor"));
-      Value actor_component_match = Core::contains(id, Value(".actor::"));
-      Value actor_any_match = Core::or_(actor_match, actor_component_match);
-      Value stage_instruction_match = Core::eq(id, Value("root::instruction"));
-      actor_any_match = Core::or_(actor_any_match, stage_instruction_match);
-      if (Core::truthy(actor_any_match)) {
-        include = Value(true);
-      }
-    }
-    if (Core::truthy(is_responder)) {
-      Value responder_match = Core::string_ends_with(id, Value(".responder"));
-      Value responder_component_match = Core::contains(id, Value(".responder::"));
-      Value responder_any_match = Core::or_(responder_match, responder_component_match);
-      if (Core::truthy(responder_any_match)) {
-        include = Value(true);
-      }
-    }
-    if (Core::truthy(is_flow)) {
-      Value flow_component = Core::eq(kind, Value("flow-graph"));
-      if (Core::truthy(flow_component)) {
-        include = Value(true);
-      }
-    }
-    Value explicit_match = Core::eq(target, id);
-    if (Core::truthy(explicit_match)) {
-      include = Value(true);
-    }
-    if (Core::truthy(include)) {
-      Core::append(out, component);
-    }
-  }
-  Value count = Core::len(out);
-  Value empty = Core::eq(count, Value(0));
-  if (Core::truthy(empty)) {
-    Value message = Core::string_format(Value("no optimizable components match target: {}"), target);
-    Value error = Core::runtime_error(message);
-    Core::raise_error(error);
-  }
-  return out;
 }
 
 Value Core::_regex_class_atom(Value s) {
@@ -26328,23 +26335,18 @@ Value Core::chat_session_observe_output(Value gen, Value state, Value event) {
   return output;
 }
 
-Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
-  axir_coverage_mark("_build_optimizer_request");
+Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
+  axir_coverage_mark("_build_optimization_eval_row");
   Value out = Value::object();
-  Core::set(out, Value("contractVersion"), Value("axir-optimize-contract-v1"));
-  Core::set(out, Value("programKind"), program_kind);
-  Core::set(out, Value("components"), components);
-  Core::set(out, Value("dataset"), dataset);
-  Core::set(out, Value("options"), options);
+  Core::set(out, Value("input"), task);
+  Core::set(out, Value("prediction"), prediction);
+  Core::set(out, Value("scores"), scores);
+  Core::set(out, Value("scalar"), scalar);
   Core::set(out, Value("trace"), trace);
-  Value evaluator = Value::object();
-  Value methods = Value::array();
-  Core::append(methods, Value("evaluate"));
-  Core::set(evaluator, Value("available"), Value(true));
-  Core::set(evaluator, Value("contractVersion"), Value("axir-optimizer-evaluator-v1"));
-  Core::set(evaluator, Value("evidenceContractVersion"), Value("axir-optimizer-evidence-v1"));
-  Core::set(evaluator, Value("methods"), methods);
-  Core::set(out, Value("evaluator"), evaluator);
+  Value has_error = Core::is_not_none(error);
+  if (Core::truthy(has_error)) {
+    Core::set(out, Value("error"), error);
+  }
   return out;
 }
 
@@ -26399,6 +26401,33 @@ Value Core::_date_zone_offset_seconds_impl(Value zone, Value millis) {
   return seconds;
 }
 
+Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
+  axir_coverage_mark("_build_optimization_eval_result");
+  Value sum = Value(0);
+  Value count = Value(0);
+  for (auto row : Core::iter(rows)) {
+    Value scalar = Core::get(row, Value("scalar"), Value(0));
+    Value sum_next = Core::add(sum, scalar);
+    Value count_next = Core::add(count, Value(1));
+    sum = sum_next;
+    count = count_next;
+  }
+  Value avg = Value(0);
+  Value has_rows = Core::gt(count, Value(0));
+  if (Core::truthy(has_rows)) {
+    Value avg_next = Core::div(sum, count);
+    avg = avg_next;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("phase"), phase);
+  Core::set(out, Value("candidateMap"), candidate_map);
+  Core::set(out, Value("rows"), rows);
+  Core::set(out, Value("sum"), sum);
+  Core::set(out, Value("avg"), avg);
+  Core::set(out, Value("count"), count);
+  return out;
+}
+
 Value Core::_evidence_context_impl(Value response, Value client) {
   axir_coverage_mark("_evidence_context_impl");
   Value trusted = Core::get(response, Value("decisionContext"), Value());
@@ -26419,35 +26448,6 @@ Value Core::_evidence_context_impl(Value response, Value client) {
   Value context = Value::object();
   Core::set(context, Value("provenance"), provenance);
   return context;
-}
-
-Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
-  axir_coverage_mark("_prepare_optimizer_run");
-  Value empty_map = Value::object();
-  Value opts_missing = Core::is_none(options);
-  Value opts = options;
-  if (Core::truthy(opts_missing)) {
-    opts = empty_map;
-  }
-  Value normalized = Core::_normalize_optimization_dataset(dataset);
-  Value target = Core::get(opts, Value("target"), Value("all"));
-  Value selected = Core::_filter_optimization_components(components, target);
-  Value request_options = Core::map_merge(empty_map, opts);
-  Core::map_delete(request_options, Value("client"));
-  Core::map_delete(request_options, Value("ai"));
-  Core::map_delete(request_options, Value("engine"));
-  Core::map_delete(request_options, Value("optimizer"));
-  Value request = Core::_build_optimizer_request(program_kind, selected, normalized, request_options, trace);
-  Value evaluator = Core::get(request, Value("evaluator"), Value());
-  Core::set(evaluator, Value("available"), evaluator_available);
-  Core::set(request, Value("evaluator"), evaluator);
-  Value out = Value::object();
-  Core::set(out, Value("components"), components);
-  Core::set(out, Value("selectedComponents"), selected);
-  Core::set(out, Value("dataset"), normalized);
-  Core::set(out, Value("options"), request_options);
-  Core::set(out, Value("request"), request);
-  return out;
 }
 
 Value Core::_date_parts_in_zone_impl(Value zone, Value millis) {
@@ -26485,6 +26485,69 @@ Value Core::chat_session_create_state(Value model, Value path, Value max_steps) 
   Value turns = Value::array();
   Core::set(state, Value("turns"), turns);
   return state;
+}
+
+Value Core::_filter_optimization_components(Value components, Value target) {
+  axir_coverage_mark("_filter_optimization_components");
+  Value out = Value::array();
+  Value is_list = Core::type_is(target, Value("list"));
+  Value is_all = Core::eq(target, Value("all"));
+  Value is_actor = Core::eq(target, Value("actor"));
+  Value is_responder = Core::eq(target, Value("responder"));
+  Value is_flow = Core::eq(target, Value("flow"));
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value kind = Core::get(component, Value("kind"), Value(""));
+    Value include = Value(false);
+    if (Core::truthy(is_all)) {
+      include = Value(true);
+    }
+    if (Core::truthy(is_list)) {
+      Value listed = Core::contains(target, id);
+      if (Core::truthy(listed)) {
+        include = Value(true);
+      }
+    }
+    if (Core::truthy(is_actor)) {
+      Value actor_match = Core::string_ends_with(id, Value(".actor"));
+      Value actor_component_match = Core::contains(id, Value(".actor::"));
+      Value actor_any_match = Core::or_(actor_match, actor_component_match);
+      Value stage_instruction_match = Core::eq(id, Value("root::instruction"));
+      actor_any_match = Core::or_(actor_any_match, stage_instruction_match);
+      if (Core::truthy(actor_any_match)) {
+        include = Value(true);
+      }
+    }
+    if (Core::truthy(is_responder)) {
+      Value responder_match = Core::string_ends_with(id, Value(".responder"));
+      Value responder_component_match = Core::contains(id, Value(".responder::"));
+      Value responder_any_match = Core::or_(responder_match, responder_component_match);
+      if (Core::truthy(responder_any_match)) {
+        include = Value(true);
+      }
+    }
+    if (Core::truthy(is_flow)) {
+      Value flow_component = Core::eq(kind, Value("flow-graph"));
+      if (Core::truthy(flow_component)) {
+        include = Value(true);
+      }
+    }
+    Value explicit_match = Core::eq(target, id);
+    if (Core::truthy(explicit_match)) {
+      include = Value(true);
+    }
+    if (Core::truthy(include)) {
+      Core::append(out, component);
+    }
+  }
+  Value count = Core::len(out);
+  Value empty = Core::eq(count, Value(0));
+  if (Core::truthy(empty)) {
+    Value message = Core::string_format(Value("no optimizable components match target: {}"), target);
+    Value error = Core::runtime_error(message);
+    Core::raise_error(error);
+  }
+  return out;
 }
 
 Value Core::_regex_atom(Value s) {
@@ -26654,77 +26717,6 @@ Value Core::_regex_atom(Value s) {
   }
   Value t68 = Core::_regex_literal(c);
   return t68;
-}
-
-Value Core::_normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components) {
-  axir_coverage_mark("_normalize_optimizer_engine_response");
-  Value response_is_object = Core::type_is(response, Value("object"));
-  Value bad_response = Core::not_(response_is_object);
-  if (Core::truthy(bad_response)) {
-    Value error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
-    Core::raise_error(error);
-  }
-  Value empty_map = Value::object();
-  Value has_artifact = Core::map_contains(response, Value("artifact"));
-  Value artifact_source = response;
-  if (Core::truthy(has_artifact)) {
-    Value artifact_value = Core::get(response, Value("artifact"), Value());
-    artifact_source = artifact_value;
-  }
-  Value artifact = Core::map_merge(empty_map, artifact_source);
-  Value artifact_is_object = Core::type_is(artifact, Value("object"));
-  Value bad_artifact = Core::not_(artifact_is_object);
-  if (Core::truthy(bad_artifact)) {
-    Value artifact_error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
-    Core::raise_error(artifact_error);
-  }
-  Value version = Core::get(artifact, Value("artifactVersion"), Value());
-  Value missing_version = Core::is_none(version);
-  if (Core::truthy(missing_version)) {
-    Core::set(artifact, Value("artifactVersion"), Value("axir-optimized-artifact-v1"));
-  }
-  Value name = Core::get(artifact, Value("optimizerName"), Value());
-  Value missing_name = Core::is_none(name);
-  if (Core::truthy(missing_name)) {
-    Core::set(artifact, Value("optimizerName"), engine_name);
-  }
-  Value engine_ver = Core::get(artifact, Value("optimizerVersion"), Value());
-  Value missing_engine_ver = Core::is_none(engine_ver);
-  if (Core::truthy(missing_engine_ver)) {
-    Core::set(artifact, Value("optimizerVersion"), engine_version);
-  }
-  Value component_map = Core::get(artifact, Value("componentMap"), Value());
-  Value missing_component_map = Core::is_none(component_map);
-  if (Core::truthy(missing_component_map)) {
-    Value snake_map = Core::get(artifact, Value("component_map"), empty_map);
-    Core::set(artifact, Value("componentMap"), snake_map);
-  }
-  Value metadata = Core::get(artifact, Value("metadata"), Value());
-  Value missing_metadata = Core::is_none(metadata);
-  if (Core::truthy(missing_metadata)) {
-    Value default_metadata = Value::object();
-    Core::set(artifact, Value("metadata"), default_metadata);
-  }
-  Value metadata_final = Core::get(artifact, Value("metadata"), Value());
-  Value provenance = Core::get(artifact, Value("provenance"), Value());
-  Value missing_provenance = Core::is_none(provenance);
-  if (Core::truthy(missing_provenance)) {
-    Value empty_provenance = Value::object();
-    Value metadata_provenance = Core::get(metadata_final, Value("provenance"), empty_provenance);
-    Core::set(artifact, Value("provenance"), metadata_provenance);
-  }
-  Value evidence = Core::get(artifact, Value("evidence"), Value());
-  Value missing_evidence = Core::is_none(evidence);
-  if (Core::truthy(missing_evidence)) {
-    Value empty_evidence = Value::object();
-    Value metadata_evidence = Core::get(metadata_final, Value("evidence"), empty_evidence);
-    Core::set(artifact, Value("evidence"), metadata_evidence);
-  }
-  Value validated = Core::_validate_optimized_artifact(artifact, components);
-  Value map = Core::get(validated, Value("componentMap"), Value());
-  Value changed = Core::_optimization_changed_components(components, map);
-  Core::set(validated, Value("changedComponents"), changed);
-  return validated;
 }
 
 Value Core::_date_zone_offset_millis_impl(Value zone, Value millis) {
@@ -26905,72 +26897,23 @@ Value Core::_date_parse_range_impl(Value value, Value kind) {
   return range_millis;
 }
 
-Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components) {
-  axir_coverage_mark("_build_optimizer_evidence_batch");
-  Value empty_list = Value::array();
-  Value empty_map = Value::object();
-  Value rows = Core::get(eval_result, Value("rows"), empty_list);
-  Value outputs = Value::array();
-  Value scores = Value::array();
-  Value score_vectors = Value::array();
-  Value trajectories = Value::array();
-  for (auto row : Core::iter(rows)) {
-    Value prediction = Core::get(row, Value("prediction"), empty_map);
-    Value output = Core::get(prediction, Value("output"), prediction);
-    Core::append(outputs, output);
-    Value scalar = Core::get(row, Value("scalar"), Value(0));
-    Core::append(scores, scalar);
-    Value vector = Core::get(row, Value("scores"), empty_map);
-    Core::append(score_vectors, vector);
-    Value trajectory = Value::object();
-    Value trace = Core::get(row, Value("trace"), Value());
-    Core::set(trajectory, Value("trace"), trace);
-    Core::set(trajectory, Value("output"), output);
-    Value row_error = Core::get(row, Value("error"), Value());
-    Value prediction_error = Core::get(prediction, Value("error"), row_error);
-    Value has_error = Core::is_not_none(prediction_error);
-    if (Core::truthy(has_error)) {
-      Core::set(trajectory, Value("error"), prediction_error);
-    }
-    Core::append(trajectories, trajectory);
-  }
-  Value reflective = Value::object();
-  for (auto component : Core::iter(components)) {
-    Value id = Core::get(component, Value("id"), Value(""));
-    Value items = Value::array();
-    for (auto row : Core::iter(rows)) {
-      Value entry = Value::object();
-      Value prediction = Core::get(row, Value("prediction"), empty_map);
-      Value output = Core::get(prediction, Value("output"), prediction);
-      Value scalar = Core::get(row, Value("scalar"), Value(0));
-      Value trace = Core::get(row, Value("trace"), Value());
-      Core::set(entry, Value("score"), scalar);
-      Core::set(entry, Value("output"), output);
-      Core::set(entry, Value("trace"), trace);
-      Value error = Core::get(row, Value("error"), Value());
-      Value has_error = Core::is_not_none(error);
-      if (Core::truthy(has_error)) {
-        Core::set(entry, Value("error"), error);
-      }
-      Core::append(items, entry);
-    }
-    Core::set(reflective, id, items);
-  }
+Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
+  axir_coverage_mark("_build_optimizer_request");
   Value out = Value::object();
-  Core::set(out, Value("contractVersion"), Value("axir-optimizer-evidence-v1"));
-  Value candidate_map = Core::get(eval_result, Value("candidateMap"), empty_map);
-  Core::set(out, Value("candidateMap"), candidate_map);
-  Core::set(out, Value("outputs"), outputs);
-  Core::set(out, Value("scores"), scores);
-  Core::set(out, Value("scoreVectors"), score_vectors);
-  Core::set(out, Value("trajectories"), trajectories);
-  Value avg = Core::get(eval_result, Value("avg"), Value(0));
-  Value sum = Core::get(eval_result, Value("sum"), Value(0));
-  Value count = Core::get(eval_result, Value("count"), Value(0));
-  Core::set(out, Value("avg"), avg);
-  Core::set(out, Value("sum"), sum);
-  Core::set(out, Value("count"), count);
-  Core::set(out, Value("reflectiveDataset"), reflective);
+  Core::set(out, Value("contractVersion"), Value("axir-optimize-contract-v1"));
+  Core::set(out, Value("programKind"), program_kind);
+  Core::set(out, Value("components"), components);
+  Core::set(out, Value("dataset"), dataset);
+  Core::set(out, Value("options"), options);
+  Core::set(out, Value("trace"), trace);
+  Value evaluator = Value::object();
+  Value methods = Value::array();
+  Core::append(methods, Value("evaluate"));
+  Core::set(evaluator, Value("available"), Value(true));
+  Core::set(evaluator, Value("contractVersion"), Value("axir-optimizer-evaluator-v1"));
+  Core::set(evaluator, Value("evidenceContractVersion"), Value("axir-optimizer-evidence-v1"));
+  Core::set(evaluator, Value("methods"), methods);
+  Core::set(out, Value("evaluator"), evaluator);
   return out;
 }
 
@@ -26980,6 +26923,42 @@ Value Core::chat_session_result(Value response, Value id) {
   response = Core::map_merge(response, empty);
   Core::set(response, Value("__session_response_id"), id);
   return response;
+}
+
+Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
+  axir_coverage_mark("_prepare_optimizer_run");
+  Value empty_map = Value::object();
+  Value opts_missing = Core::is_none(options);
+  Value opts = options;
+  if (Core::truthy(opts_missing)) {
+    opts = empty_map;
+  }
+  Value normalized = Core::_normalize_optimization_dataset(dataset);
+  Value validation_none = Core::none();
+  Value validation_snake = Core::get(opts, Value("validation_examples"), validation_none);
+  Value validation_examples = Core::get(opts, Value("validationExamples"), validation_snake);
+  Value has_validation_examples = Core::is_not_none(validation_examples);
+  if (Core::truthy(has_validation_examples)) {
+    Core::set(normalized, Value("validation"), validation_examples);
+  }
+  Value target = Core::get(opts, Value("target"), Value("all"));
+  Value selected = Core::_filter_optimization_components(components, target);
+  Value request_options = Core::map_merge(empty_map, opts);
+  Core::map_delete(request_options, Value("client"));
+  Core::map_delete(request_options, Value("ai"));
+  Core::map_delete(request_options, Value("engine"));
+  Core::map_delete(request_options, Value("optimizer"));
+  Value request = Core::_build_optimizer_request(program_kind, selected, normalized, request_options, trace);
+  Value evaluator = Core::get(request, Value("evaluator"), Value());
+  Core::set(evaluator, Value("available"), evaluator_available);
+  Core::set(request, Value("evaluator"), evaluator);
+  Value out = Value::object();
+  Core::set(out, Value("components"), components);
+  Core::set(out, Value("selectedComponents"), selected);
+  Core::set(out, Value("dataset"), normalized);
+  Core::set(out, Value("options"), request_options);
+  Core::set(out, Value("request"), request);
+  return out;
 }
 
 Value Core::chat_session_record_response(Value gen, Value state, Value request, Value completion) {
@@ -27079,6 +27058,77 @@ Value Core::_stream_required_missing_error_impl(Value field) {
   Value message = Core::string_format(Value("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank."), title, title, label);
   Value error = Core::validation_error(message);
   return error;
+}
+
+Value Core::_normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components) {
+  axir_coverage_mark("_normalize_optimizer_engine_response");
+  Value response_is_object = Core::type_is(response, Value("object"));
+  Value bad_response = Core::not_(response_is_object);
+  if (Core::truthy(bad_response)) {
+    Value error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
+    Core::raise_error(error);
+  }
+  Value empty_map = Value::object();
+  Value has_artifact = Core::map_contains(response, Value("artifact"));
+  Value artifact_source = response;
+  if (Core::truthy(has_artifact)) {
+    Value artifact_value = Core::get(response, Value("artifact"), Value());
+    artifact_source = artifact_value;
+  }
+  Value artifact = Core::map_merge(empty_map, artifact_source);
+  Value artifact_is_object = Core::type_is(artifact, Value("object"));
+  Value bad_artifact = Core::not_(artifact_is_object);
+  if (Core::truthy(bad_artifact)) {
+    Value artifact_error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
+    Core::raise_error(artifact_error);
+  }
+  Value version = Core::get(artifact, Value("artifactVersion"), Value());
+  Value missing_version = Core::is_none(version);
+  if (Core::truthy(missing_version)) {
+    Core::set(artifact, Value("artifactVersion"), Value("axir-optimized-artifact-v1"));
+  }
+  Value name = Core::get(artifact, Value("optimizerName"), Value());
+  Value missing_name = Core::is_none(name);
+  if (Core::truthy(missing_name)) {
+    Core::set(artifact, Value("optimizerName"), engine_name);
+  }
+  Value engine_ver = Core::get(artifact, Value("optimizerVersion"), Value());
+  Value missing_engine_ver = Core::is_none(engine_ver);
+  if (Core::truthy(missing_engine_ver)) {
+    Core::set(artifact, Value("optimizerVersion"), engine_version);
+  }
+  Value component_map = Core::get(artifact, Value("componentMap"), Value());
+  Value missing_component_map = Core::is_none(component_map);
+  if (Core::truthy(missing_component_map)) {
+    Value snake_map = Core::get(artifact, Value("component_map"), empty_map);
+    Core::set(artifact, Value("componentMap"), snake_map);
+  }
+  Value metadata = Core::get(artifact, Value("metadata"), Value());
+  Value missing_metadata = Core::is_none(metadata);
+  if (Core::truthy(missing_metadata)) {
+    Value default_metadata = Value::object();
+    Core::set(artifact, Value("metadata"), default_metadata);
+  }
+  Value metadata_final = Core::get(artifact, Value("metadata"), Value());
+  Value provenance = Core::get(artifact, Value("provenance"), Value());
+  Value missing_provenance = Core::is_none(provenance);
+  if (Core::truthy(missing_provenance)) {
+    Value empty_provenance = Value::object();
+    Value metadata_provenance = Core::get(metadata_final, Value("provenance"), empty_provenance);
+    Core::set(artifact, Value("provenance"), metadata_provenance);
+  }
+  Value evidence = Core::get(artifact, Value("evidence"), Value());
+  Value missing_evidence = Core::is_none(evidence);
+  if (Core::truthy(missing_evidence)) {
+    Value empty_evidence = Value::object();
+    Value metadata_evidence = Core::get(metadata_final, Value("evidence"), empty_evidence);
+    Core::set(artifact, Value("evidence"), metadata_evidence);
+  }
+  Value validated = Core::_validate_optimized_artifact(artifact, components);
+  Value map = Core::get(validated, Value("componentMap"), Value());
+  Value changed = Core::_optimization_changed_components(components, map);
+  Core::set(validated, Value("changedComponents"), changed);
+  return validated;
 }
 
 Value Core::chat_session_step_limit_error(Value state) {
@@ -27448,24 +27498,6 @@ Value Core::_regex_quantifier(Value s, Value child) {
   return t73;
 }
 
-Value Core::_ace_estimate_token_count(Value text) {
-  axir_coverage_mark("_ace_estimate_token_count");
-  Value len = Core::len(text);
-  Value tokens = Value(0);
-  Value remaining = len;
-  while (true) {
-    Value done = Core::lte(remaining, Value(0));
-    if (Core::truthy(done)) {
-      break;
-    }
-    Value tokens_next = Core::add(tokens, Value(1));
-    tokens = tokens_next;
-    Value remaining_next = Core::add(remaining, Value(-4));
-    remaining = remaining_next;
-  }
-  return tokens;
-}
-
 Value Core::chat_session_completion(Value response, Value id) {
   axir_coverage_mark("chat_session_completion");
   Value completion = Core::chat_response_to_completion(response);
@@ -27484,38 +27516,73 @@ Value Core::chat_session_has_continuation_work(Value state) {
   return work;
 }
 
-Value Core::_ace_recompute_playbook_stats(Value playbook) {
-  axir_coverage_mark("_ace_recompute_playbook_stats");
+Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components) {
+  axir_coverage_mark("_build_optimizer_evidence_batch");
+  Value empty_list = Value::array();
   Value empty_map = Value::object();
-  Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value bullet_count = Value(0);
-  Value helpful_count = Value(0);
-  Value harmful_count = Value(0);
-  Value token_estimate = Value(0);
-  Value section_lists = Core::map_values(sections);
-  for (auto bullets : Core::iter(section_lists)) {
-    for (auto bullet : Core::iter(bullets)) {
-      Value bullet_count_next = Core::add(bullet_count, Value(1));
-      bullet_count = bullet_count_next;
-      Value helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
-      Value harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
-      Value helpful_count_next = Core::add(helpful_count, helpful);
-      helpful_count = helpful_count_next;
-      Value harmful_count_next = Core::add(harmful_count, harmful);
-      harmful_count = harmful_count_next;
-      Value content = Core::get(bullet, Value("content"), Value(""));
-      Value bullet_tokens = Core::_ace_estimate_token_count(content);
-      Value token_estimate_next = Core::add(token_estimate, bullet_tokens);
-      token_estimate = token_estimate_next;
+  Value rows = Core::get(eval_result, Value("rows"), empty_list);
+  Value outputs = Value::array();
+  Value scores = Value::array();
+  Value score_vectors = Value::array();
+  Value trajectories = Value::array();
+  for (auto row : Core::iter(rows)) {
+    Value prediction = Core::get(row, Value("prediction"), empty_map);
+    Value output = Core::get(prediction, Value("output"), prediction);
+    Core::append(outputs, output);
+    Value scalar = Core::get(row, Value("scalar"), Value(0));
+    Core::append(scores, scalar);
+    Value vector = Core::get(row, Value("scores"), empty_map);
+    Core::append(score_vectors, vector);
+    Value trajectory = Value::object();
+    Value trace = Core::get(row, Value("trace"), Value());
+    Core::set(trajectory, Value("trace"), trace);
+    Core::set(trajectory, Value("output"), output);
+    Value row_error = Core::get(row, Value("error"), Value());
+    Value prediction_error = Core::get(prediction, Value("error"), row_error);
+    Value has_error = Core::is_not_none(prediction_error);
+    if (Core::truthy(has_error)) {
+      Core::set(trajectory, Value("error"), prediction_error);
     }
+    Core::append(trajectories, trajectory);
   }
-  Value stats = Value::object();
-  Core::set(stats, Value("bulletCount"), bullet_count);
-  Core::set(stats, Value("helpfulCount"), helpful_count);
-  Core::set(stats, Value("harmfulCount"), harmful_count);
-  Core::set(stats, Value("tokenEstimate"), token_estimate);
-  Core::set(playbook, Value("stats"), stats);
-  return playbook;
+  Value reflective = Value::object();
+  for (auto component : Core::iter(components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value items = Value::array();
+    for (auto row : Core::iter(rows)) {
+      Value entry = Value::object();
+      Value prediction = Core::get(row, Value("prediction"), empty_map);
+      Value output = Core::get(prediction, Value("output"), prediction);
+      Value scalar = Core::get(row, Value("scalar"), Value(0));
+      Value trace = Core::get(row, Value("trace"), Value());
+      Core::set(entry, Value("score"), scalar);
+      Core::set(entry, Value("output"), output);
+      Core::set(entry, Value("trace"), trace);
+      Value error = Core::get(row, Value("error"), Value());
+      Value has_error = Core::is_not_none(error);
+      if (Core::truthy(has_error)) {
+        Core::set(entry, Value("error"), error);
+      }
+      Core::append(items, entry);
+    }
+    Core::set(reflective, id, items);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("contractVersion"), Value("axir-optimizer-evidence-v1"));
+  Value candidate_map = Core::get(eval_result, Value("candidateMap"), empty_map);
+  Core::set(out, Value("candidateMap"), candidate_map);
+  Core::set(out, Value("outputs"), outputs);
+  Core::set(out, Value("scores"), scores);
+  Core::set(out, Value("scoreVectors"), score_vectors);
+  Core::set(out, Value("trajectories"), trajectories);
+  Value avg = Core::get(eval_result, Value("avg"), Value(0));
+  Value sum = Core::get(eval_result, Value("sum"), Value(0));
+  Value count = Core::get(eval_result, Value("count"), Value(0));
+  Core::set(out, Value("avg"), avg);
+  Core::set(out, Value("sum"), sum);
+  Core::set(out, Value("count"), count);
+  Core::set(out, Value("reflectiveDataset"), reflective);
+  return out;
 }
 
 Value Core::chat_session_normalize_call(Value call) {
@@ -27629,26 +27696,6 @@ Value Core::chat_session_defer_final_call(Value state, Value call) {
   return Value(false);
 }
 
-Value Core::_ace_empty_playbook(Value description, Value now) {
-  axir_coverage_mark("_ace_empty_playbook");
-  Value out = Value::object();
-  Core::set(out, Value("version"), Value(1));
-  Value sections = Value::object();
-  Core::set(out, Value("sections"), sections);
-  Value stats = Value::object();
-  Core::set(stats, Value("bulletCount"), Value(0));
-  Core::set(stats, Value("helpfulCount"), Value(0));
-  Core::set(stats, Value("harmfulCount"), Value(0));
-  Core::set(stats, Value("tokenEstimate"), Value(0));
-  Core::set(out, Value("stats"), stats);
-  Core::set(out, Value("updatedAt"), now);
-  Value has_description = Core::truthy_value(description);
-  if (Core::truthy(has_description)) {
-    Core::set(out, Value("description"), description);
-  }
-  return out;
-}
-
 Value Core::chat_session_complete_call(Value state, Value id, Value result) {
   axir_coverage_mark("chat_session_complete_call");
   Value terminal = Core::get(state, Value("terminal"), Value(false));
@@ -27672,63 +27719,6 @@ Value Core::chat_session_complete_call(Value state, Value id, Value result) {
     return Value(true);
   }
   return Value(false);
-}
-
-Value Core::_ace_render_playbook(Value playbook) {
-  axir_coverage_mark("_ace_render_playbook");
-  Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value description = Core::get(playbook, Value("description"), Value());
-  Value has_description = Core::truthy_value(description);
-  Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value section_names = Core::map_keys(sections);
-  Value bullet_count = Value(0);
-  for (auto section_name : Core::iter(section_names)) {
-    Value section_bullets = Core::get(sections, section_name, empty_list);
-    Value section_count = Core::len(section_bullets);
-    Value next_bullet_count = Core::add(bullet_count, section_count);
-    bullet_count = next_bullet_count;
-  }
-  Value has_bullets = Core::gt(bullet_count, Value(0));
-  Value no_bullets = Core::not_(has_bullets);
-  Value no_description = Core::not_(has_description);
-  Value empty_playbook = Core::and_(no_bullets, no_description);
-  if (Core::truthy(empty_playbook)) {
-    return Value("");
-  }
-  Value header = Value("## Context Playbook\n");
-  if (Core::truthy(has_description)) {
-    Value trimmed_description = Core::string_trim(description);
-    Value header_with_description = Core::string_format(Value("## Context Playbook\n{}\n"), trimmed_description);
-    header = header_with_description;
-  }
-  Value section_blocks = Value::array();
-  for (auto section_name : Core::iter(section_names)) {
-    Value bullets = Core::get(sections, section_name, Value());
-    Value bullet_lines = Value::array();
-    for (auto bullet : Core::iter(bullets)) {
-      Value id = Core::get(bullet, Value("id"), Value(""));
-      Value content = Core::get(bullet, Value("content"), Value(""));
-      Value line = Core::string_format(Value("- [{}] {}"), id, content);
-      Core::append(bullet_lines, line);
-    }
-    Value body = Core::string_join(Value("\n"), bullet_lines);
-    Value has_body = Core::ne(body, Value(""));
-    Value block = Value("");
-    if (Core::truthy(has_body)) {
-      Value block_with_body = Core::string_format(Value("### {}\n{}"), section_name, body);
-      block = block_with_body;
-    }
-    if (!Core::truthy(has_body)) {
-      Value block_empty = Core::string_format(Value("### {}\n_(empty)_"), section_name);
-      block = block_empty;
-    }
-    Core::append(section_blocks, block);
-  }
-  Value joined_sections = Core::string_join(Value("\n\n"), section_blocks);
-  Value combined = Core::string_format(Value("{}\n{}"), header, joined_sections);
-  Value result = Core::string_trim(combined);
-  return result;
 }
 
 Value Core::_stream_convert_value_impl(Value field, Value value, Value required) {
@@ -27873,6 +27863,24 @@ Value Core::chat_session_complete_response(Value state, Value id) {
   return Value(true);
 }
 
+Value Core::_ace_estimate_token_count(Value text) {
+  axir_coverage_mark("_ace_estimate_token_count");
+  Value len = Core::len(text);
+  Value tokens = Value(0);
+  Value remaining = len;
+  while (true) {
+    Value done = Core::lte(remaining, Value(0));
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value tokens_next = Core::add(tokens, Value(1));
+    tokens = tokens_next;
+    Value remaining_next = Core::add(remaining, Value(-4));
+    remaining = remaining_next;
+  }
+  return tokens;
+}
+
 Value Core::_date_range_keyword_impl(Value units, Value at, Value end) {
   axir_coverage_mark("_date_range_keyword_impl");
   Value unit = Core::get(units, at, Value(0));
@@ -27919,56 +27927,44 @@ Value Core::_date_range_keyword_impl(Value units, Value at, Value end) {
   return Value(0);
 }
 
-Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now) {
-  axir_coverage_mark("_ace_update_bullet_feedback");
-  Value empty_map = Value::object();
-  Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value section_names = Core::map_keys(sections);
-  Value found = Value(false);
-  for (auto section_name : Core::iter(section_names)) {
-    Value already_found = found;
-    if (Core::truthy(already_found)) {
-      // empty
-    }
-    if (!Core::truthy(already_found)) {
-      Value bullets = Core::get(sections, section_name, Value());
-      for (auto bullet : Core::iter(bullets)) {
-        Value current_id = Core::get(bullet, Value("id"), Value(""));
-        Value match = Core::eq(bullet_id, current_id);
-        Value still_open = Core::not_(found);
-        if (Core::truthy(match)) {
-          if (Core::truthy(still_open)) {
-            Value is_helpful = Core::eq(tag, Value("helpful"));
-            if (Core::truthy(is_helpful)) {
-              Value helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
-              Value helpful_next = Core::add(helpful, Value(1));
-              Core::set(bullet, Value("helpfulCount"), helpful_next);
-            }
-            Value is_harmful = Core::eq(tag, Value("harmful"));
-            if (Core::truthy(is_harmful)) {
-              Value harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
-              Value harmful_next = Core::add(harmful, Value(1));
-              Core::set(bullet, Value("harmfulCount"), harmful_next);
-            }
-            Core::set(bullet, Value("updatedAt"), now);
-            found = Value(true);
-          }
-        }
-      }
-    }
-  }
-  Value did_find = found;
-  if (Core::truthy(did_find)) {
-    Value updated = Core::_ace_recompute_playbook_stats(playbook);
-    return updated;
-  }
-  return playbook;
-}
-
 Value Core::_set_examples(Value gen, Value examples) {
   axir_coverage_mark("_set_examples");
   Core::set(gen, Value("examples"), examples);
   return gen;
+}
+
+Value Core::_ace_recompute_playbook_stats(Value playbook) {
+  axir_coverage_mark("_ace_recompute_playbook_stats");
+  Value empty_map = Value::object();
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value bullet_count = Value(0);
+  Value helpful_count = Value(0);
+  Value harmful_count = Value(0);
+  Value token_estimate = Value(0);
+  Value section_lists = Core::map_values(sections);
+  for (auto bullets : Core::iter(section_lists)) {
+    for (auto bullet : Core::iter(bullets)) {
+      Value bullet_count_next = Core::add(bullet_count, Value(1));
+      bullet_count = bullet_count_next;
+      Value helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
+      Value harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
+      Value helpful_count_next = Core::add(helpful_count, helpful);
+      helpful_count = helpful_count_next;
+      Value harmful_count_next = Core::add(harmful_count, harmful);
+      harmful_count = harmful_count_next;
+      Value content = Core::get(bullet, Value("content"), Value(""));
+      Value bullet_tokens = Core::_ace_estimate_token_count(content);
+      Value token_estimate_next = Core::add(token_estimate, bullet_tokens);
+      token_estimate = token_estimate_next;
+    }
+  }
+  Value stats = Value::object();
+  Core::set(stats, Value("bulletCount"), bullet_count);
+  Core::set(stats, Value("helpfulCount"), helpful_count);
+  Core::set(stats, Value("harmfulCount"), harmful_count);
+  Core::set(stats, Value("tokenEstimate"), token_estimate);
+  Core::set(playbook, Value("stats"), stats);
+  return playbook;
 }
 
 Value Core::_set_demos(Value gen, Value demos) {
@@ -28105,49 +28101,30 @@ Value Core::_render_demos(Value gen) {
   return messages;
 }
 
+Value Core::_ace_empty_playbook(Value description, Value now) {
+  axir_coverage_mark("_ace_empty_playbook");
+  Value out = Value::object();
+  Core::set(out, Value("version"), Value(1));
+  Value sections = Value::object();
+  Core::set(out, Value("sections"), sections);
+  Value stats = Value::object();
+  Core::set(stats, Value("bulletCount"), Value(0));
+  Core::set(stats, Value("helpfulCount"), Value(0));
+  Core::set(stats, Value("harmfulCount"), Value(0));
+  Core::set(stats, Value("tokenEstimate"), Value(0));
+  Core::set(out, Value("stats"), stats);
+  Core::set(out, Value("updatedAt"), now);
+  Value has_description = Core::truthy_value(description);
+  if (Core::truthy(has_description)) {
+    Core::set(out, Value("description"), description);
+  }
+  return out;
+}
+
 Value Core::_apply_field_processors(Value gen, Value output) {
   axir_coverage_mark("_apply_field_processors");
   Value processed = Core::axgen_apply_field_processors(gen, output);
   return processed;
-}
-
-Value Core::_ace_dedupe_playbook(Value playbook) {
-  axir_coverage_mark("_ace_dedupe_playbook");
-  Value empty_map = Value::object();
-  Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value section_names = Core::map_keys(sections);
-  for (auto section_name : Core::iter(section_names)) {
-    Value bullets = Core::get(sections, section_name, Value());
-    Value seen = Value::object();
-    Value unique = Value::array();
-    for (auto bullet : Core::iter(bullets)) {
-      Value content = Core::get(bullet, Value("content"), Value(""));
-      Value trimmed = Core::string_trim(content);
-      Value key = Core::string_lower(trimmed);
-      Value has_existing = Core::map_contains(seen, key);
-      if (Core::truthy(has_existing)) {
-        Value existing = Core::get(seen, key, Value());
-        Value existing_helpful = Core::get(existing, Value("helpfulCount"), Value(0));
-        Value bullet_helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
-        Value merged_helpful = Core::add(existing_helpful, bullet_helpful);
-        Core::set(existing, Value("helpfulCount"), merged_helpful);
-        Value existing_harmful = Core::get(existing, Value("harmfulCount"), Value(0));
-        Value bullet_harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
-        Value merged_harmful = Core::add(existing_harmful, bullet_harmful);
-        Core::set(existing, Value("harmfulCount"), merged_harmful);
-        Value bullet_updated_at = Core::get(bullet, Value("updatedAt"), Value(""));
-        Core::set(existing, Value("updatedAt"), bullet_updated_at);
-      }
-      if (!Core::truthy(has_existing)) {
-        Core::set(seen, key, bullet);
-        Core::append(unique, bullet);
-      }
-    }
-    Core::set(sections, section_name, unique);
-  }
-  Core::set(playbook, Value("sections"), sections);
-  Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
-  return recomputed;
 }
 
 Value Core::chat_session_native_wait(Value state) {
@@ -28193,6 +28170,63 @@ Value Core::_run_assertions(Value gen, Value output) {
   }
   Value passed = Core::none();
   return passed;
+}
+
+Value Core::_ace_render_playbook(Value playbook) {
+  axir_coverage_mark("_ace_render_playbook");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value description = Core::get(playbook, Value("description"), Value());
+  Value has_description = Core::truthy_value(description);
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value section_names = Core::map_keys(sections);
+  Value bullet_count = Value(0);
+  for (auto section_name : Core::iter(section_names)) {
+    Value section_bullets = Core::get(sections, section_name, empty_list);
+    Value section_count = Core::len(section_bullets);
+    Value next_bullet_count = Core::add(bullet_count, section_count);
+    bullet_count = next_bullet_count;
+  }
+  Value has_bullets = Core::gt(bullet_count, Value(0));
+  Value no_bullets = Core::not_(has_bullets);
+  Value no_description = Core::not_(has_description);
+  Value empty_playbook = Core::and_(no_bullets, no_description);
+  if (Core::truthy(empty_playbook)) {
+    return Value("");
+  }
+  Value header = Value("## Context Playbook\n");
+  if (Core::truthy(has_description)) {
+    Value trimmed_description = Core::string_trim(description);
+    Value header_with_description = Core::string_format(Value("## Context Playbook\n{}\n"), trimmed_description);
+    header = header_with_description;
+  }
+  Value section_blocks = Value::array();
+  for (auto section_name : Core::iter(section_names)) {
+    Value bullets = Core::get(sections, section_name, Value());
+    Value bullet_lines = Value::array();
+    for (auto bullet : Core::iter(bullets)) {
+      Value id = Core::get(bullet, Value("id"), Value(""));
+      Value content = Core::get(bullet, Value("content"), Value(""));
+      Value line = Core::string_format(Value("- [{}] {}"), id, content);
+      Core::append(bullet_lines, line);
+    }
+    Value body = Core::string_join(Value("\n"), bullet_lines);
+    Value has_body = Core::ne(body, Value(""));
+    Value block = Value("");
+    if (Core::truthy(has_body)) {
+      Value block_with_body = Core::string_format(Value("### {}\n{}"), section_name, body);
+      block = block_with_body;
+    }
+    if (!Core::truthy(has_body)) {
+      Value block_empty = Core::string_format(Value("### {}\n_(empty)_"), section_name);
+      block = block_empty;
+    }
+    Core::append(section_blocks, block);
+  }
+  Value joined_sections = Core::string_join(Value("\n\n"), section_blocks);
+  Value combined = Core::string_format(Value("{}\n{}"), header, joined_sections);
+  Value result = Core::string_trim(combined);
+  return result;
 }
 
 Value Core::_regex_word(Value c) {
@@ -28552,87 +28586,6 @@ Value Core::chat_session_native_event(Value state, Value event) {
   return result;
 }
 
-Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
-  axir_coverage_mark("_ace_prune_section_for_addition");
-  Value candidate_index = Value(-1);
-  Value candidate_net = Value(0);
-  Value candidate_helpful = Value(0);
-  Value candidate_recency = Value(0);
-  Value index = Value(0);
-  for (auto bullet : Core::iter(section)) {
-    Value id = Core::get(bullet, Value("id"), Value(""));
-    Value is_protected = Core::contains(protected_ids, id);
-    Value not_protected = Core::not_(is_protected);
-    if (Core::truthy(not_protected)) {
-      Value helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
-      Value harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
-      Value harmful_weighted = Core::mul(harmful, Value(2));
-      Value negative_harmful = Core::mul(harmful_weighted, Value(-1));
-      Value net_score = Core::add(helpful, negative_harmful);
-      Value created_at = Core::get(bullet, Value("createdAt"), Value(""));
-      Value recency = Core::get(bullet, Value("updatedAt"), created_at);
-      Value no_candidate = Core::lt(candidate_index, Value(0));
-      if (Core::truthy(no_candidate)) {
-        candidate_index = index;
-        candidate_net = net_score;
-        candidate_helpful = helpful;
-        candidate_recency = recency;
-      }
-      if (!Core::truthy(no_candidate)) {
-        Value net_lower = Core::lt(net_score, candidate_net);
-        Value net_equal = Core::eq(net_score, candidate_net);
-        Value helpful_lower = Core::lt(helpful, candidate_helpful);
-        Value helpful_equal = Core::eq(helpful, candidate_helpful);
-        Value recency_lower = Core::lt(recency, candidate_recency);
-        Value is_worse = net_lower;
-        if (Core::truthy(net_equal)) {
-          if (Core::truthy(helpful_lower)) {
-            is_worse = Value(true);
-          }
-          if (Core::truthy(helpful_equal)) {
-            if (Core::truthy(recency_lower)) {
-              is_worse = Value(true);
-            }
-          }
-        }
-        if (Core::truthy(is_worse)) {
-          candidate_index = index;
-          candidate_net = net_score;
-          candidate_helpful = helpful;
-          candidate_recency = recency;
-        }
-      }
-    }
-    Value index_next = Core::add(index, Value(1));
-    index = index_next;
-  }
-  Value out = Value::object();
-  Value has_candidate = Core::gte(candidate_index, Value(0));
-  Value new_section = Value::array();
-  if (Core::truthy(has_candidate)) {
-    Value pruned = Core::none();
-    Value cursor = Value(0);
-    for (auto bullet : Core::iter(section)) {
-      Value is_target = Core::eq(cursor, candidate_index);
-      if (Core::truthy(is_target)) {
-        pruned = bullet;
-      }
-      if (!Core::truthy(is_target)) {
-        Core::append(new_section, bullet);
-      }
-      Value cursor_next = Core::add(cursor, Value(1));
-      cursor = cursor_next;
-    }
-    Core::set(out, Value("pruned"), pruned);
-    Core::set(out, Value("section"), new_section);
-    return out;
-  }
-  Value null_pruned = Core::none();
-  Core::set(out, Value("pruned"), null_pruned);
-  Core::set(out, Value("section"), section);
-  return out;
-}
-
 Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
   axir_coverage_mark("_append_assertion_retry_messages");
   Value updated_messages = Core::_append_validation_retry_messages_impl(messages, response, error);
@@ -28783,6 +28736,52 @@ Value Core::_should_continue_steps(Value gen, Value calls) {
   return should_continue;
 }
 
+Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now) {
+  axir_coverage_mark("_ace_update_bullet_feedback");
+  Value empty_map = Value::object();
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value section_names = Core::map_keys(sections);
+  Value found = Value(false);
+  for (auto section_name : Core::iter(section_names)) {
+    Value already_found = found;
+    if (Core::truthy(already_found)) {
+      // empty
+    }
+    if (!Core::truthy(already_found)) {
+      Value bullets = Core::get(sections, section_name, Value());
+      for (auto bullet : Core::iter(bullets)) {
+        Value current_id = Core::get(bullet, Value("id"), Value(""));
+        Value match = Core::eq(bullet_id, current_id);
+        Value still_open = Core::not_(found);
+        if (Core::truthy(match)) {
+          if (Core::truthy(still_open)) {
+            Value is_helpful = Core::eq(tag, Value("helpful"));
+            if (Core::truthy(is_helpful)) {
+              Value helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
+              Value helpful_next = Core::add(helpful, Value(1));
+              Core::set(bullet, Value("helpfulCount"), helpful_next);
+            }
+            Value is_harmful = Core::eq(tag, Value("harmful"));
+            if (Core::truthy(is_harmful)) {
+              Value harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
+              Value harmful_next = Core::add(harmful, Value(1));
+              Core::set(bullet, Value("harmfulCount"), harmful_next);
+            }
+            Core::set(bullet, Value("updatedAt"), now);
+            found = Value(true);
+          }
+        }
+      }
+    }
+  }
+  Value did_find = found;
+  if (Core::truthy(did_find)) {
+    Value updated = Core::_ace_recompute_playbook_stats(playbook);
+    return updated;
+  }
+  return playbook;
+}
+
 Value Core::_parse_output_impl(Value content) {
   axir_coverage_mark("_parse_output_impl");
   Value text = Core::string_trim(content);
@@ -28821,174 +28820,43 @@ Value Core::_date_js_trim_impl(Value text) {
   return trimmed;
 }
 
-Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now) {
-  axir_coverage_mark("_ace_apply_curator_operations");
+Value Core::_ace_dedupe_playbook(Value playbook) {
+  axir_coverage_mark("_ace_dedupe_playbook");
   Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value opts = options;
-  Value opts_missing = Core::is_none(options);
-  if (Core::truthy(opts_missing)) {
-    opts = empty_map;
-  }
-  Value allow_dynamic = Core::get(opts, Value("allowDynamicSections"), Value(true));
-  Value enable_auto_prune = Core::get(opts, Value("enableAutoPrune"), Value(false));
-  Value has_max = Core::map_contains(opts, Value("maxSectionSize"));
-  Value max_section_size = Core::get(opts, Value("maxSectionSize"), Value(0));
-  Value protected_ids = Core::get(opts, Value("protectedBulletIds"), empty_list);
-  Value updated_bullets = Value::array();
-  Value auto_removed = Value::array();
   Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value operation_index = Value(0);
-  for (auto op : Core::iter(operations)) {
-    Value section_name = Core::get(op, Value("section"), Value(""));
-    Value has_section_name = Core::ne(section_name, Value(""));
-    if (Core::truthy(has_section_name)) {
-      Value section_exists = Core::map_contains(sections, section_name);
-      Value missing_section = Core::not_(section_exists);
-      if (Core::truthy(missing_section)) {
-        if (Core::truthy(allow_dynamic)) {
-          Value new_section_list = Value::array();
-          Core::set(sections, section_name, new_section_list);
-        }
+  Value section_names = Core::map_keys(sections);
+  for (auto section_name : Core::iter(section_names)) {
+    Value bullets = Core::get(sections, section_name, Value());
+    Value seen = Value::object();
+    Value unique = Value::array();
+    for (auto bullet : Core::iter(bullets)) {
+      Value content = Core::get(bullet, Value("content"), Value(""));
+      Value trimmed = Core::string_trim(content);
+      Value key = Core::string_lower(trimmed);
+      Value has_existing = Core::map_contains(seen, key);
+      if (Core::truthy(has_existing)) {
+        Value existing = Core::get(seen, key, Value());
+        Value existing_helpful = Core::get(existing, Value("helpfulCount"), Value(0));
+        Value bullet_helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
+        Value merged_helpful = Core::add(existing_helpful, bullet_helpful);
+        Core::set(existing, Value("helpfulCount"), merged_helpful);
+        Value existing_harmful = Core::get(existing, Value("harmfulCount"), Value(0));
+        Value bullet_harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
+        Value merged_harmful = Core::add(existing_harmful, bullet_harmful);
+        Core::set(existing, Value("harmfulCount"), merged_harmful);
+        Value bullet_updated_at = Core::get(bullet, Value("updatedAt"), Value(""));
+        Core::set(existing, Value("updatedAt"), bullet_updated_at);
       }
-      Value section_now_exists = Core::map_contains(sections, section_name);
-      if (Core::truthy(section_now_exists)) {
-        Value section = Core::get(sections, section_name, Value());
-        Value op_type = Core::get(op, Value("type"), Value(""));
-        Value is_add = Core::eq(op_type, Value("ADD"));
-        if (Core::truthy(is_add)) {
-          Value raw_content = Core::get(op, Value("content"), Value(""));
-          Value content = Core::string_trim(raw_content);
-          Value has_content = Core::ne(content, Value(""));
-          if (Core::truthy(has_content)) {
-            Value section_len = Core::len(section);
-            Value at_capacity_raw = Core::gte(section_len, max_section_size);
-            Value at_capacity = Value(false);
-            if (Core::truthy(has_max)) {
-              if (Core::truthy(at_capacity_raw)) {
-                at_capacity = Value(true);
-              }
-            }
-            Value proceed = Value(true);
-            if (Core::truthy(at_capacity)) {
-              if (Core::truthy(enable_auto_prune)) {
-                Value prune_result = Core::_ace_prune_section_for_addition(section, protected_ids);
-                Value pruned = Core::get(prune_result, Value("pruned"), Value());
-                Value has_pruned = Core::is_not_none(pruned);
-                if (Core::truthy(has_pruned)) {
-                  Value pruned_section = Core::get(prune_result, Value("section"), Value());
-                  section = pruned_section;
-                  Core::set(sections, section_name, section);
-                  Value pruned_id = Core::get(pruned, Value("id"), Value(""));
-                  Core::append(updated_bullets, pruned_id);
-                  Value removal = Value::object();
-                  Core::set(removal, Value("type"), Value("REMOVE"));
-                  Core::set(removal, Value("section"), section_name);
-                  Core::set(removal, Value("bulletId"), pruned_id);
-                  Value pruned_metadata = Core::get(pruned, Value("metadata"), empty_map);
-                  Value removal_metadata = Core::map_merge(empty_map, pruned_metadata);
-                  Core::set(removal_metadata, Value("autoPruned"), Value(true));
-                  Core::set(removal_metadata, Value("removedAt"), now);
-                  Core::set(removal, Value("metadata"), removal_metadata);
-                  Core::append(auto_removed, removal);
-                }
-                if (!Core::truthy(has_pruned)) {
-                  proceed = Value(false);
-                }
-              }
-              if (!Core::truthy(enable_auto_prune)) {
-                proceed = Value(false);
-              }
-            }
-            if (Core::truthy(proceed)) {
-              Value op_bullet_id = Core::get(op, Value("bulletId"), Value());
-              Value has_bullet_id = Core::is_not_none(op_bullet_id);
-              Value bullet_id = op_bullet_id;
-              Value missing_bullet_id = Core::not_(has_bullet_id);
-              if (Core::truthy(missing_bullet_id)) {
-                Value bullet_id_prefix = Core::string_format(Value("{}-{}-{}"), section_name, now, section_len);
-                bullet_id = Core::string_format(Value("{}-{}"), bullet_id_prefix, operation_index);
-              }
-              Value bullet = Value::object();
-              Core::set(bullet, Value("id"), bullet_id);
-              Core::set(bullet, Value("section"), section_name);
-              Core::set(bullet, Value("content"), content);
-              Core::set(bullet, Value("helpfulCount"), Value(0));
-              Core::set(bullet, Value("harmfulCount"), Value(0));
-              Core::set(bullet, Value("createdAt"), now);
-              Core::set(bullet, Value("updatedAt"), now);
-              Value op_metadata = Core::get(op, Value("metadata"), Value());
-              Value has_metadata = Core::is_not_none(op_metadata);
-              if (Core::truthy(has_metadata)) {
-                Value bullet_metadata = Core::map_merge(empty_map, op_metadata);
-                Core::set(bullet, Value("metadata"), bullet_metadata);
-              }
-              Core::append(section, bullet);
-              Core::set(sections, section_name, section);
-              Core::append(updated_bullets, bullet_id);
-            }
-          }
-        }
-        Value is_update = Core::eq(op_type, Value("UPDATE"));
-        if (Core::truthy(is_update)) {
-          Value target_id = Core::get(op, Value("bulletId"), Value());
-          for (auto bullet : Core::iter(section)) {
-            Value candidate_bullet_id = Core::get(bullet, Value("id"), Value(""));
-            Value bullet_match = Core::eq(candidate_bullet_id, target_id);
-            if (Core::truthy(bullet_match)) {
-              Value op_content = Core::get(op, Value("content"), Value());
-              Value content_is_string = Core::type_is(op_content, Value("string"));
-              if (Core::truthy(content_is_string)) {
-                Core::set(bullet, Value("content"), op_content);
-              }
-              Core::set(bullet, Value("updatedAt"), now);
-              Value op_metadata_update = Core::get(op, Value("metadata"), Value());
-              Value has_metadata_update = Core::is_not_none(op_metadata_update);
-              if (Core::truthy(has_metadata_update)) {
-                Value existing_metadata = Core::get(bullet, Value("metadata"), empty_map);
-                Value merged_metadata = Core::map_merge(existing_metadata, op_metadata_update);
-                Core::set(bullet, Value("metadata"), merged_metadata);
-              }
-              Value bullet_id_update = Core::get(bullet, Value("id"), Value(""));
-              Core::append(updated_bullets, bullet_id_update);
-            }
-          }
-        }
-        Value is_remove = Core::eq(op_type, Value("REMOVE"));
-        if (Core::truthy(is_remove)) {
-          Value remove_id = Core::get(op, Value("bulletId"), Value());
-          Value kept = Value::array();
-          Value none_value = Core::none();
-          Value removed_id = none_value;
-          for (auto bullet : Core::iter(section)) {
-            Value remove_candidate_id = Core::get(bullet, Value("id"), Value(""));
-            Value bullet_remove_match = Core::eq(remove_candidate_id, remove_id);
-            if (Core::truthy(bullet_remove_match)) {
-              removed_id = remove_candidate_id;
-            }
-            if (!Core::truthy(bullet_remove_match)) {
-              Core::append(kept, bullet);
-            }
-          }
-          Core::set(sections, section_name, kept);
-          Value did_remove = Core::is_not_none(removed_id);
-          if (Core::truthy(did_remove)) {
-            Core::append(updated_bullets, removed_id);
-          }
-        }
+      if (!Core::truthy(has_existing)) {
+        Core::set(seen, key, bullet);
+        Core::append(unique, bullet);
       }
     }
-    Value next_operation_index = Core::add(operation_index, Value(1));
-    operation_index = next_operation_index;
+    Core::set(sections, section_name, unique);
   }
   Core::set(playbook, Value("sections"), sections);
   Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
-  Core::set(recomputed, Value("updatedAt"), now);
-  Value out = Value::object();
-  Core::set(out, Value("playbook"), recomputed);
-  Core::set(out, Value("updatedBulletIds"), updated_bullets);
-  Core::set(out, Value("autoRemoved"), auto_removed);
-  return out;
+  return recomputed;
 }
 
 Value Core::_parse_json_string_value(Value value) {
@@ -29289,6 +29157,87 @@ Value Core::_date_skip_space_impl(Value units, Value start, Value end) {
   return cursor;
 }
 
+Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
+  axir_coverage_mark("_ace_prune_section_for_addition");
+  Value candidate_index = Value(-1);
+  Value candidate_net = Value(0);
+  Value candidate_helpful = Value(0);
+  Value candidate_recency = Value(0);
+  Value index = Value(0);
+  for (auto bullet : Core::iter(section)) {
+    Value id = Core::get(bullet, Value("id"), Value(""));
+    Value is_protected = Core::contains(protected_ids, id);
+    Value not_protected = Core::not_(is_protected);
+    if (Core::truthy(not_protected)) {
+      Value helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
+      Value harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
+      Value harmful_weighted = Core::mul(harmful, Value(2));
+      Value negative_harmful = Core::mul(harmful_weighted, Value(-1));
+      Value net_score = Core::add(helpful, negative_harmful);
+      Value created_at = Core::get(bullet, Value("createdAt"), Value(""));
+      Value recency = Core::get(bullet, Value("updatedAt"), created_at);
+      Value no_candidate = Core::lt(candidate_index, Value(0));
+      if (Core::truthy(no_candidate)) {
+        candidate_index = index;
+        candidate_net = net_score;
+        candidate_helpful = helpful;
+        candidate_recency = recency;
+      }
+      if (!Core::truthy(no_candidate)) {
+        Value net_lower = Core::lt(net_score, candidate_net);
+        Value net_equal = Core::eq(net_score, candidate_net);
+        Value helpful_lower = Core::lt(helpful, candidate_helpful);
+        Value helpful_equal = Core::eq(helpful, candidate_helpful);
+        Value recency_lower = Core::lt(recency, candidate_recency);
+        Value is_worse = net_lower;
+        if (Core::truthy(net_equal)) {
+          if (Core::truthy(helpful_lower)) {
+            is_worse = Value(true);
+          }
+          if (Core::truthy(helpful_equal)) {
+            if (Core::truthy(recency_lower)) {
+              is_worse = Value(true);
+            }
+          }
+        }
+        if (Core::truthy(is_worse)) {
+          candidate_index = index;
+          candidate_net = net_score;
+          candidate_helpful = helpful;
+          candidate_recency = recency;
+        }
+      }
+    }
+    Value index_next = Core::add(index, Value(1));
+    index = index_next;
+  }
+  Value out = Value::object();
+  Value has_candidate = Core::gte(candidate_index, Value(0));
+  Value new_section = Value::array();
+  if (Core::truthy(has_candidate)) {
+    Value pruned = Core::none();
+    Value cursor = Value(0);
+    for (auto bullet : Core::iter(section)) {
+      Value is_target = Core::eq(cursor, candidate_index);
+      if (Core::truthy(is_target)) {
+        pruned = bullet;
+      }
+      if (!Core::truthy(is_target)) {
+        Core::append(new_section, bullet);
+      }
+      Value cursor_next = Core::add(cursor, Value(1));
+      cursor = cursor_next;
+    }
+    Core::set(out, Value("pruned"), pruned);
+    Core::set(out, Value("section"), new_section);
+    return out;
+  }
+  Value null_pruned = Core::none();
+  Core::set(out, Value("pruned"), null_pruned);
+  Core::set(out, Value("section"), section);
+  return out;
+}
+
 Value Core::_date_space_impl(Value unit) {
   axir_coverage_mark("_date_space_impl");
   Value tab_low = Core::gte(unit, Value(9));
@@ -29465,6 +29414,176 @@ Value Core::_date_ascii_letter_impl(Value unit) {
   Value lower = Core::and_(lower_low, lower_high);
   Value letter = Core::or_(upper, lower);
   return letter;
+}
+
+Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now) {
+  axir_coverage_mark("_ace_apply_curator_operations");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value opts = options;
+  Value opts_missing = Core::is_none(options);
+  if (Core::truthy(opts_missing)) {
+    opts = empty_map;
+  }
+  Value allow_dynamic = Core::get(opts, Value("allowDynamicSections"), Value(true));
+  Value enable_auto_prune = Core::get(opts, Value("enableAutoPrune"), Value(false));
+  Value has_max = Core::map_contains(opts, Value("maxSectionSize"));
+  Value max_section_size = Core::get(opts, Value("maxSectionSize"), Value(0));
+  Value protected_ids = Core::get(opts, Value("protectedBulletIds"), empty_list);
+  Value updated_bullets = Value::array();
+  Value auto_removed = Value::array();
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value operation_index = Value(0);
+  for (auto op : Core::iter(operations)) {
+    Value section_name = Core::get(op, Value("section"), Value(""));
+    Value has_section_name = Core::ne(section_name, Value(""));
+    if (Core::truthy(has_section_name)) {
+      Value section_exists = Core::map_contains(sections, section_name);
+      Value missing_section = Core::not_(section_exists);
+      if (Core::truthy(missing_section)) {
+        if (Core::truthy(allow_dynamic)) {
+          Value new_section_list = Value::array();
+          Core::set(sections, section_name, new_section_list);
+        }
+      }
+      Value section_now_exists = Core::map_contains(sections, section_name);
+      if (Core::truthy(section_now_exists)) {
+        Value section = Core::get(sections, section_name, Value());
+        Value op_type = Core::get(op, Value("type"), Value(""));
+        Value is_add = Core::eq(op_type, Value("ADD"));
+        if (Core::truthy(is_add)) {
+          Value raw_content = Core::get(op, Value("content"), Value(""));
+          Value content = Core::string_trim(raw_content);
+          Value has_content = Core::ne(content, Value(""));
+          if (Core::truthy(has_content)) {
+            Value section_len = Core::len(section);
+            Value at_capacity_raw = Core::gte(section_len, max_section_size);
+            Value at_capacity = Value(false);
+            if (Core::truthy(has_max)) {
+              if (Core::truthy(at_capacity_raw)) {
+                at_capacity = Value(true);
+              }
+            }
+            Value proceed = Value(true);
+            if (Core::truthy(at_capacity)) {
+              if (Core::truthy(enable_auto_prune)) {
+                Value prune_result = Core::_ace_prune_section_for_addition(section, protected_ids);
+                Value pruned = Core::get(prune_result, Value("pruned"), Value());
+                Value has_pruned = Core::is_not_none(pruned);
+                if (Core::truthy(has_pruned)) {
+                  Value pruned_section = Core::get(prune_result, Value("section"), Value());
+                  section = pruned_section;
+                  Core::set(sections, section_name, section);
+                  Value pruned_id = Core::get(pruned, Value("id"), Value(""));
+                  Core::append(updated_bullets, pruned_id);
+                  Value removal = Value::object();
+                  Core::set(removal, Value("type"), Value("REMOVE"));
+                  Core::set(removal, Value("section"), section_name);
+                  Core::set(removal, Value("bulletId"), pruned_id);
+                  Value pruned_metadata = Core::get(pruned, Value("metadata"), empty_map);
+                  Value removal_metadata = Core::map_merge(empty_map, pruned_metadata);
+                  Core::set(removal_metadata, Value("autoPruned"), Value(true));
+                  Core::set(removal_metadata, Value("removedAt"), now);
+                  Core::set(removal, Value("metadata"), removal_metadata);
+                  Core::append(auto_removed, removal);
+                }
+                if (!Core::truthy(has_pruned)) {
+                  proceed = Value(false);
+                }
+              }
+              if (!Core::truthy(enable_auto_prune)) {
+                proceed = Value(false);
+              }
+            }
+            if (Core::truthy(proceed)) {
+              Value op_bullet_id = Core::get(op, Value("bulletId"), Value());
+              Value has_bullet_id = Core::is_not_none(op_bullet_id);
+              Value bullet_id = op_bullet_id;
+              Value missing_bullet_id = Core::not_(has_bullet_id);
+              if (Core::truthy(missing_bullet_id)) {
+                Value bullet_id_prefix = Core::string_format(Value("{}-{}-{}"), section_name, now, section_len);
+                bullet_id = Core::string_format(Value("{}-{}"), bullet_id_prefix, operation_index);
+              }
+              Value bullet = Value::object();
+              Core::set(bullet, Value("id"), bullet_id);
+              Core::set(bullet, Value("section"), section_name);
+              Core::set(bullet, Value("content"), content);
+              Core::set(bullet, Value("helpfulCount"), Value(0));
+              Core::set(bullet, Value("harmfulCount"), Value(0));
+              Core::set(bullet, Value("createdAt"), now);
+              Core::set(bullet, Value("updatedAt"), now);
+              Value op_metadata = Core::get(op, Value("metadata"), Value());
+              Value has_metadata = Core::is_not_none(op_metadata);
+              if (Core::truthy(has_metadata)) {
+                Value bullet_metadata = Core::map_merge(empty_map, op_metadata);
+                Core::set(bullet, Value("metadata"), bullet_metadata);
+              }
+              Core::append(section, bullet);
+              Core::set(sections, section_name, section);
+              Core::append(updated_bullets, bullet_id);
+            }
+          }
+        }
+        Value is_update = Core::eq(op_type, Value("UPDATE"));
+        if (Core::truthy(is_update)) {
+          Value target_id = Core::get(op, Value("bulletId"), Value());
+          for (auto bullet : Core::iter(section)) {
+            Value candidate_bullet_id = Core::get(bullet, Value("id"), Value(""));
+            Value bullet_match = Core::eq(candidate_bullet_id, target_id);
+            if (Core::truthy(bullet_match)) {
+              Value op_content = Core::get(op, Value("content"), Value());
+              Value content_is_string = Core::type_is(op_content, Value("string"));
+              if (Core::truthy(content_is_string)) {
+                Core::set(bullet, Value("content"), op_content);
+              }
+              Core::set(bullet, Value("updatedAt"), now);
+              Value op_metadata_update = Core::get(op, Value("metadata"), Value());
+              Value has_metadata_update = Core::is_not_none(op_metadata_update);
+              if (Core::truthy(has_metadata_update)) {
+                Value existing_metadata = Core::get(bullet, Value("metadata"), empty_map);
+                Value merged_metadata = Core::map_merge(existing_metadata, op_metadata_update);
+                Core::set(bullet, Value("metadata"), merged_metadata);
+              }
+              Value bullet_id_update = Core::get(bullet, Value("id"), Value(""));
+              Core::append(updated_bullets, bullet_id_update);
+            }
+          }
+        }
+        Value is_remove = Core::eq(op_type, Value("REMOVE"));
+        if (Core::truthy(is_remove)) {
+          Value remove_id = Core::get(op, Value("bulletId"), Value());
+          Value kept = Value::array();
+          Value none_value = Core::none();
+          Value removed_id = none_value;
+          for (auto bullet : Core::iter(section)) {
+            Value remove_candidate_id = Core::get(bullet, Value("id"), Value(""));
+            Value bullet_remove_match = Core::eq(remove_candidate_id, remove_id);
+            if (Core::truthy(bullet_remove_match)) {
+              removed_id = remove_candidate_id;
+            }
+            if (!Core::truthy(bullet_remove_match)) {
+              Core::append(kept, bullet);
+            }
+          }
+          Core::set(sections, section_name, kept);
+          Value did_remove = Core::is_not_none(removed_id);
+          if (Core::truthy(did_remove)) {
+            Core::append(updated_bullets, removed_id);
+          }
+        }
+      }
+    }
+    Value next_operation_index = Core::add(operation_index, Value(1));
+    operation_index = next_operation_index;
+  }
+  Core::set(playbook, Value("sections"), sections);
+  Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
+  Core::set(recomputed, Value("updatedAt"), now);
+  Value out = Value::object();
+  Core::set(out, Value("playbook"), recomputed);
+  Core::set(out, Value("updatedBulletIds"), updated_bullets);
+  Core::set(out, Value("autoRemoved"), auto_removed);
+  return out;
 }
 
 Value Core::_stream_text_extract_impl(Value xstate, Value values, Value content, Value fields, Value options) {
@@ -29759,135 +29878,6 @@ Value Core::_regex_capture_ids(Value n) {
     }
   }
   return out;
-}
-
-Value Core::_ace_is_noop_acknowledgment(Value content) {
-  axir_coverage_mark("_ace_is_noop_acknowledgment");
-  Value lowered = Core::string_lower(content);
-  Value c = Core::string_trim(lowered);
-  Value is_noop = Value(false);
-  Value empty = Core::eq(c, Value(""));
-  Value nonempty = Core::not_(empty);
-  if (Core::truthy(nonempty)) {
-    Value markers = Value::array();
-    Core::append(markers, Value("no-op"));
-    Core::append(markers, Value("noop"));
-    for (auto marker : Core::iter(markers)) {
-      Value marker_hit = Core::string_starts_with(c, marker);
-      if (Core::truthy(marker_hit)) {
-        is_noop = Value(true);
-      }
-    }
-    Value subjects = Value::array();
-    Core::append(subjects, Value("no update"));
-    Core::append(subjects, Value("no updates"));
-    Core::append(subjects, Value("no change"));
-    Core::append(subjects, Value("no changes"));
-    Core::append(subjects, Value("no modification"));
-    Core::append(subjects, Value("no modifications"));
-    Core::append(subjects, Value("no edit"));
-    Core::append(subjects, Value("no edits"));
-    Core::append(subjects, Value("no revision"));
-    Core::append(subjects, Value("no revisions"));
-    Core::append(subjects, Value("no action"));
-    Core::append(subjects, Value("no adjustment"));
-    Core::append(subjects, Value("no adjustments"));
-    Core::append(subjects, Value("no new"));
-    Core::append(subjects, Value("no additional"));
-    Core::append(subjects, Value("no further"));
-    Value has_subject = Value(false);
-    for (auto subject : Core::iter(subjects)) {
-      Value subject_hit = Core::contains(c, subject);
-      if (Core::truthy(subject_hit)) {
-        has_subject = Value(true);
-      }
-    }
-    if (Core::truthy(has_subject)) {
-      Value qualifiers = Value::array();
-      Core::append(qualifiers, Value("needed"));
-      Core::append(qualifiers, Value("required"));
-      Core::append(qualifiers, Value("necessary"));
-      Core::append(qualifiers, Value("warranted"));
-      for (auto qualifier : Core::iter(qualifiers)) {
-        Value qualifier_hit = Core::contains(c, qualifier);
-        if (Core::truthy(qualifier_hit)) {
-          is_noop = Value(true);
-        }
-      }
-    }
-    Value phrases = Value::array();
-    Core::append(phrases, Value("nothing to add"));
-    Core::append(phrases, Value("nothing to change"));
-    Core::append(phrases, Value("nothing to update"));
-    Core::append(phrases, Value("nothing to modify"));
-    Core::append(phrases, Value("nothing to revise"));
-    Core::append(phrases, Value("nothing needs"));
-    Core::append(phrases, Value("nothing further"));
-    for (auto phrase : Core::iter(phrases)) {
-      Value phrase_hit = Core::contains(c, phrase);
-      if (Core::truthy(phrase_hit)) {
-        is_noop = Value(true);
-      }
-    }
-    Value keep_prefixes = Value::array();
-    Core::append(keep_prefixes, Value("keep the existing"));
-    Core::append(keep_prefixes, Value("leave the existing"));
-    Core::append(keep_prefixes, Value("retain the existing"));
-    Core::append(keep_prefixes, Value("preserve the existing"));
-    Value has_keep_prefix = Value(false);
-    for (auto keep_prefix : Core::iter(keep_prefixes)) {
-      Value keep_hit = Core::string_starts_with(c, keep_prefix);
-      if (Core::truthy(keep_hit)) {
-        has_keep_prefix = Value(true);
-      }
-    }
-    if (Core::truthy(has_keep_prefix)) {
-      Value stasis_list = Value::array();
-      Core::append(stasis_list, Value("unchanged"));
-      Core::append(stasis_list, Value("as is"));
-      Core::append(stasis_list, Value("as-is"));
-      Core::append(stasis_list, Value("intact"));
-      Core::append(stasis_list, Value("in place"));
-      for (auto stasis : Core::iter(stasis_list)) {
-        Value stasis_hit = Core::contains(c, stasis);
-        if (Core::truthy(stasis_hit)) {
-          is_noop = Value(true);
-        }
-      }
-    }
-    Value remains_list = Value::array();
-    Core::append(remains_list, Value("remains correct"));
-    Core::append(remains_list, Value("remains unchanged"));
-    Core::append(remains_list, Value("remains the same"));
-    Core::append(remains_list, Value("remains valid"));
-    Core::append(remains_list, Value("remains accurate"));
-    Core::append(remains_list, Value("already correct"));
-    Value has_remains = Value(false);
-    for (auto remains : Core::iter(remains_list)) {
-      Value remains_hit = Core::contains(c, remains);
-      if (Core::truthy(remains_hit)) {
-        has_remains = Value(true);
-      }
-    }
-    if (Core::truthy(has_remains)) {
-      Value referents = Value::array();
-      Core::append(referents, Value("existing"));
-      Core::append(referents, Value("current"));
-      Core::append(referents, Value("rule"));
-      Core::append(referents, Value("guideline"));
-      Core::append(referents, Value("guidance"));
-      Core::append(referents, Value("playbook"));
-      Core::append(referents, Value("bullet"));
-      Core::append(referents, Value("entry"));
-      for (auto referent : Core::iter(referents)) {
-        Value referent_hit = Core::contains(c, referent);
-        if (Core::truthy(referent_hit)) {
-          is_noop = Value(true);
-        }
-      }
-    }
-  }
-  return is_noop;
 }
 
 Value Core::chat_session_close_state(Value state) {
@@ -30822,6 +30812,135 @@ Value Core::_stream_text_required_check_impl(Value values, Value fields) {
   Core::raise_error(error);
 }
 
+Value Core::_ace_is_noop_acknowledgment(Value content) {
+  axir_coverage_mark("_ace_is_noop_acknowledgment");
+  Value lowered = Core::string_lower(content);
+  Value c = Core::string_trim(lowered);
+  Value is_noop = Value(false);
+  Value empty = Core::eq(c, Value(""));
+  Value nonempty = Core::not_(empty);
+  if (Core::truthy(nonempty)) {
+    Value markers = Value::array();
+    Core::append(markers, Value("no-op"));
+    Core::append(markers, Value("noop"));
+    for (auto marker : Core::iter(markers)) {
+      Value marker_hit = Core::string_starts_with(c, marker);
+      if (Core::truthy(marker_hit)) {
+        is_noop = Value(true);
+      }
+    }
+    Value subjects = Value::array();
+    Core::append(subjects, Value("no update"));
+    Core::append(subjects, Value("no updates"));
+    Core::append(subjects, Value("no change"));
+    Core::append(subjects, Value("no changes"));
+    Core::append(subjects, Value("no modification"));
+    Core::append(subjects, Value("no modifications"));
+    Core::append(subjects, Value("no edit"));
+    Core::append(subjects, Value("no edits"));
+    Core::append(subjects, Value("no revision"));
+    Core::append(subjects, Value("no revisions"));
+    Core::append(subjects, Value("no action"));
+    Core::append(subjects, Value("no adjustment"));
+    Core::append(subjects, Value("no adjustments"));
+    Core::append(subjects, Value("no new"));
+    Core::append(subjects, Value("no additional"));
+    Core::append(subjects, Value("no further"));
+    Value has_subject = Value(false);
+    for (auto subject : Core::iter(subjects)) {
+      Value subject_hit = Core::contains(c, subject);
+      if (Core::truthy(subject_hit)) {
+        has_subject = Value(true);
+      }
+    }
+    if (Core::truthy(has_subject)) {
+      Value qualifiers = Value::array();
+      Core::append(qualifiers, Value("needed"));
+      Core::append(qualifiers, Value("required"));
+      Core::append(qualifiers, Value("necessary"));
+      Core::append(qualifiers, Value("warranted"));
+      for (auto qualifier : Core::iter(qualifiers)) {
+        Value qualifier_hit = Core::contains(c, qualifier);
+        if (Core::truthy(qualifier_hit)) {
+          is_noop = Value(true);
+        }
+      }
+    }
+    Value phrases = Value::array();
+    Core::append(phrases, Value("nothing to add"));
+    Core::append(phrases, Value("nothing to change"));
+    Core::append(phrases, Value("nothing to update"));
+    Core::append(phrases, Value("nothing to modify"));
+    Core::append(phrases, Value("nothing to revise"));
+    Core::append(phrases, Value("nothing needs"));
+    Core::append(phrases, Value("nothing further"));
+    for (auto phrase : Core::iter(phrases)) {
+      Value phrase_hit = Core::contains(c, phrase);
+      if (Core::truthy(phrase_hit)) {
+        is_noop = Value(true);
+      }
+    }
+    Value keep_prefixes = Value::array();
+    Core::append(keep_prefixes, Value("keep the existing"));
+    Core::append(keep_prefixes, Value("leave the existing"));
+    Core::append(keep_prefixes, Value("retain the existing"));
+    Core::append(keep_prefixes, Value("preserve the existing"));
+    Value has_keep_prefix = Value(false);
+    for (auto keep_prefix : Core::iter(keep_prefixes)) {
+      Value keep_hit = Core::string_starts_with(c, keep_prefix);
+      if (Core::truthy(keep_hit)) {
+        has_keep_prefix = Value(true);
+      }
+    }
+    if (Core::truthy(has_keep_prefix)) {
+      Value stasis_list = Value::array();
+      Core::append(stasis_list, Value("unchanged"));
+      Core::append(stasis_list, Value("as is"));
+      Core::append(stasis_list, Value("as-is"));
+      Core::append(stasis_list, Value("intact"));
+      Core::append(stasis_list, Value("in place"));
+      for (auto stasis : Core::iter(stasis_list)) {
+        Value stasis_hit = Core::contains(c, stasis);
+        if (Core::truthy(stasis_hit)) {
+          is_noop = Value(true);
+        }
+      }
+    }
+    Value remains_list = Value::array();
+    Core::append(remains_list, Value("remains correct"));
+    Core::append(remains_list, Value("remains unchanged"));
+    Core::append(remains_list, Value("remains the same"));
+    Core::append(remains_list, Value("remains valid"));
+    Core::append(remains_list, Value("remains accurate"));
+    Core::append(remains_list, Value("already correct"));
+    Value has_remains = Value(false);
+    for (auto remains : Core::iter(remains_list)) {
+      Value remains_hit = Core::contains(c, remains);
+      if (Core::truthy(remains_hit)) {
+        has_remains = Value(true);
+      }
+    }
+    if (Core::truthy(has_remains)) {
+      Value referents = Value::array();
+      Core::append(referents, Value("existing"));
+      Core::append(referents, Value("current"));
+      Core::append(referents, Value("rule"));
+      Core::append(referents, Value("guideline"));
+      Core::append(referents, Value("guidance"));
+      Core::append(referents, Value("playbook"));
+      Core::append(referents, Value("bullet"));
+      Core::append(referents, Value("entry"));
+      for (auto referent : Core::iter(referents)) {
+        Value referent_hit = Core::contains(c, referent);
+        if (Core::truthy(referent_hit)) {
+          is_noop = Value(true);
+        }
+      }
+    }
+  }
+  return is_noop;
+}
+
 Value Core::_completion_call_to_chat_impl(Value call) {
   axir_coverage_mark("_completion_call_to_chat_impl");
   Value id = Core::get(call, Value("id"), Value());
@@ -30846,148 +30965,6 @@ Value Core::chat_session_tool_argument_errors(Value schema, Value arguments) {
   }
   Value errors = Core::_chat_session_argument_errors(schema, schema, arguments, Value(""), Value(0));
   return errors;
-}
-
-Value Core::_ace_normalize_curator_operations(Value operations) {
-  axir_coverage_mark("_ace_normalize_curator_operations");
-  Value empty_list = Value::array();
-  Value has_operations = Core::is_not_none(operations);
-  Value missing = Core::not_(has_operations);
-  if (Core::truthy(missing)) {
-    return empty_list;
-  }
-  Value is_list = Core::type_is(operations, Value("list"));
-  if (Core::truthy(is_list)) {
-    Value normalized = Value::array();
-    Value seen = Value::object();
-    for (auto entry : Core::iter(operations)) {
-      Value is_object = Core::type_is(entry, Value("object"));
-      if (Core::truthy(is_object)) {
-        Value type_raw = Core::get(entry, Value("type"), Value("ADD"));
-        Value type_is_string = Core::type_is(type_raw, Value("string"));
-        Value type_lower = Value("add");
-        if (Core::truthy(type_is_string)) {
-          Value lowered = Core::string_lower(type_raw);
-          type_lower = lowered;
-        }
-        Value is_update = Core::eq(type_lower, Value("update"));
-        Value is_remove = Core::eq(type_lower, Value("remove"));
-        Value type = Value("ADD");
-        if (Core::truthy(is_update)) {
-          type = Value("UPDATE");
-        }
-        if (Core::truthy(is_remove)) {
-          type = Value("REMOVE");
-        }
-        Value section_raw = Core::get(entry, Value("section"), Value("Guidelines"));
-        Value section_is_string = Core::type_is(section_raw, Value("string"));
-        Value section = Value("Guidelines");
-        if (Core::truthy(section_is_string)) {
-          Value section_trimmed = Core::string_trim(section_raw);
-          Value section_nonempty = Core::ne(section_trimmed, Value(""));
-          if (Core::truthy(section_nonempty)) {
-            section = section_trimmed;
-          }
-        }
-        Value content_raw = Core::get(entry, Value("content"), Value(""));
-        Value content_is_string = Core::type_is(content_raw, Value("string"));
-        Value content = Value("");
-        if (Core::truthy(content_is_string)) {
-          Value content_trimmed = Core::string_trim(content_raw);
-          content = content_trimmed;
-        }
-        Value not_remove = Core::ne(type, Value("REMOVE"));
-        Value content_empty = Core::eq(content, Value(""));
-        Value keep = Value(true);
-        if (Core::truthy(not_remove)) {
-          if (Core::truthy(content_empty)) {
-            keep = Value(false);
-          }
-        }
-        Value is_add_type = Core::eq(type, Value("ADD"));
-        if (Core::truthy(is_add_type)) {
-          Value is_noop = Core::_ace_is_noop_acknowledgment(content);
-          if (Core::truthy(is_noop)) {
-            keep = Value(false);
-          }
-        }
-        if (Core::truthy(keep)) {
-          Value bullet_id_raw = Core::get(entry, Value("bulletId"), Value());
-          Value has_bullet_id_field = Core::is_not_none(bullet_id_raw);
-          Value bullet_id_source = bullet_id_raw;
-          if (Core::truthy(has_bullet_id_field)) {
-            // empty
-          }
-          if (!Core::truthy(has_bullet_id_field)) {
-            Value id_field = Core::get(entry, Value("id"), Value());
-            bullet_id_source = id_field;
-          }
-          Value bullet_id_is_string = Core::type_is(bullet_id_source, Value("string"));
-          Value none_value = Core::none();
-          Value bullet_id = none_value;
-          if (Core::truthy(bullet_id_is_string)) {
-            Value bullet_id_trimmed = Core::string_trim(bullet_id_source);
-            Value bullet_id_nonempty = Core::ne(bullet_id_trimmed, Value(""));
-            if (Core::truthy(bullet_id_nonempty)) {
-              bullet_id = bullet_id_trimmed;
-            }
-          }
-          Value bullet_id_key = Value("");
-          Value has_bullet_id = Core::is_not_none(bullet_id);
-          if (Core::truthy(has_bullet_id)) {
-            bullet_id_key = bullet_id;
-          }
-          Value key_a = Core::string_format(Value("{}:{}"), type, section);
-          Value key_b = Core::string_format(Value("{}:{}"), content, bullet_id_key);
-          Value key = Core::string_format(Value("{}:{}"), key_a, key_b);
-          Value already_seen = Core::map_contains(seen, key);
-          Value fresh = Core::not_(already_seen);
-          if (Core::truthy(fresh)) {
-            Core::set(seen, key, Value(true));
-            Value normalized_entry = Value::object();
-            Core::set(normalized_entry, Value("type"), type);
-            Core::set(normalized_entry, Value("section"), section);
-            if (Core::truthy(not_remove)) {
-              Core::set(normalized_entry, Value("content"), content);
-            }
-            if (Core::truthy(has_bullet_id)) {
-              Core::set(normalized_entry, Value("bulletId"), bullet_id);
-            }
-            Value metadata_raw = Core::get(entry, Value("metadata"), Value());
-            Value metadata_is_object = Core::type_is(metadata_raw, Value("object"));
-            if (Core::truthy(metadata_is_object)) {
-              Value empty_metadata = Value::object();
-              Value metadata_copy = Core::map_merge(empty_metadata, metadata_raw);
-              Core::set(normalized_entry, Value("metadata"), metadata_copy);
-            }
-            Core::append(normalized, normalized_entry);
-          }
-        }
-      }
-    }
-    return normalized;
-  }
-  Value is_string = Core::type_is(operations, Value("string"));
-  if (Core::truthy(is_string)) {
-    Value parsed = Core::json_parse(operations);
-    Value parsed_is_none = Core::is_none(parsed);
-    if (Core::truthy(parsed_is_none)) {
-      return empty_list;
-    }
-    Value normalized_from_string = Core::_ace_normalize_curator_operations(parsed);
-    return normalized_from_string;
-  }
-  Value is_object = Core::type_is(operations, Value("object"));
-  if (Core::truthy(is_object)) {
-    Value inner = Core::get(operations, Value("operations"), Value());
-    Value has_inner = Core::is_not_none(inner);
-    if (Core::truthy(has_inner)) {
-      Value normalized_from_object = Core::_ace_normalize_curator_operations(inner);
-      return normalized_from_object;
-    }
-    return empty_list;
-  }
-  return empty_list;
 }
 
 Value Core::chat_session_tool_argument_error(Value name, Value schema, Value arguments) {
@@ -31376,6 +31353,148 @@ Value Core::_parse_text_output_fields_impl(Value content, Value fields, Value is
   return values;
 }
 
+Value Core::_ace_normalize_curator_operations(Value operations) {
+  axir_coverage_mark("_ace_normalize_curator_operations");
+  Value empty_list = Value::array();
+  Value has_operations = Core::is_not_none(operations);
+  Value missing = Core::not_(has_operations);
+  if (Core::truthy(missing)) {
+    return empty_list;
+  }
+  Value is_list = Core::type_is(operations, Value("list"));
+  if (Core::truthy(is_list)) {
+    Value normalized = Value::array();
+    Value seen = Value::object();
+    for (auto entry : Core::iter(operations)) {
+      Value is_object = Core::type_is(entry, Value("object"));
+      if (Core::truthy(is_object)) {
+        Value type_raw = Core::get(entry, Value("type"), Value("ADD"));
+        Value type_is_string = Core::type_is(type_raw, Value("string"));
+        Value type_lower = Value("add");
+        if (Core::truthy(type_is_string)) {
+          Value lowered = Core::string_lower(type_raw);
+          type_lower = lowered;
+        }
+        Value is_update = Core::eq(type_lower, Value("update"));
+        Value is_remove = Core::eq(type_lower, Value("remove"));
+        Value type = Value("ADD");
+        if (Core::truthy(is_update)) {
+          type = Value("UPDATE");
+        }
+        if (Core::truthy(is_remove)) {
+          type = Value("REMOVE");
+        }
+        Value section_raw = Core::get(entry, Value("section"), Value("Guidelines"));
+        Value section_is_string = Core::type_is(section_raw, Value("string"));
+        Value section = Value("Guidelines");
+        if (Core::truthy(section_is_string)) {
+          Value section_trimmed = Core::string_trim(section_raw);
+          Value section_nonempty = Core::ne(section_trimmed, Value(""));
+          if (Core::truthy(section_nonempty)) {
+            section = section_trimmed;
+          }
+        }
+        Value content_raw = Core::get(entry, Value("content"), Value(""));
+        Value content_is_string = Core::type_is(content_raw, Value("string"));
+        Value content = Value("");
+        if (Core::truthy(content_is_string)) {
+          Value content_trimmed = Core::string_trim(content_raw);
+          content = content_trimmed;
+        }
+        Value not_remove = Core::ne(type, Value("REMOVE"));
+        Value content_empty = Core::eq(content, Value(""));
+        Value keep = Value(true);
+        if (Core::truthy(not_remove)) {
+          if (Core::truthy(content_empty)) {
+            keep = Value(false);
+          }
+        }
+        Value is_add_type = Core::eq(type, Value("ADD"));
+        if (Core::truthy(is_add_type)) {
+          Value is_noop = Core::_ace_is_noop_acknowledgment(content);
+          if (Core::truthy(is_noop)) {
+            keep = Value(false);
+          }
+        }
+        if (Core::truthy(keep)) {
+          Value bullet_id_raw = Core::get(entry, Value("bulletId"), Value());
+          Value has_bullet_id_field = Core::is_not_none(bullet_id_raw);
+          Value bullet_id_source = bullet_id_raw;
+          if (Core::truthy(has_bullet_id_field)) {
+            // empty
+          }
+          if (!Core::truthy(has_bullet_id_field)) {
+            Value id_field = Core::get(entry, Value("id"), Value());
+            bullet_id_source = id_field;
+          }
+          Value bullet_id_is_string = Core::type_is(bullet_id_source, Value("string"));
+          Value none_value = Core::none();
+          Value bullet_id = none_value;
+          if (Core::truthy(bullet_id_is_string)) {
+            Value bullet_id_trimmed = Core::string_trim(bullet_id_source);
+            Value bullet_id_nonempty = Core::ne(bullet_id_trimmed, Value(""));
+            if (Core::truthy(bullet_id_nonempty)) {
+              bullet_id = bullet_id_trimmed;
+            }
+          }
+          Value bullet_id_key = Value("");
+          Value has_bullet_id = Core::is_not_none(bullet_id);
+          if (Core::truthy(has_bullet_id)) {
+            bullet_id_key = bullet_id;
+          }
+          Value key_a = Core::string_format(Value("{}:{}"), type, section);
+          Value key_b = Core::string_format(Value("{}:{}"), content, bullet_id_key);
+          Value key = Core::string_format(Value("{}:{}"), key_a, key_b);
+          Value already_seen = Core::map_contains(seen, key);
+          Value fresh = Core::not_(already_seen);
+          if (Core::truthy(fresh)) {
+            Core::set(seen, key, Value(true));
+            Value normalized_entry = Value::object();
+            Core::set(normalized_entry, Value("type"), type);
+            Core::set(normalized_entry, Value("section"), section);
+            if (Core::truthy(not_remove)) {
+              Core::set(normalized_entry, Value("content"), content);
+            }
+            if (Core::truthy(has_bullet_id)) {
+              Core::set(normalized_entry, Value("bulletId"), bullet_id);
+            }
+            Value metadata_raw = Core::get(entry, Value("metadata"), Value());
+            Value metadata_is_object = Core::type_is(metadata_raw, Value("object"));
+            if (Core::truthy(metadata_is_object)) {
+              Value empty_metadata = Value::object();
+              Value metadata_copy = Core::map_merge(empty_metadata, metadata_raw);
+              Core::set(normalized_entry, Value("metadata"), metadata_copy);
+            }
+            Core::append(normalized, normalized_entry);
+          }
+        }
+      }
+    }
+    return normalized;
+  }
+  Value is_string = Core::type_is(operations, Value("string"));
+  if (Core::truthy(is_string)) {
+    Value parsed = Core::json_parse(operations);
+    Value parsed_is_none = Core::is_none(parsed);
+    if (Core::truthy(parsed_is_none)) {
+      return empty_list;
+    }
+    Value normalized_from_string = Core::_ace_normalize_curator_operations(parsed);
+    return normalized_from_string;
+  }
+  Value is_object = Core::type_is(operations, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value inner = Core::get(operations, Value("operations"), Value());
+    Value has_inner = Core::is_not_none(inner);
+    if (Core::truthy(has_inner)) {
+      Value normalized_from_object = Core::_ace_normalize_curator_operations(inner);
+      return normalized_from_object;
+    }
+    return empty_list;
+  }
+  return empty_list;
+}
+
 Value Core::_date_offset_minutes_impl(Value units, Value start, Value end) {
   axir_coverage_mark("_date_offset_minutes_impl");
   Value none = Core::none();
@@ -31520,167 +31639,6 @@ Value Core::_stream_text_final_impl(Value xstate, Value values, Value content, V
   Core::_stream_text_missed_fields_impl(values, content, fields);
   Core::_stream_text_required_check_impl(values, fields);
   return Value();
-}
-
-Value Core::_ace_locate_bullet_section(Value playbook, Value bullet_id) {
-  axir_coverage_mark("_ace_locate_bullet_section");
-  Value empty_map = Value::object();
-  Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value section_names = Core::map_keys(sections);
-  Value none_value = Core::none();
-  Value found = none_value;
-  for (auto section_name : Core::iter(section_names)) {
-    Value already = Core::is_not_none(found);
-    Value still_open = Core::not_(already);
-    if (Core::truthy(still_open)) {
-      Value bullets = Core::get(sections, section_name, Value());
-      for (auto bullet : Core::iter(bullets)) {
-        Value open = Core::is_none(found);
-        if (Core::truthy(open)) {
-          Value current_id = Core::get(bullet, Value("id"), Value(""));
-          Value match = Core::eq(current_id, bullet_id);
-          if (Core::truthy(match)) {
-            Value hit = Value::object();
-            Core::set(hit, Value("section"), section_name);
-            Core::set(hit, Value("id"), current_id);
-            found = hit;
-          }
-        }
-      }
-    }
-  }
-  return found;
-}
-
-Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output) {
-  axir_coverage_mark("_ace_resolve_curator_operation_targets");
-  Value op_count = Core::len(operations);
-  Value is_empty = Core::eq(op_count, Value(0));
-  if (Core::truthy(is_empty)) {
-    return operations;
-  }
-  Value used_ids = Value::object();
-  for (auto op : Core::iter(operations)) {
-    Value existing_bullet_id = Core::get(op, Value("bulletId"), Value());
-    Value has_existing = Core::is_not_none(existing_bullet_id);
-    if (Core::truthy(has_existing)) {
-      Value existing_is_string = Core::type_is(existing_bullet_id, Value("string"));
-      if (Core::truthy(existing_is_string)) {
-        Core::set(used_ids, existing_bullet_id, Value(true));
-      }
-    }
-  }
-  Value section_queues = Value::object();
-  Value empty_list = Value::array();
-  Value reflection_present = Core::is_not_none(reflection);
-  if (Core::truthy(reflection_present)) {
-    Value bullet_tags = Core::_ace_normalize_reflection_bullet_tags(reflection);
-    for (auto tag : Core::iter(bullet_tags)) {
-      Value tag_id = Core::get(tag, Value("id"), Value());
-      Value tag_value = Core::get(tag, Value("tag"), Value());
-      Value is_harmful = Core::eq(tag_value, Value("harmful"));
-      Value already_used = Core::map_contains(used_ids, tag_id);
-      Value not_used = Core::not_(already_used);
-      if (Core::truthy(not_used)) {
-        Value located = Core::_ace_locate_bullet_section(playbook, tag_id);
-        Value located_found = Core::is_not_none(located);
-        if (Core::truthy(located_found)) {
-          Value located_section = Core::get(located, Value("section"), Value());
-          Value located_id = Core::get(located, Value("id"), Value());
-          Value priority = Value("primary");
-          if (Core::truthy(is_harmful)) {
-            priority = Value("harmful");
-          }
-          Value has_queue = Core::map_contains(section_queues, located_section);
-          Value missing_queue = Core::not_(has_queue);
-          if (Core::truthy(missing_queue)) {
-            Value new_queue = Value::object();
-            Value harmful_list = Value::array();
-            Core::set(new_queue, Value("harmful"), harmful_list);
-            Value primary_list = Value::array();
-            Core::set(new_queue, Value("primary"), primary_list);
-            Value generator_list = Value::array();
-            Core::set(new_queue, Value("generator"), generator_list);
-            Core::set(section_queues, located_section, new_queue);
-          }
-          Value queue = Core::get(section_queues, located_section, Value());
-          Value priority_list = Core::get(queue, priority, Value());
-          Core::append(priority_list, located_id);
-          Core::set(queue, priority, priority_list);
-          Core::set(section_queues, located_section, queue);
-        }
-      }
-    }
-  }
-  Value generator_present = Core::is_not_none(generator_output);
-  if (Core::truthy(generator_present)) {
-    Value generator_bullet_ids = Core::get(generator_output, Value("bulletIds"), empty_list);
-    for (auto bullet_id : Core::iter(generator_bullet_ids)) {
-      Value gen_id_is_string = Core::type_is(bullet_id, Value("string"));
-      if (Core::truthy(gen_id_is_string)) {
-        Value gen_already_used = Core::map_contains(used_ids, bullet_id);
-        Value gen_not_used = Core::not_(gen_already_used);
-        if (Core::truthy(gen_not_used)) {
-          Value gen_located = Core::_ace_locate_bullet_section(playbook, bullet_id);
-          Value gen_found = Core::is_not_none(gen_located);
-          if (Core::truthy(gen_found)) {
-            Value gen_section = Core::get(gen_located, Value("section"), Value());
-            Value gen_located_id = Core::get(gen_located, Value("id"), Value());
-            Value gen_has_queue = Core::map_contains(section_queues, gen_section);
-            Value gen_missing_queue = Core::not_(gen_has_queue);
-            if (Core::truthy(gen_missing_queue)) {
-              Value gen_new_queue = Value::object();
-              Value gen_harmful = Value::array();
-              Core::set(gen_new_queue, Value("harmful"), gen_harmful);
-              Value gen_primary = Value::array();
-              Core::set(gen_new_queue, Value("primary"), gen_primary);
-              Value gen_generator = Value::array();
-              Core::set(gen_new_queue, Value("generator"), gen_generator);
-              Core::set(section_queues, gen_section, gen_new_queue);
-            }
-            Value gen_queue = Core::get(section_queues, gen_section, Value());
-            Value gen_generator_list = Core::get(gen_queue, Value("generator"), Value());
-            Core::append(gen_generator_list, gen_located_id);
-            Core::set(gen_queue, Value("generator"), gen_generator_list);
-            Core::set(section_queues, gen_section, gen_queue);
-          }
-        }
-      }
-    }
-  }
-  Value resolved = Value::array();
-  for (auto op : Core::iter(operations)) {
-    Value op_type = Core::get(op, Value("type"), Value(""));
-    Value op_is_update = Core::eq(op_type, Value("UPDATE"));
-    Value op_is_remove = Core::eq(op_type, Value("REMOVE"));
-    Value needs_target = Core::or_(op_is_update, op_is_remove);
-    Value current_bullet_id = Core::get(op, Value("bulletId"), Value());
-    Value has_bullet_id = Core::is_not_none(current_bullet_id);
-    Value missing_bullet_id = Core::not_(has_bullet_id);
-    Value empty_op = Value::object();
-    Value resolved_op = Core::map_merge(empty_op, op);
-    if (Core::truthy(needs_target)) {
-      if (Core::truthy(missing_bullet_id)) {
-        Value op_section = Core::get(op, Value("section"), Value(""));
-        Value candidate = Core::_ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook);
-        Value candidate_found = Core::is_not_none(candidate);
-        if (Core::truthy(candidate_found)) {
-          Core::set(resolved_op, Value("bulletId"), candidate);
-          Core::set(used_ids, candidate, Value(true));
-        }
-      }
-    }
-    Value final_bullet_id = Core::get(resolved_op, Value("bulletId"), Value());
-    Value final_has_bullet_id = Core::is_not_none(final_bullet_id);
-    Value keep = Value(true);
-    if (Core::truthy(needs_target)) {
-      keep = final_has_bullet_id;
-    }
-    if (Core::truthy(keep)) {
-      Core::append(resolved, resolved_op);
-    }
-  }
-  return resolved;
 }
 
 Value Core::_parse_output_fields_impl(Value content, Value fields) {
@@ -31896,6 +31854,36 @@ Value Core::_caller_function_call_impl(Value options) {
   return none;
 }
 
+Value Core::_ace_locate_bullet_section(Value playbook, Value bullet_id) {
+  axir_coverage_mark("_ace_locate_bullet_section");
+  Value empty_map = Value::object();
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value section_names = Core::map_keys(sections);
+  Value none_value = Core::none();
+  Value found = none_value;
+  for (auto section_name : Core::iter(section_names)) {
+    Value already = Core::is_not_none(found);
+    Value still_open = Core::not_(already);
+    if (Core::truthy(still_open)) {
+      Value bullets = Core::get(sections, section_name, Value());
+      for (auto bullet : Core::iter(bullets)) {
+        Value open = Core::is_none(found);
+        if (Core::truthy(open)) {
+          Value current_id = Core::get(bullet, Value("id"), Value(""));
+          Value match = Core::eq(current_id, bullet_id);
+          if (Core::truthy(match)) {
+            Value hit = Value::object();
+            Core::set(hit, Value("section"), section_name);
+            Core::set(hit, Value("id"), current_id);
+            found = hit;
+          }
+        }
+      }
+    }
+  }
+  return found;
+}
+
 Value Core::_date_js_json_string_impl(Value text) {
   axir_coverage_mark("_date_js_json_string_impl");
   Value hex = Value("0123456789abcdef");
@@ -32045,36 +32033,135 @@ Value Core::_function_call_names_output_impl(Value choice) {
   return reserved;
 }
 
-Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
-  axir_coverage_mark("_ace_normalize_reflection_bullet_tags");
-  Value empty_list = Value::array();
-  Value raw_bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
-  Value candidates = Value::array();
-  Value tags_is_list = Core::type_is(raw_bullet_tags, Value("list"));
-  if (Core::truthy(tags_is_list)) {
-    candidates = raw_bullet_tags;
+Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output) {
+  axir_coverage_mark("_ace_resolve_curator_operation_targets");
+  Value op_count = Core::len(operations);
+  Value is_empty = Core::eq(op_count, Value(0));
+  if (Core::truthy(is_empty)) {
+    return operations;
   }
-  if (!Core::truthy(tags_is_list)) {
-    Value tags_is_object = Core::type_is(raw_bullet_tags, Value("object"));
-    if (Core::truthy(tags_is_object)) {
-      Core::append(candidates, raw_bullet_tags);
-    }
-  }
-  Value normalized = Value::array();
-  for (auto tag : Core::iter(candidates)) {
-    Value tag_is_object = Core::type_is(tag, Value("object"));
-    if (Core::truthy(tag_is_object)) {
-      Value tag_id = Core::get(tag, Value("id"), Value());
-      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
-      Value tag_value = Core::get(tag, Value("tag"), Value());
-      Value tag_value_is_string = Core::type_is(tag_value, Value("string"));
-      Value valid_tag_shape = Core::and_(tag_id_is_string, tag_value_is_string);
-      if (Core::truthy(valid_tag_shape)) {
-        Core::append(normalized, tag);
+  Value used_ids = Value::object();
+  for (auto op : Core::iter(operations)) {
+    Value existing_bullet_id = Core::get(op, Value("bulletId"), Value());
+    Value has_existing = Core::is_not_none(existing_bullet_id);
+    if (Core::truthy(has_existing)) {
+      Value existing_is_string = Core::type_is(existing_bullet_id, Value("string"));
+      if (Core::truthy(existing_is_string)) {
+        Core::set(used_ids, existing_bullet_id, Value(true));
       }
     }
   }
-  return normalized;
+  Value section_queues = Value::object();
+  Value empty_list = Value::array();
+  Value reflection_present = Core::is_not_none(reflection);
+  if (Core::truthy(reflection_present)) {
+    Value bullet_tags = Core::_ace_normalize_reflection_bullet_tags(reflection);
+    for (auto tag : Core::iter(bullet_tags)) {
+      Value tag_id = Core::get(tag, Value("id"), Value());
+      Value tag_value = Core::get(tag, Value("tag"), Value());
+      Value is_harmful = Core::eq(tag_value, Value("harmful"));
+      Value already_used = Core::map_contains(used_ids, tag_id);
+      Value not_used = Core::not_(already_used);
+      if (Core::truthy(not_used)) {
+        Value located = Core::_ace_locate_bullet_section(playbook, tag_id);
+        Value located_found = Core::is_not_none(located);
+        if (Core::truthy(located_found)) {
+          Value located_section = Core::get(located, Value("section"), Value());
+          Value located_id = Core::get(located, Value("id"), Value());
+          Value priority = Value("primary");
+          if (Core::truthy(is_harmful)) {
+            priority = Value("harmful");
+          }
+          Value has_queue = Core::map_contains(section_queues, located_section);
+          Value missing_queue = Core::not_(has_queue);
+          if (Core::truthy(missing_queue)) {
+            Value new_queue = Value::object();
+            Value harmful_list = Value::array();
+            Core::set(new_queue, Value("harmful"), harmful_list);
+            Value primary_list = Value::array();
+            Core::set(new_queue, Value("primary"), primary_list);
+            Value generator_list = Value::array();
+            Core::set(new_queue, Value("generator"), generator_list);
+            Core::set(section_queues, located_section, new_queue);
+          }
+          Value queue = Core::get(section_queues, located_section, Value());
+          Value priority_list = Core::get(queue, priority, Value());
+          Core::append(priority_list, located_id);
+          Core::set(queue, priority, priority_list);
+          Core::set(section_queues, located_section, queue);
+        }
+      }
+    }
+  }
+  Value generator_present = Core::is_not_none(generator_output);
+  if (Core::truthy(generator_present)) {
+    Value generator_bullet_ids = Core::get(generator_output, Value("bulletIds"), empty_list);
+    for (auto bullet_id : Core::iter(generator_bullet_ids)) {
+      Value gen_id_is_string = Core::type_is(bullet_id, Value("string"));
+      if (Core::truthy(gen_id_is_string)) {
+        Value gen_already_used = Core::map_contains(used_ids, bullet_id);
+        Value gen_not_used = Core::not_(gen_already_used);
+        if (Core::truthy(gen_not_used)) {
+          Value gen_located = Core::_ace_locate_bullet_section(playbook, bullet_id);
+          Value gen_found = Core::is_not_none(gen_located);
+          if (Core::truthy(gen_found)) {
+            Value gen_section = Core::get(gen_located, Value("section"), Value());
+            Value gen_located_id = Core::get(gen_located, Value("id"), Value());
+            Value gen_has_queue = Core::map_contains(section_queues, gen_section);
+            Value gen_missing_queue = Core::not_(gen_has_queue);
+            if (Core::truthy(gen_missing_queue)) {
+              Value gen_new_queue = Value::object();
+              Value gen_harmful = Value::array();
+              Core::set(gen_new_queue, Value("harmful"), gen_harmful);
+              Value gen_primary = Value::array();
+              Core::set(gen_new_queue, Value("primary"), gen_primary);
+              Value gen_generator = Value::array();
+              Core::set(gen_new_queue, Value("generator"), gen_generator);
+              Core::set(section_queues, gen_section, gen_new_queue);
+            }
+            Value gen_queue = Core::get(section_queues, gen_section, Value());
+            Value gen_generator_list = Core::get(gen_queue, Value("generator"), Value());
+            Core::append(gen_generator_list, gen_located_id);
+            Core::set(gen_queue, Value("generator"), gen_generator_list);
+            Core::set(section_queues, gen_section, gen_queue);
+          }
+        }
+      }
+    }
+  }
+  Value resolved = Value::array();
+  for (auto op : Core::iter(operations)) {
+    Value op_type = Core::get(op, Value("type"), Value(""));
+    Value op_is_update = Core::eq(op_type, Value("UPDATE"));
+    Value op_is_remove = Core::eq(op_type, Value("REMOVE"));
+    Value needs_target = Core::or_(op_is_update, op_is_remove);
+    Value current_bullet_id = Core::get(op, Value("bulletId"), Value());
+    Value has_bullet_id = Core::is_not_none(current_bullet_id);
+    Value missing_bullet_id = Core::not_(has_bullet_id);
+    Value empty_op = Value::object();
+    Value resolved_op = Core::map_merge(empty_op, op);
+    if (Core::truthy(needs_target)) {
+      if (Core::truthy(missing_bullet_id)) {
+        Value op_section = Core::get(op, Value("section"), Value(""));
+        Value candidate = Core::_ace_dequeue_section_candidate(section_queues, op_section, used_ids, playbook);
+        Value candidate_found = Core::is_not_none(candidate);
+        if (Core::truthy(candidate_found)) {
+          Core::set(resolved_op, Value("bulletId"), candidate);
+          Core::set(used_ids, candidate, Value(true));
+        }
+      }
+    }
+    Value final_bullet_id = Core::get(resolved_op, Value("bulletId"), Value());
+    Value final_has_bullet_id = Core::is_not_none(final_bullet_id);
+    Value keep = Value(true);
+    if (Core::truthy(needs_target)) {
+      keep = final_has_bullet_id;
+    }
+    if (Core::truthy(keep)) {
+      Core::append(resolved, resolved_op);
+    }
+  }
+  return resolved;
 }
 
 Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
@@ -32245,71 +32332,6 @@ Value Core::_stream_text_values_impl(Value fields, Value content, Value values, 
   }
   Core::set(xstate, Value("streamed_index"), streamed);
   return deltas;
-}
-
-Value Core::_ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook) {
-  axir_coverage_mark("_ace_dequeue_section_candidate");
-  Value none_value = Core::none();
-  Value picked = none_value;
-  Value has_queue = Core::map_contains(section_queues, section);
-  if (Core::truthy(has_queue)) {
-    Value queue = Core::get(section_queues, section, Value());
-    Value empty_list = Value::array();
-    Value harmful_list = Core::get(queue, Value("harmful"), empty_list);
-    for (auto candidate : Core::iter(harmful_list)) {
-      Value open = Core::is_none(picked);
-      if (Core::truthy(open)) {
-        Value used = Core::map_contains(used_ids, candidate);
-        Value not_used = Core::not_(used);
-        if (Core::truthy(not_used)) {
-          picked = candidate;
-        }
-      }
-    }
-    Value primary_list = Core::get(queue, Value("primary"), empty_list);
-    for (auto candidate : Core::iter(primary_list)) {
-      Value open = Core::is_none(picked);
-      if (Core::truthy(open)) {
-        Value used = Core::map_contains(used_ids, candidate);
-        Value not_used = Core::not_(used);
-        if (Core::truthy(not_used)) {
-          picked = candidate;
-        }
-      }
-    }
-    Value generator_list = Core::get(queue, Value("generator"), empty_list);
-    for (auto candidate : Core::iter(generator_list)) {
-      Value open = Core::is_none(picked);
-      if (Core::truthy(open)) {
-        Value used = Core::map_contains(used_ids, candidate);
-        Value not_used = Core::not_(used);
-        if (Core::truthy(not_used)) {
-          picked = candidate;
-        }
-      }
-    }
-  }
-  Value still_open = Core::is_none(picked);
-  if (Core::truthy(still_open)) {
-    Value empty_map = Value::object();
-    Value sections = Core::get(playbook, Value("sections"), empty_map);
-    Value fallback_bullets = Core::get(sections, section, Value());
-    Value fallback_present = Core::is_not_none(fallback_bullets);
-    if (Core::truthy(fallback_present)) {
-      for (auto bullet : Core::iter(fallback_bullets)) {
-        Value open = Core::is_none(picked);
-        if (Core::truthy(open)) {
-          Value bullet_id = Core::get(bullet, Value("id"), Value(""));
-          Value used = Core::map_contains(used_ids, bullet_id);
-          Value not_used = Core::not_(used);
-          if (Core::truthy(not_used)) {
-            picked = bullet_id;
-          }
-        }
-      }
-    }
-  }
-  return picked;
 }
 
 Value Core::_with_output_thought_impl(Value output, Value field, Value prefix, Value thought) {
@@ -32999,6 +33021,38 @@ Value Core::_date_floor_div_impl(Value dividend, Value divisor) {
   return quotient;
 }
 
+Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
+  axir_coverage_mark("_ace_normalize_reflection_bullet_tags");
+  Value empty_list = Value::array();
+  Value raw_bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
+  Value candidates = Value::array();
+  Value tags_is_list = Core::type_is(raw_bullet_tags, Value("list"));
+  if (Core::truthy(tags_is_list)) {
+    candidates = raw_bullet_tags;
+  }
+  if (!Core::truthy(tags_is_list)) {
+    Value tags_is_object = Core::type_is(raw_bullet_tags, Value("object"));
+    if (Core::truthy(tags_is_object)) {
+      Core::append(candidates, raw_bullet_tags);
+    }
+  }
+  Value normalized = Value::array();
+  for (auto tag : Core::iter(candidates)) {
+    Value tag_is_object = Core::type_is(tag, Value("object"));
+    if (Core::truthy(tag_is_object)) {
+      Value tag_id = Core::get(tag, Value("id"), Value());
+      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
+      Value tag_value = Core::get(tag, Value("tag"), Value());
+      Value tag_value_is_string = Core::type_is(tag_value, Value("string"));
+      Value valid_tag_shape = Core::and_(tag_id_is_string, tag_value_is_string);
+      if (Core::truthy(valid_tag_shape)) {
+        Core::append(normalized, tag);
+      }
+    }
+  }
+  return normalized;
+}
+
 Value Core::_regex_test(Value pattern, Value value) {
   axir_coverage_mark("_regex_test");
   Value groups = Core::none();
@@ -33170,6 +33224,71 @@ Value Core::_stream_json_context_impl(Value json_text) {
   Core::set(marker, Value("in_array"), in_array);
   Core::set(marker, Value("in_object"), in_object);
   return marker;
+}
+
+Value Core::_ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook) {
+  axir_coverage_mark("_ace_dequeue_section_candidate");
+  Value none_value = Core::none();
+  Value picked = none_value;
+  Value has_queue = Core::map_contains(section_queues, section);
+  if (Core::truthy(has_queue)) {
+    Value queue = Core::get(section_queues, section, Value());
+    Value empty_list = Value::array();
+    Value harmful_list = Core::get(queue, Value("harmful"), empty_list);
+    for (auto candidate : Core::iter(harmful_list)) {
+      Value open = Core::is_none(picked);
+      if (Core::truthy(open)) {
+        Value used = Core::map_contains(used_ids, candidate);
+        Value not_used = Core::not_(used);
+        if (Core::truthy(not_used)) {
+          picked = candidate;
+        }
+      }
+    }
+    Value primary_list = Core::get(queue, Value("primary"), empty_list);
+    for (auto candidate : Core::iter(primary_list)) {
+      Value open = Core::is_none(picked);
+      if (Core::truthy(open)) {
+        Value used = Core::map_contains(used_ids, candidate);
+        Value not_used = Core::not_(used);
+        if (Core::truthy(not_used)) {
+          picked = candidate;
+        }
+      }
+    }
+    Value generator_list = Core::get(queue, Value("generator"), empty_list);
+    for (auto candidate : Core::iter(generator_list)) {
+      Value open = Core::is_none(picked);
+      if (Core::truthy(open)) {
+        Value used = Core::map_contains(used_ids, candidate);
+        Value not_used = Core::not_(used);
+        if (Core::truthy(not_used)) {
+          picked = candidate;
+        }
+      }
+    }
+  }
+  Value still_open = Core::is_none(picked);
+  if (Core::truthy(still_open)) {
+    Value empty_map = Value::object();
+    Value sections = Core::get(playbook, Value("sections"), empty_map);
+    Value fallback_bullets = Core::get(sections, section, Value());
+    Value fallback_present = Core::is_not_none(fallback_bullets);
+    if (Core::truthy(fallback_present)) {
+      for (auto bullet : Core::iter(fallback_bullets)) {
+        Value open = Core::is_none(picked);
+        if (Core::truthy(open)) {
+          Value bullet_id = Core::get(bullet, Value("id"), Value(""));
+          Value used = Core::map_contains(used_ids, bullet_id);
+          Value not_used = Core::not_(used);
+          if (Core::truthy(not_used)) {
+            picked = bullet_id;
+          }
+        }
+      }
+    }
+  }
+  return picked;
 }
 
 Value Core::_date_civil_from_days_impl(Value days) {
@@ -34260,15 +34379,6 @@ Value Core::_stream_json_validate_impl(Value fields, Value values, Value allow_m
   return Value();
 }
 
-Value Core::_parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode) {
-  axir_coverage_mark("_parse_text_contract_output_impl");
-  Value out = Value::object();
-  Value values = Core::_stream_text_extract_values_impl(content, output_fields, strict_mode);
-  Core::set(out, Value("values"), values);
-  Core::set(out, Value("extracted"), Value(true));
-  return out;
-}
-
 Value Core::_stream_json_validate_value_impl(Value field, Value value, Value allow_missing) {
   axir_coverage_mark("_stream_json_validate_value_impl");
   Value typ = Core::get(field, Value("type"), Value());
@@ -34358,6 +34468,15 @@ Value Core::_stream_json_validate_value_impl(Value field, Value value, Value all
     }
   }
   return value;
+}
+
+Value Core::_parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode) {
+  axir_coverage_mark("_parse_text_contract_output_impl");
+  Value out = Value::object();
+  Value values = Core::_stream_text_extract_values_impl(content, output_fields, strict_mode);
+  Core::set(out, Value("values"), values);
+  Core::set(out, Value("extracted"), Value(true));
+  return out;
 }
 
 Value Core::_generate_failed_impl(Value error) {
@@ -34519,22 +34638,6 @@ Value Core::_feedback_message_impl(Value text) {
   return message;
 }
 
-Value Core::_caching_function_option_impl(Value gen, Value options) {
-  axir_coverage_mark("_caching_function_option_impl");
-  Value empty = Value::object();
-  Value call_options = Core::map_merge(empty, options);
-  Value base_options = Core::get(gen, Value("options"), empty);
-  Value run_options = Core::map_merge(base_options, call_options);
-  Value control = Core::get(run_options, Value("control"), Value());
-  Value controlled = Core::is_not_none(control);
-  if (Core::truthy(controlled)) {
-    Value no_cache = Core::none();
-    return no_cache;
-  }
-  Value cache_fn = Core::axgen_caching_function(gen, call_options);
-  return cache_fn;
-}
-
 Value Core::_stream_json_select_fields_impl(Value fields, Value values) {
   axir_coverage_mark("_stream_json_select_fields_impl");
   Value out = Value::object();
@@ -34554,6 +34657,22 @@ Value Core::_stream_json_select_fields_impl(Value fields, Value values) {
     }
   }
   return out;
+}
+
+Value Core::_caching_function_option_impl(Value gen, Value options) {
+  axir_coverage_mark("_caching_function_option_impl");
+  Value empty = Value::object();
+  Value call_options = Core::map_merge(empty, options);
+  Value base_options = Core::get(gen, Value("options"), empty);
+  Value run_options = Core::map_merge(base_options, call_options);
+  Value control = Core::get(run_options, Value("control"), Value());
+  Value controlled = Core::is_not_none(control);
+  if (Core::truthy(controlled)) {
+    Value no_cache = Core::none();
+    return no_cache;
+  }
+  Value cache_fn = Core::axgen_caching_function(gen, call_options);
+  return cache_fn;
 }
 
 Value Core::_cache_key_impl(Value gen, Value values, Value options) {
@@ -36877,74 +36996,6 @@ Value Core::_resolve_agent_auto_upgrade(Value options) {
   return out;
 }
 
-Value Core::_map_optimization_judge_quality_to_score(Value quality) {
-  axir_coverage_mark("_map_optimization_judge_quality_to_score");
-  Value normalized = Core::string_lower(quality);
-  Value is_excellent = Core::eq(normalized, Value("excellent"));
-  if (Core::truthy(is_excellent)) {
-    return Value(1);
-  }
-  Value is_good = Core::eq(normalized, Value("good"));
-  if (Core::truthy(is_good)) {
-    return Value(0.8);
-  }
-  Value is_acceptable = Core::eq(normalized, Value("acceptable"));
-  if (Core::truthy(is_acceptable)) {
-    return Value(0.5);
-  }
-  Value is_poor = Core::eq(normalized, Value("poor"));
-  if (Core::truthy(is_poor)) {
-    return Value(0.2);
-  }
-  Value is_unacceptable = Core::eq(normalized, Value("unacceptable"));
-  if (Core::truthy(is_unacceptable)) {
-    return Value(0);
-  }
-  return Value(0.5);
-}
-
-Value Core::_build_optimization_judge_payload(Value task, Value prediction, Value criteria) {
-  axir_coverage_mark("_build_optimization_judge_payload");
-  Value empty_list = Value::array();
-  Value out = Value::object();
-  Value task_input = Core::get(task, Value("input"), task);
-  Core::set(out, Value("taskInput"), task_input);
-  Value task_criteria = Core::get(task, Value("criteria"), criteria);
-  Core::set(out, Value("criteria"), task_criteria);
-  Value expected_output = Core::get(task, Value("expectedOutput"), Value());
-  Core::set(out, Value("expectedOutput"), expected_output);
-  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
-  Core::set(out, Value("expectedActions"), expected_actions);
-  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
-  Core::set(out, Value("forbiddenActions"), forbidden_actions);
-  Value metadata = Core::get(task, Value("metadata"), Value());
-  Core::set(out, Value("metadata"), metadata);
-  Value completion_type = Core::get(prediction, Value("completionType"), Value("error"));
-  Core::set(out, Value("completionType"), completion_type);
-  Value clarification = Core::get(prediction, Value("clarification"), Value());
-  Core::set(out, Value("clarification"), clarification);
-  Value final_output = Core::get(prediction, Value("output"), prediction);
-  Core::set(out, Value("finalOutput"), final_output);
-  Value guidance_log = Core::get(prediction, Value("guidanceLog"), Value(""));
-  Core::set(out, Value("guidanceLog"), guidance_log);
-  Value action_log = Core::get(prediction, Value("actionLog"), empty_list);
-  Core::set(out, Value("actionLog"), action_log);
-  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
-  Core::set(out, Value("functionCalls"), function_calls);
-  Value tool_errors = Core::get(prediction, Value("toolErrors"), empty_list);
-  Core::set(out, Value("toolErrors"), tool_errors);
-  Value turn_count = Core::get(prediction, Value("turnCount"), Value(0));
-  Core::set(out, Value("turnCount"), turn_count);
-  Value usage = Core::get(prediction, Value("usage"), empty_list);
-  Core::set(out, Value("usage"), usage);
-  Value trace = Core::get(prediction, Value("trace"), Value());
-  Core::set(out, Value("trace"), trace);
-  Value empty_failure_signals = Value::array();
-  Value failure_signals = Core::get(prediction, Value("failureSignals"), empty_failure_signals);
-  Core::set(out, Value("failureSignals"), failure_signals);
-  return out;
-}
-
 Value Core::_agent_discoverable_doc_chars(Value callable_split) {
   axir_coverage_mark("_agent_discoverable_doc_chars");
   Value empty_list = Value::array();
@@ -37130,6 +37181,74 @@ Value Core::_agent_policy_flags(Value options, Value callable_split, Value auto_
   Core::set(out, Value("directRespondMode"), direct_respond_mode);
   Core::set(out, Value("directRespondOnly"), direct_respond_only);
   Core::set(out, Value("discoveryMode+skillsMode"), combined_discovery_skills);
+  return out;
+}
+
+Value Core::_map_optimization_judge_quality_to_score(Value quality) {
+  axir_coverage_mark("_map_optimization_judge_quality_to_score");
+  Value normalized = Core::string_lower(quality);
+  Value is_excellent = Core::eq(normalized, Value("excellent"));
+  if (Core::truthy(is_excellent)) {
+    return Value(1);
+  }
+  Value is_good = Core::eq(normalized, Value("good"));
+  if (Core::truthy(is_good)) {
+    return Value(0.8);
+  }
+  Value is_acceptable = Core::eq(normalized, Value("acceptable"));
+  if (Core::truthy(is_acceptable)) {
+    return Value(0.5);
+  }
+  Value is_poor = Core::eq(normalized, Value("poor"));
+  if (Core::truthy(is_poor)) {
+    return Value(0.2);
+  }
+  Value is_unacceptable = Core::eq(normalized, Value("unacceptable"));
+  if (Core::truthy(is_unacceptable)) {
+    return Value(0);
+  }
+  return Value(0.5);
+}
+
+Value Core::_build_optimization_judge_payload(Value task, Value prediction, Value criteria) {
+  axir_coverage_mark("_build_optimization_judge_payload");
+  Value empty_list = Value::array();
+  Value out = Value::object();
+  Value task_input = Core::get(task, Value("input"), task);
+  Core::set(out, Value("taskInput"), task_input);
+  Value task_criteria = Core::get(task, Value("criteria"), criteria);
+  Core::set(out, Value("criteria"), task_criteria);
+  Value expected_output = Core::get(task, Value("expectedOutput"), Value());
+  Core::set(out, Value("expectedOutput"), expected_output);
+  Value expected_actions = Core::get(task, Value("expectedActions"), empty_list);
+  Core::set(out, Value("expectedActions"), expected_actions);
+  Value forbidden_actions = Core::get(task, Value("forbiddenActions"), empty_list);
+  Core::set(out, Value("forbiddenActions"), forbidden_actions);
+  Value metadata = Core::get(task, Value("metadata"), Value());
+  Core::set(out, Value("metadata"), metadata);
+  Value completion_type = Core::get(prediction, Value("completionType"), Value("error"));
+  Core::set(out, Value("completionType"), completion_type);
+  Value clarification = Core::get(prediction, Value("clarification"), Value());
+  Core::set(out, Value("clarification"), clarification);
+  Value final_output = Core::get(prediction, Value("output"), prediction);
+  Core::set(out, Value("finalOutput"), final_output);
+  Value guidance_log = Core::get(prediction, Value("guidanceLog"), Value(""));
+  Core::set(out, Value("guidanceLog"), guidance_log);
+  Value action_log = Core::get(prediction, Value("actionLog"), empty_list);
+  Core::set(out, Value("actionLog"), action_log);
+  Value function_calls = Core::get(prediction, Value("functionCalls"), empty_list);
+  Core::set(out, Value("functionCalls"), function_calls);
+  Value tool_errors = Core::get(prediction, Value("toolErrors"), empty_list);
+  Core::set(out, Value("toolErrors"), tool_errors);
+  Value turn_count = Core::get(prediction, Value("turnCount"), Value(0));
+  Core::set(out, Value("turnCount"), turn_count);
+  Value usage = Core::get(prediction, Value("usage"), empty_list);
+  Core::set(out, Value("usage"), usage);
+  Value trace = Core::get(prediction, Value("trace"), Value());
+  Core::set(out, Value("trace"), trace);
+  Value empty_failure_signals = Value::array();
+  Value failure_signals = Core::get(prediction, Value("failureSignals"), empty_failure_signals);
+  Core::set(out, Value("failureSignals"), failure_signals);
   return out;
 }
 
@@ -37377,6 +37496,14 @@ Value Core::_agent_policy_vocabulary_registry() {
   return registry;
 }
 
+Value Core::_agent_context_policy_registry() {
+  axir_coverage_mark("_agent_context_policy_registry");
+  Value registry = Core::_agent_policy_vocabulary_registry();
+  Value empty_map = Value::object();
+  Value context = Core::get(registry, Value("context_policy"), empty_map);
+  return context;
+}
+
 Value Core::_build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace) {
   axir_coverage_mark("_build_agent_eval_prediction");
   Value out = Value::object();
@@ -37393,14 +37520,6 @@ Value Core::_build_agent_eval_prediction(Value output, Value action_log, Value u
   Core::set(out, Value("toolErrors"), empty_list);
   Core::set(out, Value("turnCount"), Value(0));
   return out;
-}
-
-Value Core::_agent_context_policy_registry() {
-  axir_coverage_mark("_agent_context_policy_registry");
-  Value registry = Core::_agent_policy_vocabulary_registry();
-  Value empty_map = Value::object();
-  Value context = Core::get(registry, Value("context_policy"), empty_map);
-  return context;
 }
 
 Value Core::_agent_context_policy_migration_error(Value key) {
@@ -38256,72 +38375,6 @@ Value Core::_resolve_agent_context_policy(Value options) {
   return out;
 }
 
-Value Core::_agent_eval_marks(Value state) {
-  axir_coverage_mark("_agent_eval_marks");
-  Value empty_list = Value::array();
-  Value log = Core::get(state, Value("action_log"), empty_list);
-  Value traces = Core::get(state, Value("function_call_traces"), empty_list);
-  Value log_count = Core::len(log);
-  Value trace_count = Core::len(traces);
-  Value marks = Value::object();
-  Core::set(marks, Value("action_log"), log_count);
-  Core::set(marks, Value("function_call_traces"), trace_count);
-  Value empty_map = Value::object();
-  Value stage_logs = Core::get(state, Value("stage_action_logs"), empty_map);
-  Core::set(marks, Value("stage_action_logs"), stage_logs);
-  Value fresh_stage_logs = Value::object();
-  Core::set(state, Value("stage_action_logs"), fresh_stage_logs);
-  return marks;
-}
-
-Value Core::_agent_eval_function_calls(Value traces) {
-  axir_coverage_mark("_agent_eval_function_calls");
-  Value calls = Value::array();
-  Value empty_map = Value::object();
-  for (auto trace : Core::iter(traces)) {
-    Value qualified = Core::get(trace, Value("qualified_name"), Value(""));
-    Value name = Core::get(trace, Value("name"), Value(""));
-    Value name_missing = Core::eq(name, Value(""));
-    Value name_qualified = Core::eq(name, qualified);
-    Value derive_name = Core::or_(name_missing, name_qualified);
-    if (Core::truthy(derive_name)) {
-      Value name_parts = Core::string_split(qualified, Value("."));
-      for (auto name_part : Core::iter(name_parts)) {
-        name = name_part;
-      }
-    }
-    Value arguments = Core::get(trace, Value("arguments"), Value());
-    Value result = Core::get(trace, Value("result"), empty_map);
-    Value result_is_map = Core::type_is(result, Value("object"));
-    if (Core::truthy(result_is_map)) {
-      // empty
-    }
-    if (!Core::truthy(result_is_map)) {
-      result = empty_map;
-    }
-    Value status = Core::get(trace, Value("status"), Value("ok"));
-    Value call = Value::object();
-    Core::set(call, Value("qualifiedName"), qualified);
-    Core::set(call, Value("name"), name);
-    Core::set(call, Value("arguments"), arguments);
-    Value failed = Core::eq(status, Value("error"));
-    if (Core::truthy(failed)) {
-      Value error = Core::get(result, Value("error"), Value("unknown error"));
-      Value error_text = Core::string_str(error);
-      Core::set(call, Value("error"), error_text);
-    }
-    if (!Core::truthy(failed)) {
-      Value value = Core::get(result, Value("value"), Value());
-      Value has_value = Core::is_not_none(value);
-      if (Core::truthy(has_value)) {
-        Core::set(call, Value("result"), value);
-      }
-    }
-    Core::append(calls, call);
-  }
-  return calls;
-}
-
 Value Core::_resolve_agent_executor_model_policy(Value options) {
   axir_coverage_mark("_resolve_agent_executor_model_policy");
   Value empty_list = Value::array();
@@ -38438,6 +38491,120 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
   return out;
 }
 
+Value Core::_agent_eval_marks(Value state) {
+  axir_coverage_mark("_agent_eval_marks");
+  Value empty_list = Value::array();
+  Value log = Core::get(state, Value("action_log"), empty_list);
+  Value traces = Core::get(state, Value("function_call_traces"), empty_list);
+  Value log_count = Core::len(log);
+  Value trace_count = Core::len(traces);
+  Value marks = Value::object();
+  Core::set(marks, Value("action_log"), log_count);
+  Core::set(marks, Value("function_call_traces"), trace_count);
+  Value empty_map = Value::object();
+  Value stage_logs = Core::get(state, Value("stage_action_logs"), empty_map);
+  Core::set(marks, Value("stage_action_logs"), stage_logs);
+  Value fresh_stage_logs = Value::object();
+  Core::set(state, Value("stage_action_logs"), fresh_stage_logs);
+  return marks;
+}
+
+Value Core::_agent_eval_function_calls(Value traces) {
+  axir_coverage_mark("_agent_eval_function_calls");
+  Value calls = Value::array();
+  Value empty_map = Value::object();
+  for (auto trace : Core::iter(traces)) {
+    Value qualified = Core::get(trace, Value("qualified_name"), Value(""));
+    Value name = Core::get(trace, Value("name"), Value(""));
+    Value name_missing = Core::eq(name, Value(""));
+    Value name_qualified = Core::eq(name, qualified);
+    Value derive_name = Core::or_(name_missing, name_qualified);
+    if (Core::truthy(derive_name)) {
+      Value name_parts = Core::string_split(qualified, Value("."));
+      for (auto name_part : Core::iter(name_parts)) {
+        name = name_part;
+      }
+    }
+    Value arguments = Core::get(trace, Value("arguments"), Value());
+    Value result = Core::get(trace, Value("result"), empty_map);
+    Value result_is_map = Core::type_is(result, Value("object"));
+    if (Core::truthy(result_is_map)) {
+      // empty
+    }
+    if (!Core::truthy(result_is_map)) {
+      result = empty_map;
+    }
+    Value status = Core::get(trace, Value("status"), Value("ok"));
+    Value call = Value::object();
+    Core::set(call, Value("qualifiedName"), qualified);
+    Core::set(call, Value("name"), name);
+    Core::set(call, Value("arguments"), arguments);
+    Value failed = Core::eq(status, Value("error"));
+    if (Core::truthy(failed)) {
+      Value error = Core::get(result, Value("error"), Value("unknown error"));
+      Value error_text = Core::string_str(error);
+      Core::set(call, Value("error"), error_text);
+    }
+    if (!Core::truthy(failed)) {
+      Value value = Core::get(result, Value("value"), Value());
+      Value has_value = Core::is_not_none(value);
+      if (Core::truthy(has_value)) {
+        Core::set(call, Value("result"), value);
+      }
+    }
+    Core::append(calls, call);
+  }
+  return calls;
+}
+
+Value Core::_select_agent_executor_model(Value policy, Value actor_model_state) {
+  axir_coverage_mark("_select_agent_executor_model");
+  Value none = Core::none();
+  Value is_list = Core::type_is(policy, Value("list"));
+  if (Core::truthy(is_list)) {
+    // empty
+  }
+  if (!Core::truthy(is_list)) {
+    return none;
+  }
+  Value errors = Core::get(actor_model_state, Value("consecutiveErrorTurns"), Value(0));
+  Value matched = Core::get(actor_model_state, Value("matchedNamespaces"), Value());
+  Value matched_is_list = Core::type_is(matched, Value("list"));
+  if (Core::truthy(matched_is_list)) {
+    // empty
+  }
+  if (!Core::truthy(matched_is_list)) {
+    matched = Value::array();
+  }
+  Value selected = Core::none();
+  for (auto entry : Core::iter(policy)) {
+    Value model = Core::get(entry, Value("model"), Value(""));
+    Value above = Core::get(entry, Value("aboveErrorTurns"), Value());
+    Value namespaces = Core::get(entry, Value("namespaces"), Value());
+    Value trigger = Value(false);
+    Value has_above = Core::is_not_none(above);
+    if (Core::truthy(has_above)) {
+      Value error_trigger = Core::gte(errors, above);
+      if (Core::truthy(error_trigger)) {
+        trigger = Value(true);
+      }
+    }
+    Value namespaces_is_list = Core::type_is(namespaces, Value("list"));
+    if (Core::truthy(namespaces_is_list)) {
+      for (auto namespace_ : Core::iter(namespaces)) {
+        Value namespace_match = Core::contains(matched, namespace_);
+        if (Core::truthy(namespace_match)) {
+          trigger = Value(true);
+        }
+      }
+    }
+    if (Core::truthy(trigger)) {
+      selected = model;
+    }
+  }
+  return selected;
+}
+
 Value Core::_agent_eval_run(Value state, Value marks) {
   axir_coverage_mark("_agent_eval_run");
   Value empty_list = Value::array();
@@ -38517,96 +38684,6 @@ Value Core::_agent_eval_run(Value state, Value marks) {
   Core::set(run, Value("turnCount"), turn_count);
   Core::set(run, Value("failureSignals"), signals);
   return run;
-}
-
-Value Core::_select_agent_executor_model(Value policy, Value actor_model_state) {
-  axir_coverage_mark("_select_agent_executor_model");
-  Value none = Core::none();
-  Value is_list = Core::type_is(policy, Value("list"));
-  if (Core::truthy(is_list)) {
-    // empty
-  }
-  if (!Core::truthy(is_list)) {
-    return none;
-  }
-  Value errors = Core::get(actor_model_state, Value("consecutiveErrorTurns"), Value(0));
-  Value matched = Core::get(actor_model_state, Value("matchedNamespaces"), Value());
-  Value matched_is_list = Core::type_is(matched, Value("list"));
-  if (Core::truthy(matched_is_list)) {
-    // empty
-  }
-  if (!Core::truthy(matched_is_list)) {
-    matched = Value::array();
-  }
-  Value selected = Core::none();
-  for (auto entry : Core::iter(policy)) {
-    Value model = Core::get(entry, Value("model"), Value(""));
-    Value above = Core::get(entry, Value("aboveErrorTurns"), Value());
-    Value namespaces = Core::get(entry, Value("namespaces"), Value());
-    Value trigger = Value(false);
-    Value has_above = Core::is_not_none(above);
-    if (Core::truthy(has_above)) {
-      Value error_trigger = Core::gte(errors, above);
-      if (Core::truthy(error_trigger)) {
-        trigger = Value(true);
-      }
-    }
-    Value namespaces_is_list = Core::type_is(namespaces, Value("list"));
-    if (Core::truthy(namespaces_is_list)) {
-      for (auto namespace_ : Core::iter(namespaces)) {
-        Value namespace_match = Core::contains(matched, namespace_);
-        if (Core::truthy(namespace_match)) {
-          trigger = Value(true);
-        }
-      }
-    }
-    if (Core::truthy(trigger)) {
-      selected = model;
-    }
-  }
-  return selected;
-}
-
-Value Core::_build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace) {
-  axir_coverage_mark("_build_agent_run_prediction");
-  Value run = Core::_agent_eval_run(state, marks);
-  Value type = Core::get(completion, Value("type"), Value("final"));
-  Value out = Value::object();
-  Core::set(out, Value("completionType"), type);
-  Value is_final = Core::eq(type, Value("final"));
-  if (Core::truthy(is_final)) {
-    Value output = Core::get(completion, Value("output"), Value());
-    Core::set(out, Value("output"), output);
-    Core::set(out, Value("finalOutput"), output);
-  }
-  Value is_clarification = Core::eq(type, Value("askClarification"));
-  if (Core::truthy(is_clarification)) {
-    Value clarification = Core::get(completion, Value("clarification"), Value());
-    Core::set(out, Value("clarification"), clarification);
-  }
-  Value tool_errors = Core::get(run, Value("toolErrors"), Value());
-  Value is_error = Core::eq(type, Value("error"));
-  if (Core::truthy(is_error)) {
-    Value message = Core::get(completion, Value("message"), Value(""));
-    Value error = Value::object();
-    Core::set(error, Value("message"), message);
-    Core::set(out, Value("error"), error);
-    Value error_tool_errors = Value::array();
-    Core::append(error_tool_errors, message);
-    tool_errors = error_tool_errors;
-  }
-  Value run_log = Core::get(run, Value("actionLog"), Value());
-  Core::set(out, Value("actionLog"), run_log);
-  Core::set(out, Value("usage"), usage);
-  Core::set(out, Value("trace"), trace);
-  Value signals = Core::get(run, Value("failureSignals"), Value());
-  Core::set(out, Value("failureSignals"), signals);
-  Value calls = Core::get(run, Value("functionCalls"), Value());
-  Core::set(out, Value("functionCalls"), calls);
-  Core::set(out, Value("toolErrors"), tool_errors);
-  Value turn_count = Core::get(run, Value("turnCount"), Value());
-  Core::set(out, Value("turnCount"), turn_count);
-  return out;
 }
 
 Value Core::_agent_compute_effective_chat_budget(Value base_budget, Value fixed_overhead_chars) {
@@ -38712,6 +38789,48 @@ Value Core::_agent_context_pressure(Value mutable_prompt_chars, Value effective_
     return watch_id;
   }
   return ok_id;
+}
+
+Value Core::_build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace) {
+  axir_coverage_mark("_build_agent_run_prediction");
+  Value run = Core::_agent_eval_run(state, marks);
+  Value type = Core::get(completion, Value("type"), Value("final"));
+  Value out = Value::object();
+  Core::set(out, Value("completionType"), type);
+  Value is_final = Core::eq(type, Value("final"));
+  if (Core::truthy(is_final)) {
+    Value output = Core::get(completion, Value("output"), Value());
+    Core::set(out, Value("output"), output);
+    Core::set(out, Value("finalOutput"), output);
+  }
+  Value is_clarification = Core::eq(type, Value("askClarification"));
+  if (Core::truthy(is_clarification)) {
+    Value clarification = Core::get(completion, Value("clarification"), Value());
+    Core::set(out, Value("clarification"), clarification);
+  }
+  Value tool_errors = Core::get(run, Value("toolErrors"), Value());
+  Value is_error = Core::eq(type, Value("error"));
+  if (Core::truthy(is_error)) {
+    Value message = Core::get(completion, Value("message"), Value(""));
+    Value error = Value::object();
+    Core::set(error, Value("message"), message);
+    Core::set(out, Value("error"), error);
+    Value error_tool_errors = Value::array();
+    Core::append(error_tool_errors, message);
+    tool_errors = error_tool_errors;
+  }
+  Value run_log = Core::get(run, Value("actionLog"), Value());
+  Core::set(out, Value("actionLog"), run_log);
+  Core::set(out, Value("usage"), usage);
+  Core::set(out, Value("trace"), trace);
+  Value signals = Core::get(run, Value("failureSignals"), Value());
+  Core::set(out, Value("failureSignals"), signals);
+  Value calls = Core::get(run, Value("functionCalls"), Value());
+  Core::set(out, Value("functionCalls"), calls);
+  Core::set(out, Value("toolErrors"), tool_errors);
+  Value turn_count = Core::get(run, Value("turnCount"), Value());
+  Core::set(out, Value("turnCount"), turn_count);
+  return out;
 }
 
 Value Core::_agent_render_context_pressure(Value pressure) {
@@ -57212,9 +57331,7 @@ Value AxBootstrapFewShot::optimize(Value request, OptimizerEvaluator* evaluator)
         if (rows.empty()) continue;
         if (gepa_num(Core::get(rows[0], "scalar", Value(0)), 0) >= threshold) {
           accepted.insert(example_key);
-          Value traces = Value::array();
-          Core::append(traces, Core::get(rows[0], "prediction", Core::get(rows[0], "input", Value::object())));
-          Core::append(demos, object({{"programId", "root"}, {"traces", traces}}));
+          Core::append(demos, Core::_optimization_bootstrap_demo(rows[0]));
         }
       }
     }
@@ -57264,7 +57381,7 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   int minibatch_size = std::max(1, gepa_int(Core::get(options, "minibatchSize", Core::get(options, "minibatch_size", Value(20))), 20));
   int early_stop = std::max(1, gepa_int(Core::get(options, "earlyStoppingTrials", Core::get(options, "early_stopping_trials", Value(5))), 5));
   double min_improvement = gepa_num(Core::get(options, "minImprovementThreshold", Core::get(options, "min_improvement_threshold", Value(0))), 0.0);
-  int pareto_size = std::min(1000, std::max(1, gepa_int(Core::get(options, "paretoSetSize", Core::get(options, "pareto_set_size", Value(std::max(10, std::min(200, minibatch_size * 3))))), 10)));
+  int pareto_size = gepa_int(Core::_gepa_pareto_set_size(options), 60);
   double tie_eps = gepa_num(Core::get(options, "tieEpsilon", Core::get(options, "tie_epsilon", Value(0))), 0.0);
   Value base_cfg = gepa_current_map(components);
   std::vector<Value> pareto_set(validation.begin(), validation.begin() + std::min(validation.size(), static_cast<size_t>(pareto_size)));
@@ -57282,22 +57399,28 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   }
 
   int total_calls = 0;
-  auto evaluate = [&](Value cfg, const std::vector<Value>& examples, const std::string& phase, bool required, bool capture) -> Value {
-    if (total_calls + static_cast<int>(examples.size()) > max_calls) {
-      if (required) throw AxError("runtime", "AxGEPA: options.maxMetricCalls=" + std::to_string(max_calls) + " is too small to evaluate the initial Pareto set; need at least " + std::to_string(examples.size()) + " metric calls");
+  Value active_demos = Value::array();
+  auto evaluate = [&](Value cfg, const std::vector<Value>& examples, const std::string& phase, bool required, bool capture, int* separate_calls = nullptr, int separate_limit = 0) -> Value {
+    int& calls = separate_calls == nullptr ? total_calls : *separate_calls;
+    int limit = separate_calls == nullptr ? max_calls : separate_limit;
+    if (calls + static_cast<int>(examples.size()) > limit) {
+      if (required) throw AxError("runtime", "AxGEPA: options.maxMetricCalls=" + std::to_string(limit) + " is too small for " + phase + "; need at least " + std::to_string(calls + examples.size()) + " metric calls");
       return Value();
     }
     Value eval_options = Value::object();
     Core::set(eval_options, "dataset", gepa_dataset_for(examples));
     Core::set(eval_options, "phase", Value(phase));
     Core::set(eval_options, "captureTraces", Value(capture));
+    if (!Core::iter(active_demos).empty()) Core::set(eval_options, "demos", active_demos);
     Value result = evaluator->evaluate(cfg, eval_options);
-    total_calls += static_cast<int>(gepa_num(Core::get(result, "count", Value(static_cast<int>(examples.size()))), examples.size()));
+    int count = static_cast<int>(gepa_num(Core::get(result, "count", Value(static_cast<int>(examples.size()))), examples.size()));
+    calls += count;
     Value rows = Core::get(result, "rows", Value::array());
     Value scalars = Value::array();
     for (const auto& row : Core::iter(rows)) Core::append(scalars, Core::get(row, "scalar", Value(0)));
     Value out = Value::object();
     Core::set(out, "rows", rows);
+    Core::set(out, "count", count);
     Core::set(out, "avgScores", gepa_avg_vec(rows));
     Core::set(out, "avg", Core::get(result, "avg", Value(0)));
     Core::set(out, "sum", Core::get(result, "sum", Value(0)));
@@ -57305,7 +57428,13 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
     return out;
   };
 
-  Value demos = Value::array();
+  Value baseline_eval = Core::get(options, "_baselineEvaluation", Value());
+  if (baseline_eval.is_null()) baseline_eval = evaluate(base_cfg, pareto_set, "baseline evaluation", true, false);
+  else total_calls = gepa_int(Core::get(baseline_eval, "count", static_cast<int>(pareto_set.size())), static_cast<int>(pareto_set.size()));
+  baseline_evaluation_ = baseline_eval;
+  Value baseline_report = Core::_gepa_baseline_report(baseline_eval, options);
+  int bootstrap_calls = gepa_int(Core::get(options, "_bootstrapMetricCalls", 0), 0);
+  Value demos = Core::get(options, "_bootstrapDemos", Value::array());
   if (Core::truthy(Core::get(options, "bootstrap", Value(false)))) {
     Value bootstrap = Core::get(options, "bootstrap", Value::object());
     double threshold = gepa_num(Core::get(bootstrap, "scoreThreshold", Core::get(bootstrap, "score_threshold", Value(0.8))), 0.8);
@@ -57314,17 +57443,12 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
     int boot_calls = 0;
     for (const auto& example : train) {
       if (boot_calls >= max_boot_calls || static_cast<int>(Core::iter(demos).size()) >= max_demos) break;
-      Value boot_eval = evaluate(base_cfg, std::vector<Value>{example}, "bootstrap", false, false);
+      Value boot_eval = evaluate(base_cfg, std::vector<Value>{example}, "bootstrap", false, false, &bootstrap_calls, max_boot_calls);
       boot_calls += 1;
       if (boot_eval.is_null()) break;
       std::vector<Value> rows = Core::iter(Core::get(boot_eval, "rows", Value::array()));
       if (!rows.empty() && gepa_num(Core::get(rows[0], "scalar", Value(0)), 0.0) >= threshold) {
-        Value demo = Value::object();
-        Core::set(demo, "programId", Value("root"));
-        Value traces = Value::array();
-        Core::append(traces, Core::get(rows[0], "prediction", Core::get(rows[0], "input", Value::object())));
-        Core::set(demo, "traces", traces);
-        Core::append(demos, demo);
+        Core::append(demos, Core::_optimization_bootstrap_demo(rows[0]));
       }
     }
   }
@@ -57333,7 +57457,8 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   Value reflection_chat_options = Core::map_merge(Value::object(), gepa_teacher_options(options));
   Core::set(reflection_chat_options, "stream", false);
 
-  Value base_eval = evaluate(base_cfg, pareto_set, "initial Pareto evaluation", true, false);
+  active_demos = demos;
+  Value base_eval = Core::iter(demos).empty() ? baseline_eval : evaluate(base_cfg, pareto_set, "bootstrapped Pareto evaluation", true, false);
   std::vector<GepCandidate> candidates{{base_cfg, Core::get(base_eval, "avgScores", Value::object()), -1}};
   std::vector<std::vector<double>> per_instance;
   std::vector<double> base_scalars;
@@ -57488,7 +57613,10 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   Core::set(metadata, "selectorState", selector_state_);
   Core::set(metadata, "paretoFront", front);
   Core::set(metadata, "bestScore", Value(best_score == -1e100 ? 0.0 : best_score));
+  metadata = Core::map_merge(metadata, baseline_report);
   Core::set(metadata, "totalMetricCalls", Value(total_calls));
+  Core::set(metadata, "bootstrapMetricCalls", Value(bootstrap_calls));
+  Core::set(metadata, "totalCalls", Value(total_calls + bootstrap_calls));
   Core::set(metadata, "candidatesExplored", Value(static_cast<int>(candidates.size())));
   Value report = Value::object();
   Core::set(report, "summary", Value("GEPA Multi-Objective Optimization Complete"));
@@ -57502,6 +57630,7 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
   Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
   Core::set(artifact, "optimizerName", Value("GEPA"));
   Core::set(artifact, "optimizerVersion", Value(version()));
+  artifact = Core::map_merge(artifact, baseline_report);
   Core::set(artifact, "componentMap", candidates[static_cast<size_t>(best_idx)].cfg);
   Core::set(artifact, "demos", demos);
   Core::set(artifact, "metadata", metadata);
@@ -58496,6 +58625,8 @@ AxPlaybook playbook(AxGen& program, AIClient& student, Value options, AIClient* 
 }
 
 Value AxGen::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
+  Value demos = Core::get(options, "demos", Value::array());
+  if (!Core::iter(demos).empty()) set_demos(demos);
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
   Value rows = Value::array();
   Value original = Core::_optimization_component_current_map(get_optimizable_components());
@@ -58999,6 +59130,8 @@ AxFlow& AxFlow::apply_optimization(Value artifact) {
   return apply_optimized_components(Core::get(map, "componentMap", Value::object()));
 }
 Value AxFlow::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
+  Value demos = Core::get(options, "demos", Value::array());
+  if (!Core::iter(demos).empty()) set_demos(demos);
   return Core::_flow_evaluate_optimization(state_, Core::client_ref(client), std::move(dataset), std::move(candidate_map), std::move(options));
 }
 struct AxFlowOptimizerEvaluator : OptimizerEvaluator {
@@ -59699,15 +59832,31 @@ template <typename Program>
 static Value optimize_impl(Program& program, AIClient& student, Value dataset, Value options, AIClient* teacher) {
   AIClient* reflection = teacher == nullptr ? &student : teacher;
   Value bootstrap_setting = Core::get(options, "bootstrap", Value(static_cast<bool>(Core::iter(dataset).size() <= 8)));
+  Value normalized = Core::_normalize_optimization_dataset(dataset);
+  Value train = Core::get(normalized, "train", Value::array());
+  bootstrap_setting = Core::get(options, "bootstrap", Value(Core::iter(train).size() <= 8));
+  Value validation = Core::get(options, "validationExamples", Core::get(options, "validation_examples", Core::get(normalized, "validation", Value::array())));
+  if (Core::iter(validation).empty()) validation = train;
+  Value gepa_options = optimize_set_common_gepa_options(options);
+  Core::set(gepa_options, "maxMetricCalls", Core::_gepa_helper_metric_budget(options, static_cast<int>(Core::iter(validation).size()), optimize_bootstrap_enabled(bootstrap_setting)));
   Value demos = Value::array();
+  int bootstrap_calls = 0;
   if (optimize_bootstrap_enabled(bootstrap_setting)) {
+    Value baseline_options = Core::map_merge(Value::object(), gepa_options);
+    Core::set(baseline_options, "numTrials", 0);
+    AxGEPA baseline(reflection, baseline_options);
+    program.optimize_with(baseline, student, dataset, baseline_options);
+    Core::set(gepa_options, "_baselineEvaluation", baseline.baseline_evaluation());
     Value bootstrap_options = optimize_set_apply_false(optimize_options_merge(options, bootstrap_setting));
     AxBootstrapFewShot bootstrap(bootstrap_options);
     Value bootstrap_artifact = program.optimize_with(bootstrap, *reflection, dataset, bootstrap_options);
     demos = Core::get(bootstrap_artifact, "demos", Value::array());
+    if (Core::iter(demos).empty()) throw AxError("runtime", "No demonstrations found. Either provide more examples or improve the existing ones.");
+    bootstrap_calls = gepa_int(Core::get(Core::get(bootstrap_artifact, "metadata", Value::object()), "totalMetricCalls", 0), 0);
     if (!Core::iter(demos).empty()) optimize_apply_demos(program, demos);
   }
-  Value gepa_options = optimize_set_common_gepa_options(options);
+  Core::set(gepa_options, "_bootstrapDemos", demos);
+  Core::set(gepa_options, "_bootstrapMetricCalls", bootstrap_calls);
   AxGEPA gepa(reflection, gepa_options);
   Value artifact = program.optimize_with(gepa, student, dataset, gepa_options);
   if (!Core::iter(demos).empty()) Core::set(artifact, "demos", demos);

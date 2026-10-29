@@ -54,10 +54,14 @@ from .gen import (
     _build_optimization_eval_result,
     _build_optimization_eval_row,
     _deserialize_optimized_artifact,
+    _gepa_baseline_report,
+    _gepa_helper_metric_budget,
+    _gepa_pareto_set_size,
     _normalize_optimization_dataset,
     _normalize_optimization_metric_scores,
     _normalize_optimizer_engine_response,
     _optimization_component_current_map,
+    _optimization_bootstrap_demo,
     _prepare_optimizer_run,
     _scalarize_optimization_scores,
     _validate_optimization_component_map,
@@ -338,7 +342,7 @@ class AxBootstrapFewShot(OptimizerEngine):
                     row = rows[0]
                     if _gepa_num(row.get("scalar"), 0) >= threshold:
                         accepted.add(example_key)
-                        demos.append({"programId": "root", "traces": [copy.deepcopy(row.get("prediction", row.get("input", {})))]})
+                        demos.append(_optimization_bootstrap_demo(row))
         return {
             "artifactVersion": "axir-optimized-artifact-v1",
             "optimizerName": self.name,
@@ -366,6 +370,8 @@ class AxGEPA(OptimizerEngine):
         self.rng_state = _gepa_int(self.options.get("seed"), 123456789) or 123456789
         self.selector_state = {}
         self.feedback_memory = []
+        self._baseline_evaluation = None
+        self._active_demos = []
 
     def _rand(self):
         self.rng_state ^= (self.rng_state << 13) & 0xFFFFFFFF
@@ -448,9 +454,12 @@ class AxGEPA(OptimizerEngine):
         needed = len(examples or [])
         if total_calls + needed > max_calls:
             if throw:
-                raise RuntimeError(f"AxGEPA: options.maxMetricCalls={max_calls} is too small to evaluate the initial Pareto set; need at least {needed} metric calls")
+                raise RuntimeError(f"AxGEPA: options.maxMetricCalls={max_calls} is too small for {phase}; need at least {total_calls + needed} metric calls")
             return None, total_calls
-        result = evaluator.evaluate(dict(cfg), {"dataset": self._dataset_for(examples), "phase": phase, "captureTraces": capture_traces})
+        eval_options = {"dataset": self._dataset_for(examples), "phase": phase, "captureTraces": capture_traces}
+        if self._active_demos:
+            eval_options["demos"] = copy.deepcopy(self._active_demos)
+        result = evaluator.evaluate(dict(cfg), eval_options)
         rows = list((result or {}).get("rows") or [])
         scalars = [_gepa_num(row.get("scalar"), 0) for row in rows]
         out = {
@@ -554,7 +563,7 @@ class AxGEPA(OptimizerEngine):
                 continue
             row = result["rows"][0]
             if _gepa_num(row.get("scalar"), 0) >= threshold:
-                demos.append({"programId": "root", "traces": [copy.deepcopy(row.get("prediction", row.get("input", {})))]})
+                demos.append(_optimization_bootstrap_demo(row))
         return demos, total_calls
 
     def optimize(self, request: dict[str, Any], evaluator: OptimizerEvaluator | None = None) -> dict[str, Any]:
@@ -575,14 +584,31 @@ class AxGEPA(OptimizerEngine):
         minibatch_size = _gepa_int(_gepa_option(options, "minibatchSize", "minibatch_size", default=20), 20, 1)
         early_stop = _gepa_int(_gepa_option(options, "earlyStoppingTrials", "early_stopping_trials", default=5), 5, 1)
         min_improvement = _gepa_num(_gepa_option(options, "minImprovementThreshold", "min_improvement_threshold", default=0), 0)
-        pareto_size = _gepa_int(_gepa_option(options, "paretoSetSize", "pareto_set_size", default=max(10, min(200, minibatch_size * 3))), max(10, min(200, minibatch_size * 3)), 1, 1000)
+        pareto_size = int(_gepa_pareto_set_size(options))
         tie_eps = _gepa_num(_gepa_option(options, "tieEpsilon", "tie_epsilon", default=0), 0)
         base_cfg = _gepa_current_map(components)
         pareto_set = validation[:pareto_size]
         self._selector_init(components, _gepa_option(options, "selectorState", "selector_state"))
         total_calls = 0
-        demos, total_calls = self._bootstrap(evaluator, base_cfg, train, options, total_calls, max_calls)
-        base_eval, total_calls = self._evaluate(evaluator, base_cfg, pareto_set, "initial Pareto evaluation", max_calls, total_calls, True)
+        self._active_demos = []
+        baseline_eval = copy.deepcopy(options.get("_baselineEvaluation"))
+        if baseline_eval is None:
+            baseline_eval, total_calls = self._evaluate(evaluator, base_cfg, pareto_set, "baseline evaluation", max_calls, total_calls, True)
+        else:
+            total_calls = int(baseline_eval.get("count", len(pareto_set)))
+        self._baseline_evaluation = copy.deepcopy(baseline_eval)
+        baseline_report = _gepa_baseline_report(baseline_eval, options)
+        bootstrap_calls = int(options.get("_bootstrapMetricCalls", 0))
+        demos = copy.deepcopy(options.get("_bootstrapDemos") or [])
+        if options.get("bootstrap"):
+            raw_bootstrap = options["bootstrap"]
+            boot_options = raw_bootstrap if isinstance(raw_bootstrap, dict) else {}
+            boot_limit = _gepa_int(_gepa_option(boot_options, "maxBootstrapMetricCalls", "max_bootstrap_metric_calls", default=min(len(train), 8) or 1), min(len(train), 8) or 1, 1)
+            demos, bootstrap_calls = self._bootstrap(evaluator, base_cfg, train, options, 0, boot_limit)
+        self._active_demos = demos
+        base_eval = baseline_eval
+        if demos:
+            base_eval, total_calls = self._evaluate(evaluator, base_cfg, pareto_set, "bootstrapped Pareto evaluation", max_calls, total_calls, True)
         candidates = [{"cfg": dict(base_cfg), "scores": base_eval["avgScores"] or {"score": base_eval["avg"]}, "parent": None}]
         per_instance = [base_eval["scalars"]]
         stagnation = 0
@@ -643,6 +669,7 @@ class AxGEPA(OptimizerEngine):
             "artifactVersion": "axir-optimized-artifact-v1",
             "optimizerName": "GEPA",
             "optimizerVersion": self.version,
+            **baseline_report,
             "componentMap": best_cfg,
             "demos": demos,
             "metadata": {
@@ -650,7 +677,10 @@ class AxGEPA(OptimizerEngine):
                 "selectorState": copy.deepcopy(self.selector_state),
                 "paretoFront": pareto_meta,
                 "bestScore": 0 if best_score == -1e100 else best_score,
+                **baseline_report,
                 "totalMetricCalls": total_calls,
+                "bootstrapMetricCalls": bootstrap_calls,
+                "totalCalls": total_calls + bootstrap_calls,
                 "candidatesExplored": len(candidates),
                 "report": {
                     "summary": "GEPA Multi-Objective Optimization Complete",
@@ -1419,27 +1449,38 @@ def optimize(program, examples, options: dict[str, Any] | None = None):
     if student is None:
         raise ValueError("optimize() requires studentAI or client")
     teacher = _optimize_option(opts, "teacherAI", "teacher_ai", "teacher", "reflectionAI", "reflection_ai", "reflection_client", default=student)
-    max_metric_calls = _gepa_int(_optimize_option(opts, "maxMetricCalls", "max_metric_calls", default=100), 100, 1)
-    bootstrap_setting = opts.get("bootstrap") if "bootstrap" in opts else (len(examples or []) <= 8)
+    dataset = _normalize_optimization_dataset(examples or [])
+    validation_examples = _optimize_option(opts, "validationExamples", "validation_examples")
+    if validation_examples is not None:
+        dataset["validation"] = list(validation_examples)
+    validation = dataset.get("validation") or dataset.get("train") or []
+    bootstrap_setting = opts.get("bootstrap") if "bootstrap" in opts else (len(dataset.get("train") or []) <= 8)
+    max_metric_calls = int(_gepa_helper_metric_budget(opts, len(validation), bootstrap_setting is not False))
+    gepa_options = {**opts, "bootstrap": False, "maxMetricCalls": max_metric_calls, "client": student, "apply": False}
     demos = []
+    bootstrap_calls = 0
     if bootstrap_setting is not False:
+        baseline_options = {**gepa_options, "numTrials": 0}
+        baseline_engine = AxGEPA(teacher, **baseline_options)
+        program.optimize_with(baseline_engine, dataset, baseline_options)
+        gepa_options["_baselineEvaluation"] = baseline_engine._baseline_evaluation
         bootstrap_options = dict(opts)
         if isinstance(bootstrap_setting, dict):
             bootstrap_options.update(bootstrap_setting)
         bootstrap_options["client"] = teacher or student
         bootstrap_options["apply"] = False
         bootstrap = AxBootstrapFewShot(**bootstrap_options)
-        bootstrap_artifact = program.optimize_with(bootstrap, examples or [], bootstrap_options)
+        bootstrap_artifact = program.optimize_with(bootstrap, dataset, bootstrap_options)
         demos = list((bootstrap_artifact or {}).get("demos") or [])
+        if not demos:
+            raise RuntimeError("No demonstrations found. Either provide more examples or improve the existing ones.")
+        bootstrap_calls = int((bootstrap_artifact.get("metadata") or {}).get("totalMetricCalls", 0))
         if demos and hasattr(program, "set_demos"):
             program.set_demos(demos)
-    gepa_options = dict(opts)
-    gepa_options["bootstrap"] = False
-    gepa_options["maxMetricCalls"] = max_metric_calls
-    gepa_options["client"] = student
-    gepa_options["apply"] = False
+    gepa_options["_bootstrapDemos"] = demos
+    gepa_options["_bootstrapMetricCalls"] = bootstrap_calls
     engine = AxGEPA(teacher, **gepa_options)
-    artifact = program.optimize_with(engine, examples or [], gepa_options)
+    artifact = program.optimize_with(engine, dataset, gepa_options)
     if demos:
         artifact["demos"] = demos
     return artifact
@@ -3391,79 +3432,6 @@ def _resolve_agent_auto_upgrade(options: Any) -> Any:
     return out
 
 
-def _map_optimization_judge_quality_to_score(quality: str) -> f64:
-    _core_coverage_mark("_map_optimization_judge_quality_to_score")
-    normalized = _core_string_lower(quality)
-    is_excellent = _core_eq(normalized, "excellent")
-    if is_excellent:
-        return 1
-    else:
-        pass
-    is_good = _core_eq(normalized, "good")
-    if is_good:
-        return 0.8
-    else:
-        pass
-    is_acceptable = _core_eq(normalized, "acceptable")
-    if is_acceptable:
-        return 0.5
-    else:
-        pass
-    is_poor = _core_eq(normalized, "poor")
-    if is_poor:
-        return 0.2
-    else:
-        pass
-    is_unacceptable = _core_eq(normalized, "unacceptable")
-    if is_unacceptable:
-        return 0
-    else:
-        pass
-    return 0.5
-
-
-def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str) -> Any:
-    _core_coverage_mark("_build_optimization_judge_payload")
-    empty_list = []
-    out = {}
-    task_input = _core_get(task, "input", task)
-    out["taskInput"] = task_input
-    task_criteria = _core_get(task, "criteria", criteria)
-    out["criteria"] = task_criteria
-    expected_output = _core_get(task, "expectedOutput", None)
-    out["expectedOutput"] = expected_output
-    expected_actions = _core_get(task, "expectedActions", empty_list)
-    out["expectedActions"] = expected_actions
-    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
-    out["forbiddenActions"] = forbidden_actions
-    metadata = _core_get(task, "metadata", None)
-    out["metadata"] = metadata
-    completion_type = _core_get(prediction, "completionType", "error")
-    out["completionType"] = completion_type
-    clarification = _core_get(prediction, "clarification", None)
-    out["clarification"] = clarification
-    final_output = _core_get(prediction, "output", prediction)
-    out["finalOutput"] = final_output
-    guidance_log = _core_get(prediction, "guidanceLog", "")
-    out["guidanceLog"] = guidance_log
-    action_log = _core_get(prediction, "actionLog", empty_list)
-    out["actionLog"] = action_log
-    function_calls = _core_get(prediction, "functionCalls", empty_list)
-    out["functionCalls"] = function_calls
-    tool_errors = _core_get(prediction, "toolErrors", empty_list)
-    out["toolErrors"] = tool_errors
-    turn_count = _core_get(prediction, "turnCount", 0)
-    out["turnCount"] = turn_count
-    usage = _core_get(prediction, "usage", empty_list)
-    out["usage"] = usage
-    trace = _core_get(prediction, "trace", None)
-    out["trace"] = trace
-    empty_failure_signals = []
-    failure_signals = _core_get(prediction, "failureSignals", empty_failure_signals)
-    out["failureSignals"] = failure_signals
-    return out
-
-
 def _agent_discoverable_doc_chars(callable_split: Any) -> number:
     _core_coverage_mark("_agent_discoverable_doc_chars")
     empty_list = []
@@ -3652,6 +3620,79 @@ def _agent_policy_flags(options: Any, callable_split: Any, auto_upgrade: Any) ->
     out["directRespondMode"] = direct_respond_mode
     out["directRespondOnly"] = direct_respond_only
     out["discoveryMode+skillsMode"] = combined_discovery_skills
+    return out
+
+
+def _map_optimization_judge_quality_to_score(quality: str) -> f64:
+    _core_coverage_mark("_map_optimization_judge_quality_to_score")
+    normalized = _core_string_lower(quality)
+    is_excellent = _core_eq(normalized, "excellent")
+    if is_excellent:
+        return 1
+    else:
+        pass
+    is_good = _core_eq(normalized, "good")
+    if is_good:
+        return 0.8
+    else:
+        pass
+    is_acceptable = _core_eq(normalized, "acceptable")
+    if is_acceptable:
+        return 0.5
+    else:
+        pass
+    is_poor = _core_eq(normalized, "poor")
+    if is_poor:
+        return 0.2
+    else:
+        pass
+    is_unacceptable = _core_eq(normalized, "unacceptable")
+    if is_unacceptable:
+        return 0
+    else:
+        pass
+    return 0.5
+
+
+def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str) -> Any:
+    _core_coverage_mark("_build_optimization_judge_payload")
+    empty_list = []
+    out = {}
+    task_input = _core_get(task, "input", task)
+    out["taskInput"] = task_input
+    task_criteria = _core_get(task, "criteria", criteria)
+    out["criteria"] = task_criteria
+    expected_output = _core_get(task, "expectedOutput", None)
+    out["expectedOutput"] = expected_output
+    expected_actions = _core_get(task, "expectedActions", empty_list)
+    out["expectedActions"] = expected_actions
+    forbidden_actions = _core_get(task, "forbiddenActions", empty_list)
+    out["forbiddenActions"] = forbidden_actions
+    metadata = _core_get(task, "metadata", None)
+    out["metadata"] = metadata
+    completion_type = _core_get(prediction, "completionType", "error")
+    out["completionType"] = completion_type
+    clarification = _core_get(prediction, "clarification", None)
+    out["clarification"] = clarification
+    final_output = _core_get(prediction, "output", prediction)
+    out["finalOutput"] = final_output
+    guidance_log = _core_get(prediction, "guidanceLog", "")
+    out["guidanceLog"] = guidance_log
+    action_log = _core_get(prediction, "actionLog", empty_list)
+    out["actionLog"] = action_log
+    function_calls = _core_get(prediction, "functionCalls", empty_list)
+    out["functionCalls"] = function_calls
+    tool_errors = _core_get(prediction, "toolErrors", empty_list)
+    out["toolErrors"] = tool_errors
+    turn_count = _core_get(prediction, "turnCount", 0)
+    out["turnCount"] = turn_count
+    usage = _core_get(prediction, "usage", empty_list)
+    out["usage"] = usage
+    trace = _core_get(prediction, "trace", None)
+    out["trace"] = trace
+    empty_failure_signals = []
+    failure_signals = _core_get(prediction, "failureSignals", empty_failure_signals)
+    out["failureSignals"] = failure_signals
     return out
 
 
@@ -3899,6 +3940,14 @@ def _agent_policy_vocabulary_registry() -> Any:
     return registry
 
 
+def _agent_context_policy_registry() -> Any:
+    _core_coverage_mark("_agent_context_policy_registry")
+    registry = _agent_policy_vocabulary_registry()
+    empty_map = {}
+    context = _core_get(registry, "context_policy", empty_map)
+    return context
+
+
 def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace: Any) -> Any:
     _core_coverage_mark("_build_agent_eval_prediction")
     out = {}
@@ -3915,14 +3964,6 @@ def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace
     out["toolErrors"] = empty_list
     out["turnCount"] = 0
     return out
-
-
-def _agent_context_policy_registry() -> Any:
-    _core_coverage_mark("_agent_context_policy_registry")
-    registry = _agent_policy_vocabulary_registry()
-    empty_map = {}
-    context = _core_get(registry, "context_policy", empty_map)
-    return context
 
 
 def _agent_context_policy_migration_error(key: str) -> str:
@@ -4758,68 +4799,6 @@ def _resolve_agent_context_policy(options: Any) -> Any:
     return out
 
 
-def _agent_eval_marks(state: Any) -> Any:
-    _core_coverage_mark("_agent_eval_marks")
-    empty_list = []
-    log = _core_get(state, "action_log", empty_list)
-    traces = _core_get(state, "function_call_traces", empty_list)
-    log_count = _core_len(log)
-    trace_count = _core_len(traces)
-    marks = {}
-    marks["action_log"] = log_count
-    marks["function_call_traces"] = trace_count
-    empty_map = {}
-    stage_logs = _core_get(state, "stage_action_logs", empty_map)
-    marks["stage_action_logs"] = stage_logs
-    fresh_stage_logs = {}
-    state["stage_action_logs"] = fresh_stage_logs
-    return marks
-
-
-def _agent_eval_function_calls(traces: Any) -> Any:
-    _core_coverage_mark("_agent_eval_function_calls")
-    calls = []
-    empty_map = {}
-    for trace in traces:
-        qualified = _core_get(trace, "qualified_name", "")
-        name = _core_get(trace, "name", "")
-        name_missing = _core_eq(name, "")
-        name_qualified = _core_eq(name, qualified)
-        derive_name = _core_or(name_missing, name_qualified)
-        if derive_name:
-            name_parts = _core_string_split(qualified, ".")
-            for name_part in name_parts:
-                name = name_part
-        else:
-            pass
-        arguments = _core_get(trace, "arguments", None)
-        result = _core_get(trace, "result", empty_map)
-        result_is_map = _core_type_is(result, "object")
-        if result_is_map:
-            pass
-        else:
-            result = empty_map
-        status = _core_get(trace, "status", "ok")
-        call = {}
-        call["qualifiedName"] = qualified
-        call["name"] = name
-        call["arguments"] = arguments
-        failed = _core_eq(status, "error")
-        if failed:
-            error = _core_get(result, "error", "unknown error")
-            error_text = _core_string_str(error)
-            call["error"] = error_text
-        else:
-            value = _core_get(result, "value", None)
-            has_value = _core_is_not_none(value)
-            if has_value:
-                call["result"] = value
-            else:
-                pass
-        calls.append(call)
-    return calls
-
-
 def _resolve_agent_executor_model_policy(options: Any) -> Any:
     _core_coverage_mark("_resolve_agent_executor_model_policy")
     empty_list = []
@@ -4940,6 +4919,115 @@ def _resolve_agent_executor_model_policy(options: Any) -> Any:
     return out
 
 
+def _agent_eval_marks(state: Any) -> Any:
+    _core_coverage_mark("_agent_eval_marks")
+    empty_list = []
+    log = _core_get(state, "action_log", empty_list)
+    traces = _core_get(state, "function_call_traces", empty_list)
+    log_count = _core_len(log)
+    trace_count = _core_len(traces)
+    marks = {}
+    marks["action_log"] = log_count
+    marks["function_call_traces"] = trace_count
+    empty_map = {}
+    stage_logs = _core_get(state, "stage_action_logs", empty_map)
+    marks["stage_action_logs"] = stage_logs
+    fresh_stage_logs = {}
+    state["stage_action_logs"] = fresh_stage_logs
+    return marks
+
+
+def _agent_eval_function_calls(traces: Any) -> Any:
+    _core_coverage_mark("_agent_eval_function_calls")
+    calls = []
+    empty_map = {}
+    for trace in traces:
+        qualified = _core_get(trace, "qualified_name", "")
+        name = _core_get(trace, "name", "")
+        name_missing = _core_eq(name, "")
+        name_qualified = _core_eq(name, qualified)
+        derive_name = _core_or(name_missing, name_qualified)
+        if derive_name:
+            name_parts = _core_string_split(qualified, ".")
+            for name_part in name_parts:
+                name = name_part
+        else:
+            pass
+        arguments = _core_get(trace, "arguments", None)
+        result = _core_get(trace, "result", empty_map)
+        result_is_map = _core_type_is(result, "object")
+        if result_is_map:
+            pass
+        else:
+            result = empty_map
+        status = _core_get(trace, "status", "ok")
+        call = {}
+        call["qualifiedName"] = qualified
+        call["name"] = name
+        call["arguments"] = arguments
+        failed = _core_eq(status, "error")
+        if failed:
+            error = _core_get(result, "error", "unknown error")
+            error_text = _core_string_str(error)
+            call["error"] = error_text
+        else:
+            value = _core_get(result, "value", None)
+            has_value = _core_is_not_none(value)
+            if has_value:
+                call["result"] = value
+            else:
+                pass
+        calls.append(call)
+    return calls
+
+
+def _select_agent_executor_model(policy: Any, actor_model_state: Any) -> Any:
+    _core_coverage_mark("_select_agent_executor_model")
+    none = _core_none()
+    is_list = _core_type_is(policy, "list")
+    if is_list:
+        pass
+    else:
+        return none
+    errors = _core_get(actor_model_state, "consecutiveErrorTurns", 0)
+    matched = _core_get(actor_model_state, "matchedNamespaces", None)
+    matched_is_list = _core_type_is(matched, "list")
+    if matched_is_list:
+        pass
+    else:
+        matched = []
+    selected = _core_none()
+    for entry in policy:
+        model = _core_get(entry, "model", "")
+        above = _core_get(entry, "aboveErrorTurns", None)
+        namespaces = _core_get(entry, "namespaces", None)
+        trigger = False
+        has_above = _core_is_not_none(above)
+        if has_above:
+            error_trigger = _core_gte(errors, above)
+            if error_trigger:
+                trigger = True
+            else:
+                pass
+        else:
+            pass
+        namespaces_is_list = _core_type_is(namespaces, "list")
+        if namespaces_is_list:
+            for namespace in namespaces:
+                namespace_match = _core_contains(matched, namespace)
+                if namespace_match:
+                    trigger = True
+                else:
+                    pass
+        else:
+            pass
+        if trigger:
+            selected = model
+        else:
+            pass
+    return selected
+
+
 def _agent_eval_run(state: Any, marks: Any) -> Any:
     _core_coverage_mark("_agent_eval_run")
     empty_list = []
@@ -5023,98 +5111,6 @@ def _agent_eval_run(state: Any, marks: Any) -> Any:
     run["turnCount"] = turn_count
     run["failureSignals"] = signals
     return run
-
-
-def _select_agent_executor_model(policy: Any, actor_model_state: Any) -> Any:
-    _core_coverage_mark("_select_agent_executor_model")
-    none = _core_none()
-    is_list = _core_type_is(policy, "list")
-    if is_list:
-        pass
-    else:
-        return none
-    errors = _core_get(actor_model_state, "consecutiveErrorTurns", 0)
-    matched = _core_get(actor_model_state, "matchedNamespaces", None)
-    matched_is_list = _core_type_is(matched, "list")
-    if matched_is_list:
-        pass
-    else:
-        matched = []
-    selected = _core_none()
-    for entry in policy:
-        model = _core_get(entry, "model", "")
-        above = _core_get(entry, "aboveErrorTurns", None)
-        namespaces = _core_get(entry, "namespaces", None)
-        trigger = False
-        has_above = _core_is_not_none(above)
-        if has_above:
-            error_trigger = _core_gte(errors, above)
-            if error_trigger:
-                trigger = True
-            else:
-                pass
-        else:
-            pass
-        namespaces_is_list = _core_type_is(namespaces, "list")
-        if namespaces_is_list:
-            for namespace in namespaces:
-                namespace_match = _core_contains(matched, namespace)
-                if namespace_match:
-                    trigger = True
-                else:
-                    pass
-        else:
-            pass
-        if trigger:
-            selected = model
-        else:
-            pass
-    return selected
-
-
-def _build_agent_run_prediction(state: Any, marks: Any, completion: Any, usage: Any, trace: Any) -> Any:
-    _core_coverage_mark("_build_agent_run_prediction")
-    run = _agent_eval_run(state, marks)
-    type = _core_get(completion, "type", "final")
-    out = {}
-    out["completionType"] = type
-    is_final = _core_eq(type, "final")
-    if is_final:
-        output = _core_get(completion, "output", None)
-        out["output"] = output
-        out["finalOutput"] = output
-    else:
-        pass
-    is_clarification = _core_eq(type, "askClarification")
-    if is_clarification:
-        clarification = _core_get(completion, "clarification", None)
-        out["clarification"] = clarification
-    else:
-        pass
-    tool_errors = _core_get(run, "toolErrors", None)
-    is_error = _core_eq(type, "error")
-    if is_error:
-        message = _core_get(completion, "message", "")
-        error = {}
-        error["message"] = message
-        out["error"] = error
-        error_tool_errors = []
-        error_tool_errors.append(message)
-        tool_errors = error_tool_errors
-    else:
-        pass
-    run_log = _core_get(run, "actionLog", None)
-    out["actionLog"] = run_log
-    out["usage"] = usage
-    out["trace"] = trace
-    signals = _core_get(run, "failureSignals", None)
-    out["failureSignals"] = signals
-    calls = _core_get(run, "functionCalls", None)
-    out["functionCalls"] = calls
-    out["toolErrors"] = tool_errors
-    turn_count = _core_get(run, "turnCount", None)
-    out["turnCount"] = turn_count
-    return out
 
 
 def _agent_compute_effective_chat_budget(base_budget: Any, fixed_overhead_chars: Any) -> number:
@@ -5230,6 +5226,51 @@ def _agent_context_pressure(mutable_prompt_chars: Any, effective_budget_chars: A
     else:
         pass
     return ok_id
+
+
+def _build_agent_run_prediction(state: Any, marks: Any, completion: Any, usage: Any, trace: Any) -> Any:
+    _core_coverage_mark("_build_agent_run_prediction")
+    run = _agent_eval_run(state, marks)
+    type = _core_get(completion, "type", "final")
+    out = {}
+    out["completionType"] = type
+    is_final = _core_eq(type, "final")
+    if is_final:
+        output = _core_get(completion, "output", None)
+        out["output"] = output
+        out["finalOutput"] = output
+    else:
+        pass
+    is_clarification = _core_eq(type, "askClarification")
+    if is_clarification:
+        clarification = _core_get(completion, "clarification", None)
+        out["clarification"] = clarification
+    else:
+        pass
+    tool_errors = _core_get(run, "toolErrors", None)
+    is_error = _core_eq(type, "error")
+    if is_error:
+        message = _core_get(completion, "message", "")
+        error = {}
+        error["message"] = message
+        out["error"] = error
+        error_tool_errors = []
+        error_tool_errors.append(message)
+        tool_errors = error_tool_errors
+    else:
+        pass
+    run_log = _core_get(run, "actionLog", None)
+    out["actionLog"] = run_log
+    out["usage"] = usage
+    out["trace"] = trace
+    signals = _core_get(run, "failureSignals", None)
+    out["failureSignals"] = signals
+    calls = _core_get(run, "functionCalls", None)
+    out["functionCalls"] = calls
+    out["toolErrors"] = tool_errors
+    turn_count = _core_get(run, "turnCount", None)
+    out["turnCount"] = turn_count
+    return out
 
 
 def _agent_render_context_pressure(pressure: str) -> str:

@@ -1,0 +1,106 @@
+{
+  "components": [
+    {
+      "current": "",
+      "id": "root::instruction",
+      "kind": "instruction",
+      "owner": "root"
+    }
+  ],
+  "dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "training-only-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      },
+      {
+        "input": {
+          "question": "training-only-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 1
+      }
+    ],
+    "validation": [
+      {
+        "input": {
+          "question": "held-out-0"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.1
+      },
+      {
+        "input": {
+          "question": "held-out-1"
+        },
+        "output": {
+          "answer": "ok"
+        },
+        "score": 0.2
+      }
+    ]
+  },
+  "expected_artifact_subset": {
+    "baselineScore": 0.15000000000000002,
+    "baselineScores": {
+      "score": 0.15000000000000002
+    },
+    "metadata": {
+      "baselineScore": 0.15000000000000002,
+      "baselineScores": {
+        "score": 0.15000000000000002
+      },
+      "bestScore": 0.15000000000000002,
+      "bootstrapMetricCalls": 1,
+      "totalCalls": 3,
+      "totalMetricCalls": 2
+    }
+  },
+  "expected_demo_count": 0,
+  "expected_gepa_phases": ["baseline evaluation", "bootstrap"],
+  "kind": "optimize",
+  "name": "baseline-gepa-rejected-bootstrap-reuses-seed",
+  "operation": "gepa",
+  "optimize_options": {
+    "bootstrap": {
+      "maxBootstrapMetricCalls": 1,
+      "scoreThreshold": 1.1
+    },
+    "maxMetricCalls": 2,
+    "numTrials": 0
+  },
+  "program": "axgen",
+  "responses": [
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    },
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
