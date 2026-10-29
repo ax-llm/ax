@@ -56,9 +56,9 @@ func openAIClient() ax.AIClient {
 	}
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.6-luna"
+		model = "gpt-6-luna"
 	}
-	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
+	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model})
 }
 
 func printJSON(value ax.Value) {

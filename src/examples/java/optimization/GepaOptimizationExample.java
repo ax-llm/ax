@@ -22,7 +22,7 @@ public final class GepaOptimizationExample {
 
   static AxAIService client() {
     return Ax.ai("openai",
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"), "model_config", Map.of("temperature", 0.0)));
+        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-6-luna")));
   }
 
   static Map<String, Object> task(String text, String priority) {
