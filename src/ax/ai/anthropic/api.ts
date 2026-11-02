@@ -1935,12 +1935,12 @@ function createMessages(
         }
 
         if (typeof msg.content === 'string') {
-          // If we have preserved thinking, convert to block array and append text
+          // Keep signed thinking blocks even when there is no visible text.
           if (preservedThinkingBlocks.length > 0) {
-            content = [
-              ...preservedThinkingBlocks,
-              { type: 'text' as const, text: msg.content },
-            ];
+            content = [...preservedThinkingBlocks];
+            if (msg.content.length > 0) {
+              content.push({ type: 'text', text: msg.content });
+            }
           } else {
             content = msg.content;
           }
