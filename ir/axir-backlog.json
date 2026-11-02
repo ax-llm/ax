@@ -3623,6 +3623,28 @@
       "completedAt": "2026-10-29",
       "completedByCommit": "dcc298385d482090bc3ed136124e31ee09cfd59b",
       "verification": "PR #872 implements pre-bootstrap baselineScore/baselineScores in Core and all five generated packages. Twelve TypeScript-derived baseline fixtures cover objective averaging, held-out caps, dominated seeds, validation budgets, seed reuse, and a real helper baseline of 0 followed by a seeded score of 1. Full five-language release verification, native consumers, 72 generated examples, 109 TypeScript optimizer/refusal tests, 72 fast compiler checks, and all five live provider examples passed."
+    },
+    {
+      "id": "axir-2026-11-02-preserve-anthropic-thinking-replay-without-empty-text-blocks",
+      "status": "open",
+      "title": "Preserve Anthropic thinking replay without empty text blocks",
+      "createdAt": "2026-11-02",
+      "sourcePR": 876,
+      "sourceCommit": "c826ec119147488b2d01260fe1984561768f51e4",
+      "tsPaths": [
+        "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/anthropic/api.thinking-replay.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Generated clients can emit an empty text block after signed or redacted thinking when assistant visible text is empty.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

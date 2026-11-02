@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-02-preserve-anthropic-thinking-replay-without-empty-text-blocks` [axai] Preserve Anthropic thinking replay without empty text blocks
+  - Status: open
+  - Source PR: #876
+  - Source commit: `c826ec119147488b2d01260fe1984561768f51e4`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.thinking-replay.test.ts`
+  - Impact: Generated clients can emit an empty text block after signed or redacted thinking when assistant visible text is empty.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
