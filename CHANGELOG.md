@@ -1,17 +1,14 @@
 # Changelog
 
-## [25.4.8](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-11-03)
+## [25.4.8](https://github.com/ax-llm/ax/compare/25.4.7...25.4.8) (2026-11-03)
 
 ### Bug Fixes
 
-* **dsp:** answer an unknown tool name with a per-call error result ([#878](https://github.com/ax-llm/ax/issues/878)) ([761c5ae](https://github.com/ax-llm/ax/commit/761c5ae611a29b509ce627d5d63e225a1be91c54))
+* **Function calling:** Answer a call to an unregistered tool name with an error result for that call alone, listing the available functions, instead of abandoning the batch. The other calls in the batch still run and keep their results, and every call is answered before the model tries again, so providers that require a result for each tool call, such as Anthropic, no longer reject the retried request ([#878](https://github.com/ax-llm/ax/pull/878)).
 
-## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-10-29)
+### Generated-language parity
 
-### Bug Fixes
-
-* **dsp:** drop the refused turn before retrying a refusal ([#871](https://github.com/ax-llm/ax/issues/871)) ([7e0e16c](https://github.com/ax-llm/ax/commit/7e0e16c2bd55abb1674e283f1a1584111ce8df73))
-* **mcp:** spawn .cmd stdio servers such as npx on Windows ([#870](https://github.com/ax-llm/ax/issues/870)) ([91dfc2d](https://github.com/ax-llm/ax/commit/91dfc2d8d8a8c733db1fee41bfafc2f8604eabb0))
+* Add the open backlog entry for the unknown-tool error result. Python, Java, C++, Go, and Rust keep the previous raise-and-retry behavior until it is ported ([#878](https://github.com/ax-llm/ax/pull/878)).
 
 ## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-10-29)
 
