@@ -1,5 +1,15 @@
 # Changelog
 
+## [25.4.8](https://github.com/ax-llm/ax/compare/25.4.7...25.4.8) (2026-11-03)
+
+### Bug Fixes
+
+* **Function calling:** Answer a call to an unregistered tool name with an error result for that call alone, listing the available functions, instead of abandoning the batch. The other calls in the batch still run and keep their results, and every call is answered before the model tries again, so providers that require a result for each tool call, such as Anthropic, no longer reject the retried request ([#878](https://github.com/ax-llm/ax/pull/878)).
+
+### Generated-language parity
+
+* Add the open backlog entry for the unknown-tool error result. Python, Java, C++, Go, and Rust keep the previous raise-and-retry behavior until it is ported ([#878](https://github.com/ax-llm/ax/pull/878)).
+
 ## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-10-29)
 
 ### Features
