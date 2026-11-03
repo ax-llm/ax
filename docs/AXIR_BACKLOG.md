@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-03-answer-an-unknown-tool-name-with-a-per-call-error-result` [axgen] Answer an unknown tool name with a per-call error result
+  - Status: open
+  - Source PR: #878
+  - Source commit: `42fceae3d6cd4b83374e41e8cc7a1dd3b40029a2`
+  - TS paths: `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.unknown-function-recovery.test.ts`
+  - Impact: TypeScript now answers a native function call whose name matches no registered function with an error result (isError, 'Function not found: <name>. Available functions: ...') for that call alone, and runs the rest of the batch; before, it threw a ValidationError that abandoned the batch, discarded results of calls that already ran, and sent a correction after the assistant turn with its tool calls unanswered. Ports that still raise for an unknown name keep the old behavior in forward and streaming forward.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
