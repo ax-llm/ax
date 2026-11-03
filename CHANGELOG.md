@@ -1,5 +1,18 @@
 # Changelog
 
+## [25.4.8](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-11-03)
+
+### Bug Fixes
+
+* **dsp:** answer an unknown tool name with a per-call error result ([#878](https://github.com/ax-llm/ax/issues/878)) ([761c5ae](https://github.com/ax-llm/ax/commit/761c5ae611a29b509ce627d5d63e225a1be91c54))
+
+## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-10-29)
+
+### Bug Fixes
+
+* **dsp:** drop the refused turn before retrying a refusal ([#871](https://github.com/ax-llm/ax/issues/871)) ([7e0e16c](https://github.com/ax-llm/ax/commit/7e0e16c2bd55abb1674e283f1a1584111ce8df73))
+* **mcp:** spawn .cmd stdio servers such as npx on Windows ([#870](https://github.com/ax-llm/ax/issues/870)) ([91dfc2d](https://github.com/ax-llm/ax/commit/91dfc2d8d8a8c733db1fee41bfafc2f8604eabb0))
+
 ## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-10-29)
 
 ### Features
