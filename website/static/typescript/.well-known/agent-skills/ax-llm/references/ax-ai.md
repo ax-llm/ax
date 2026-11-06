@@ -697,6 +697,8 @@ Earlier OpenAI models retain their existing mapping.
   retained in `thoughtBlocks` for replay even when display thoughts are hidden.
   Streaming and non-streaming responses preserve both thinking and redacted
   blocks; `showThoughts: false` suppresses the display `thought` field.
+  Empty visible text adds no text block during replay. Cache markers attach
+  to text or tool-use blocks, never to signed or redacted thinking.
   The generated Python, Go, Java, C++, and Rust clients share these rules,
   including effort validation, native structured output, and signed replay.
 - Opus 5.5, Sonnet 5.5, and Fable 5.1 refuse forced tool choice: Ax throws for

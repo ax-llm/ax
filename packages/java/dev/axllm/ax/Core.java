@@ -17524,8 +17524,14 @@ final class Core {
         if (Core.truthy(has_blocks)) {
           Object index = Core.add(count, -1);
           Object last = Core.get(blocks, index, null);
-          Object cache_control = Core.jsonParse("{\"type\":\"ephemeral\"}");
-          Core.set(last, "cache_control", cache_control);
+          Object last_type = Core.get(last, "type", null);
+          Object text_cache = Core.eq(last_type, "text");
+          Object tool_cache = Core.eq(last_type, "tool_use");
+          Object cacheable = Core.or(text_cache, tool_cache);
+          if (Core.truthy(cacheable)) {
+            Object cache_control = Core.jsonParse("{\"type\":\"ephemeral\"}");
+            Core.set(last, "cache_control", cache_control);
+          }
         }
       }
       Object count = Core.len(blocks);
@@ -20261,15 +20267,9 @@ final class Core {
         return result;
       }
     }
-    Object available_names = new java.util.ArrayList<Object>();
-    for (Object fn : Core.iter(functions)) {
-      Object available_name = Core.get(fn, "name", null);
-      Core.append(available_names, available_name);
-    }
-    Object available_joined = Core.stringJoin(", ", available_names);
-    Object available = Core.stringDefaultIfEmpty(available_joined, "(none)");
-    Object message = Core.stringFormat("Function not found: {}. Available functions: {}. Call one of these exact function names.", name, available);
-    Object error = Core.validationError(message);
+    Object message = Core._unknown_tool_call_message_impl(functions, call);
+    Object message_text = Core.stringStr(message);
+    Object error = Core.validationError(message_text);
     throw Core.asRuntime(error);
   }
 
@@ -20726,6 +20726,27 @@ final class Core {
     return out;
   }
 
+  static Object _unknown_tool_call_message_impl(Object functions, Object call) {
+    axirCoverageMark("_unknown_tool_call_message_impl");
+    Object fn_call = Core.get(call, "function", null);
+    Object direct_name = Core.get(call, "name", null);
+    Object name = Core.get(fn_call, "name", direct_name);
+    Object available_names = new java.util.ArrayList<Object>();
+    for (Object fn : Core.iter(functions)) {
+      Object available_name = Core.get(fn, "name", null);
+      Object matches = Core.eq(available_name, name);
+      if (Core.truthy(matches)) {
+        Object nothing = Core.none();
+        return nothing;
+      }
+      Core.append(available_names, available_name);
+    }
+    Object available_joined = Core.stringJoin(", ", available_names);
+    Object available = Core.stringDefaultIfEmpty(available_joined, "(none)");
+    Object message = Core.stringFormat("Function not found: {}. Available functions: {}. Call one of these exact function names.", name, available);
+    return message;
+  }
+
   static Object _eval_normalize_impl(Object text, Object tables) {
     axirCoverageMark("_eval_normalize_impl");
     Object decompositions = Core.get(tables, "nfd", null);
@@ -20933,6 +20954,27 @@ final class Core {
     return out;
   }
 
+  static Object _render_stream_result_impl(Object run, Object output) {
+    axirCoverageMark("_render_stream_result_impl");
+    Object render = Core.get(run, "render_audio", null);
+    Object no_render = Core.isNone(render);
+    if (Core.truthy(no_render)) {
+      return output;
+    }
+    Object buffered = Core.get(run, "buffered", Boolean.FALSE);
+    Object sink = Core.get(run, "sink", null);
+    Object no_sink = Core.isNone(sink);
+    Object renders = Core.or(buffered, no_sink);
+    if (Core.truthy(renders)) {
+      Object gen = Core.get(render, "gen", null);
+      Object client = Core.get(render, "client", null);
+      Object options = Core.get(render, "options", null);
+      Object rendered = Core._render_audio_outputs_impl(gen, client, output, options);
+      return rendered;
+    }
+    return output;
+  }
+
   static Object tool_call_extras(Object options, Object name) {
     axirCoverageMark("tool_call_extras");
     Object extras = new java.util.LinkedHashMap<String, Object>();
@@ -20964,27 +21006,6 @@ final class Core {
       Core.set(extras, "eventContext", event_context);
     }
     return extras;
-  }
-
-  static Object _render_stream_result_impl(Object run, Object output) {
-    axirCoverageMark("_render_stream_result_impl");
-    Object render = Core.get(run, "render_audio", null);
-    Object no_render = Core.isNone(render);
-    if (Core.truthy(no_render)) {
-      return output;
-    }
-    Object buffered = Core.get(run, "buffered", Boolean.FALSE);
-    Object sink = Core.get(run, "sink", null);
-    Object no_sink = Core.isNone(sink);
-    Object renders = Core.or(buffered, no_sink);
-    if (Core.truthy(renders)) {
-      Object gen = Core.get(render, "gen", null);
-      Object client = Core.get(render, "client", null);
-      Object options = Core.get(render, "options", null);
-      Object rendered = Core._render_audio_outputs_impl(gen, client, output, options);
-      return rendered;
-    }
-    return output;
   }
 
   static Object _regex_node(Object k) {
@@ -33657,6 +33678,17 @@ final class Core {
   static Object _run_tool_calls_impl(Object gen, Object functions, Object messages, Object calls, Object options) {
     axirCoverageMark("_run_tool_calls_impl");
     for (Object call : Core.iter(calls)) {
+      Object unknown_message = Core._unknown_tool_call_message_impl(functions, call);
+      Object unknown = Core.isNotNone(unknown_message);
+      if (Core.truthy(unknown)) {
+        Object unknown_text = Core.stringStr(unknown_message);
+        Object unknown_result = Core._tool_result_message_impl(call, unknown_text);
+        Core.set(unknown_result, "is_error", Boolean.TRUE);
+        Core.append(messages, unknown_result);
+        Core.axgenMemoryAddFunctionResult(gen, call, unknown_text, Boolean.FALSE, unknown_text);
+        Core.axgenRecordFunctionCall(gen, call, unknown_result, "error");
+        continue;
+      }
       Object tool_ok = Boolean.FALSE;
       Object tool_result = Core.none();
       try {

@@ -998,9 +998,10 @@ struct Core {
   static Value _validate_optimization_component_value(Value component, Value value);
   static Value _regex_hexdigit(Value c);
   static Value _date_parse_fields_impl(Value fields, Value base_options, Value options);
+  static Value _unknown_tool_call_message_impl(Value functions, Value call);
   static Value _eval_normalize_impl(Value text, Value tables);
-  static Value tool_call_extras(Value options, Value name);
   static Value _render_stream_result_impl(Value run, Value output);
+  static Value tool_call_extras(Value options, Value name);
   static Value _regex_node(Value k);
   static Value _date_convert_field_value_impl(Value field, Value type_name, Value value, Value may_skip);
   static Value _regex_literal(Value c);

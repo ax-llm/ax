@@ -3289,6 +3289,17 @@ module @ax.gen version "0.1" {
     type signature = "(AxGen, list<Tool>, list<json>, list<json>, json) -> list<json> throws"
     body @entry(%gen: AxGen, %functions: list<Tool>, %messages: list<json>, %calls: list<json>, %options: json) {
       core.for %call in %calls {
+        %unknown_message = core.call @unknown_tool_call_message_impl(%functions, %call)
+        %unknown = core.call intrinsic.is_not_none(%unknown_message)
+        core.if %unknown {
+          %unknown_text = core.call intrinsic.string.str(%unknown_message)
+          %unknown_result = core.call @tool_result_message_impl(%call, %unknown_text)
+          core.set %unknown_result["is_error"] = true
+          core.append %messages, %unknown_result
+          core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %unknown_text, false, %unknown_text)
+          core.call intrinsic.axgen.record_function_call(%gen, %call, %unknown_result, "error")
+          core.continue
+        }
         %tool_ok = core.let false
         %tool_result = core.call intrinsic.none()
         core.try {

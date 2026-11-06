@@ -1,0 +1,81 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "Start.",
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "signature": "empty-signed",
+              "thinking": "",
+              "type": "thinking"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": "Continue.",
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "model": "claude-sonnet-5-5",
+  "name": "anthropic-empty-thinking-replay-empty-signed-block",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Start.",
+        "role": "user"
+      },
+      {
+        "content": "",
+        "role": "assistant",
+        "thoughtBlocks": [
+          {
+            "data": "",
+            "encrypted": false,
+            "signature": "empty-signed"
+          }
+        ]
+      },
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "showThoughts": false,
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sonnet55",
+        "model": "claude-sonnet-5-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

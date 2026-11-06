@@ -6,14 +6,14 @@
       "type": "archive",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/skill.tar.gz",
-      "digest": "sha256:0b093157c4e7b5f804a4a4224cbbffb796f1ff1e89e003f5dda385959c203ecb"
+      "digest": "sha256:d2a50e1eaca56f3cebed785b90ea61c0c42b1fda71951c103be0432d473edf4d"
     },
     {
       "name": "ax-cpp-ai",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:010fda667c2f2986e77857393fd18c8d45544d9e7faeba0d491ce7f571e6843b"
+      "digest": "sha256:23cd0627892f0df00af2e8605d76720f5b130feea2d8bf7d2e1a0def297bb3fc"
     },
     {
       "name": "ax-cpp-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:a8ad1acc0944a085914e9912a5eda59a475607b366530a3455ddf5c8f4976cde"
+      "digest": "sha256:a4de22cf9194d85250a677a7a45bf78badf17f95dcaa4addbfa1bb47df2d17c2"
     },
     {
       "name": "ax-cpp-flow",

@@ -9892,6 +9892,7 @@ module @ax.provider version "0.1" {
           }
         }
         %content_value = core.get %message["content"] default ""
+        // Retain signed/redacted thinking without creating an empty text block.
         %has_content = core.call intrinsic.truthy(%content_value)
         core.if %has_content {
           %text_block = core.map
@@ -9930,8 +9931,14 @@ module @ax.provider version "0.1" {
           core.if %has_blocks {
             %index = core.call intrinsic.add(%count, -1)
             %last = core.get %blocks[%index]
-            %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
-            core.set %last["cache_control"] = %cache_control
+            %last_type = core.get %last["type"]
+            %text_cache = core.call intrinsic.eq(%last_type, "text")
+            %tool_cache = core.call intrinsic.eq(%last_type, "tool_use")
+            %cacheable = core.call intrinsic.or(%text_cache, %tool_cache)
+            core.if %cacheable {
+              %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+              core.set %last["cache_control"] = %cache_control
+            }
           }
         }
         %count = core.call intrinsic.len(%blocks)

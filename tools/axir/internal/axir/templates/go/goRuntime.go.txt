@@ -14945,10 +14945,10 @@ func conformanceAssertLastRequestTail(fixture map[string]Value, client *conforma
 	tail := Array()
 	for _, message := range prompt[start:] {
 		kept := Object()
-		for _, key := range []string{"role", "content"} {
-			if value, present := asMap(message)[key]; present {
-				coreSet(kept, key, value)
-			}
+		for key := range asMap(asSlice(expected)[len(tail)]) {
+			var fallback Value
+			if key == "is_error" { fallback = false }
+			coreSet(kept, key, coreGet(message, key, fallback))
 		}
 		tail = append(tail, kept)
 	}

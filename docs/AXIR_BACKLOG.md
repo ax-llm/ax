@@ -23,20 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-11-03-answer-an-unknown-tool-name-with-a-per-call-error-result` [axgen] Answer an unknown tool name with a per-call error result
-  - Status: open
-  - Source PR: #878
-  - Source commit: `42fceae3d6cd4b83374e41e8cc7a1dd3b40029a2`
-  - TS paths: `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.unknown-function-recovery.test.ts`
-  - Impact: TypeScript now answers a native function call whose name matches no registered function with an error result (isError, 'Function not found: <name>. Available functions: ...') for that call alone, and runs the rest of the batch; before, it threw a ValidationError that abandoned the batch, discarded results of calls that already ran, and sent a correction after the assistant turn with its tool calls unanswered. Ports that still raise for an unknown name keep the old behavior in forward and streaming forward.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-11-02-preserve-anthropic-thinking-replay-without-empty-text-blocks` [axai] Preserve Anthropic thinking replay without empty text blocks
-  - Status: open
-  - Source PR: #876
-  - Source commit: `c826ec119147488b2d01260fe1984561768f51e4`
-  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.thinking-replay.test.ts`
-  - Impact: Generated clients can emit an empty text block after signed or redacted thinking when assistant visible text is empty.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1512,3 +1499,23 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-29
   - Completed by: `dcc298385d482090bc3ed136124e31ee09cfd59b`
   - Verification: `PR #872 implements pre-bootstrap baselineScore/baselineScores in Core and all five generated packages. Twelve TypeScript-derived baseline fixtures cover objective averaging, held-out caps, dominated seeds, validation budgets, seed reuse, and a real helper baseline of 0 followed by a seeded score of 1. Full five-language release verification, native consumers, 72 generated examples, 109 TypeScript optimizer/refusal tests, 72 fast compiler checks, and all five live provider examples passed.`
+- `axir-2026-11-02-preserve-anthropic-thinking-replay-without-empty-text-blocks` [axai] Preserve Anthropic thinking replay without empty text blocks
+  - Status: done
+  - Source PR: #876
+  - Source commit: `c826ec119147488b2d01260fe1984561768f51e4`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.thinking-replay.test.ts`
+  - Impact: Generated clients can emit an empty text block after signed or redacted thinking when assistant visible text is empty.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-06
+  - Completed by: `354bba5e968c4216afa9eb298af4022090c8e057`
+  - Verification: `All 14 replay fixtures match the TS fetch boundary on direct Anthropic and Vertex in all five generated languages. Empty-text omission already existed in Core; cache markers now stay off thinking blocks. npm run axir:conformance:check; npm run axir:check-packages; npm run test:examples:generated; npm run skills:check; npm run website:check.`
+- `axir-2026-11-03-answer-an-unknown-tool-name-with-a-per-call-error-result` [axgen] Answer an unknown tool name with a per-call error result
+  - Status: done
+  - Source PR: #878
+  - Source commit: `42fceae3d6cd4b83374e41e8cc7a1dd3b40029a2`
+  - TS paths: `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.unknown-function-recovery.test.ts`
+  - Impact: TypeScript now answers a native function call whose name matches no registered function with an error result (isError, 'Function not found: <name>. Available functions: ...') for that call alone, and runs the rest of the batch; before, it threw a ValidationError that abandoned the batch, discarded results of calls that already ran, and sent a correction after the assistant turn with its tool calls unanswered. Ports that still raise for an unknown name keep the old behavior in forward and streaming forward.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-06
+  - Completed by: `354bba5e968c4216afa9eb298af4022090c8e057`
+  - Verification: `All 22 new TS-derived fixtures pass in Python, Java, C++, Go, and Rust. npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run test:examples:generated; npm run skills:check; npm run website:check.`

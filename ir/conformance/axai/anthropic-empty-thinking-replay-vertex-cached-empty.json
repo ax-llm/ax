@@ -1,0 +1,94 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "Start.",
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "signature": "signed-plan",
+              "thinking": "Plan.",
+              "type": "thinking"
+            },
+            {
+              "data": "opaque-data",
+              "type": "redacted_thinking"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": "Continue.",
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "model": "claude-sonnet-5-5",
+  "name": "anthropic-empty-thinking-replay-vertex-cached-empty",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Start.",
+        "role": "user"
+      },
+      {
+        "cache": true,
+        "content": "",
+        "role": "assistant",
+        "thoughtBlocks": [
+          {
+            "data": "Plan.",
+            "encrypted": false,
+            "signature": "signed-plan"
+          },
+          {
+            "data": "opaque-data",
+            "encrypted": true
+          }
+        ]
+      },
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "showThoughts": false,
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "service_options": {
+    "projectId": "demo-project",
+    "region": "us"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sonnet55",
+        "model": "claude-sonnet-5-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

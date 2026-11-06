@@ -16448,8 +16448,15 @@ def _anthropic_message_impl(message: Any) -> Any:
             if has_blocks:
                 index = _core_add(count, -1)
                 last = _core_get(blocks, index, None)
-                cache_control = _core_json_parse("{\"type\":\"ephemeral\"}")
-                last["cache_control"] = cache_control
+                last_type = _core_get(last, "type", None)
+                text_cache = _core_eq(last_type, "text")
+                tool_cache = _core_eq(last_type, "tool_use")
+                cacheable = _core_or(text_cache, tool_cache)
+                if cacheable:
+                    cache_control = _core_json_parse("{\"type\":\"ephemeral\"}")
+                    last["cache_control"] = cache_control
+                else:
+                    pass
             else:
                 pass
         else:

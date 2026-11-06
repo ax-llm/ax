@@ -17303,3 +17303,103 @@ for (const model of bedrockProfileModels) {
     });
   }
 }
+
+// Capture the real TypeScript fetch boundary for preserved thinking with no
+// visible text, including cache controls and tool-use ordering.
+const replayModel = AxAIAnthropicModel.Claude55Sonnet;
+const replayThoughts = [
+  { data: 'Plan.', encrypted: false, signature: 'signed-plan' },
+  { data: 'opaque-data', encrypted: true },
+];
+for (const [id, assistant] of [
+  ['signed-only', { content: '', thoughtBlocks: replayThoughts.slice(0, 1) }],
+  ['signed-redacted', { content: '', thoughtBlocks: replayThoughts }],
+  ['cached-empty', { content: '', thoughtBlocks: replayThoughts, cache: true }],
+  [
+    'cached-visible',
+    { content: 'Visible answer', thoughtBlocks: replayThoughts, cache: true },
+  ],
+  [
+    'cached-whitespace',
+    { content: ' ', thoughtBlocks: replayThoughts, cache: true },
+  ],
+  [
+    'empty-signed-block',
+    {
+      content: '',
+      thoughtBlocks: [
+        { data: '', encrypted: false, signature: 'empty-signed' },
+      ],
+    },
+  ],
+  [
+    'cached-tool-use',
+    {
+      content: '',
+      thoughtBlocks: replayThoughts,
+      cache: true,
+      functionCalls: [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'lookup', params: { key: 'a' } },
+        },
+      ],
+    },
+  ],
+] as const) {
+  for (const vertex of [false, true]) {
+    let body: any;
+    const reply = {
+      ...sonnet55Reply(replayModel),
+      content: [{ type: 'text', text: 'ok' }],
+    };
+    const client = new AxAIAnthropic({
+      apiKey: vertex ? async () => 'fixture-key' : 'fixture-key',
+      ...(vertex ? { projectId: 'demo-project', region: 'us' } : {}),
+      config: { model: replayModel },
+      options: {
+        fetch: async (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return Response.json(reply);
+        },
+      },
+    });
+    const chatPrompt = [
+      { role: 'user', content: 'Start.' },
+      { role: 'assistant', ...assistant },
+      ...('functionCalls' in assistant
+        ? [{ role: 'function', functionId: 'call_1', result: 'found' }]
+        : []),
+      { role: 'user', content: 'Continue.' },
+    ];
+    await client.chat({ chatPrompt } as any, {
+      stream: false,
+      showThoughts: false,
+      thinkingTokenBudget: 'high',
+    });
+    if (!body) throw new Error(`${id}: no request captured`);
+    writeFixture(
+      `anthropic-empty-thinking-replay-${vertex ? 'vertex-' : ''}${id}`,
+      {
+        kind: 'ai_chat',
+        provider: 'anthropic',
+        model: replayModel,
+        ...(vertex
+          ? { service_options: { projectId: 'demo-project', region: 'us' } }
+          : {}),
+        request: {
+          chat_prompt: chatPrompt,
+          model_config: {
+            stream: false,
+            showThoughts: false,
+            thinkingTokenBudget: 'high',
+          },
+        } as any,
+        transport_responses: [{ status: 200, json: reply }],
+        expected_transport_request_count: 1,
+        expected_transport_request: { json: { messages: body.messages } },
+      }
+    );
+  }
+}

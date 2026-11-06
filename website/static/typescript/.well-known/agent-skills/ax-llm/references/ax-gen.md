@@ -248,6 +248,11 @@ Rules:
 
 ## Function Calling
 
+An unregistered tool name is answered with an error result for that call alone,
+including the available names. Other calls in the batch still run. The error
+text bypasses the result formatter; the model can choose a registered tool on
+its next step. This applies to both `forward()` and `streamingForward()`.
+
 ```typescript
 const result = await gen.forward(llm, { question: '...' }, {
   functions: tools,
