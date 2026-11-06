@@ -1544,7 +1544,8 @@ public final class Conformance {
     List<Object> tail = new ArrayList<>();
     for (Object message : prompt.subList(Math.max(0, prompt.size() - expected.size()), prompt.size())) {
       Map<String, Object> picked = new LinkedHashMap<>();
-      for (String key : List.of("role", "content")) if (Core.asMap(message).containsKey(key)) picked.put(key, Core.asMap(message).get(key));
+      for (String key : Core.asMap(expected.get(tail.size())).keySet())
+        picked.put(key, Core.asMap(message).getOrDefault(key, key.equals("is_error") ? false : null));
       tail.add(picked);
     }
     assertEqual(tail, expected, "last request tail");

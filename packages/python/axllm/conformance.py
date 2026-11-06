@@ -1641,13 +1641,14 @@ def _fixture_processor(spec, calls):
 
 
 def _assert_last_request_tail(fixture, client):
-    # The last messages of the last request's prompt, compared by role and
-    # content.
+    # Compare the requested fields of the last messages, including tool IDs,
+    # result text and error flags when the fixture pins a tool batch.
     expected = fixture.get("expected_last_request_tail")
     if expected is None:
         return
     prompt = (client.requests[-1] if client.requests else {}).get("chat_prompt") or []
-    tail = [{key: message[key] for key in ("role", "content") if key in message} for message in prompt[-len(expected):]]
+    tail = [{key: message.get(key, False if key == "is_error" else None)
+             for key in fields} for message, fields in zip(prompt[-len(expected):], expected)]
     _assert_equal(tail, expected, "last request tail")
 
 

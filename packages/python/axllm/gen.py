@@ -2119,14 +2119,9 @@ def _execute_tool_call(functions: list[Any], call: Any, options: Any) -> Any:
             return result
         else:
             pass
-    available_names = []
-    for fn in functions:
-        available_name = _core_get(fn, "name", None)
-        available_names.append(available_name)
-    available_joined = _core_string_join(", ", available_names)
-    available = _core_string_default_if_empty(available_joined, "(none)")
-    message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", name, available)
-    error = _core_validation_error(message)
+    message = _unknown_tool_call_message_impl(functions, call)
+    message_text = _core_string_str(message)
+    error = _core_validation_error(message_text)
     raise error
 
 
@@ -2586,6 +2581,27 @@ def _date_parse_fields_impl(fields: Any, base_options: Any, options: Any) -> Any
     return out
 
 
+def _unknown_tool_call_message_impl(functions: list[Any], call: Any) -> Any:
+    _core_coverage_mark("_unknown_tool_call_message_impl")
+    fn_call = _core_get(call, "function", None)
+    direct_name = _core_get(call, "name", None)
+    name = _core_get(fn_call, "name", direct_name)
+    available_names = []
+    for fn in functions:
+        available_name = _core_get(fn, "name", None)
+        matches = _core_eq(available_name, name)
+        if matches:
+            nothing = _core_none()
+            return nothing
+        else:
+            pass
+        available_names.append(available_name)
+    available_joined = _core_string_join(", ", available_names)
+    available = _core_string_default_if_empty(available_joined, "(none)")
+    message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", name, available)
+    return message
+
+
 def _eval_normalize_impl(text: str, tables: Any) -> str:
     _core_coverage_mark("_eval_normalize_impl")
     decompositions = _core_get(tables, "nfd", None)
@@ -2785,6 +2801,29 @@ def _eval_normalize_impl(text: str, tables: Any) -> str:
     return out
 
 
+def _render_stream_result_impl(run: Any, output: Any) -> Any:
+    _core_coverage_mark("_render_stream_result_impl")
+    render = _core_get(run, "render_audio", None)
+    no_render = _core_is_none(render)
+    if no_render:
+        return output
+    else:
+        pass
+    buffered = _core_get(run, "buffered", False)
+    sink = _core_get(run, "sink", None)
+    no_sink = _core_is_none(sink)
+    renders = _core_or(buffered, no_sink)
+    if renders:
+        gen = _core_get(render, "gen", None)
+        client = _core_get(render, "client", None)
+        options = _core_get(render, "options", None)
+        rendered = _render_audio_outputs_impl(gen, client, output, options)
+        return rendered
+    else:
+        pass
+    return output
+
+
 def tool_call_extras(options: Any, name: str) -> Any:
     _core_coverage_mark("tool_call_extras")
     extras = {}
@@ -2817,29 +2856,6 @@ def tool_call_extras(options: Any, name: str) -> Any:
     else:
         pass
     return extras
-
-
-def _render_stream_result_impl(run: Any, output: Any) -> Any:
-    _core_coverage_mark("_render_stream_result_impl")
-    render = _core_get(run, "render_audio", None)
-    no_render = _core_is_none(render)
-    if no_render:
-        return output
-    else:
-        pass
-    buffered = _core_get(run, "buffered", False)
-    sink = _core_get(run, "sink", None)
-    no_sink = _core_is_none(sink)
-    renders = _core_or(buffered, no_sink)
-    if renders:
-        gen = _core_get(render, "gen", None)
-        client = _core_get(render, "client", None)
-        options = _core_get(render, "options", None)
-        rendered = _render_audio_outputs_impl(gen, client, output, options)
-        return rendered
-    else:
-        pass
-    return output
 
 
 def _regex_node(k: Any) -> Any:
@@ -16182,6 +16198,18 @@ def _stream_marker_incomplete_impl(marker: Any) -> bool:
 def _run_tool_calls_impl(gen: AxGen, functions: list[Any], messages: list[Any], calls: list[Any], options: Any) -> list[Any]:
     _core_coverage_mark("_run_tool_calls_impl")
     for call in calls:
+        unknown_message = _unknown_tool_call_message_impl(functions, call)
+        unknown = _core_is_not_none(unknown_message)
+        if unknown:
+            unknown_text = _core_string_str(unknown_message)
+            unknown_result = _tool_result_message_impl(call, unknown_text)
+            unknown_result["is_error"] = True
+            messages.append(unknown_result)
+            _core_axgen_memory_add_function_result(gen, call, unknown_text, False, unknown_text)
+            _core_axgen_record_function_call(gen, call, unknown_result, "error")
+            continue
+        else:
+            pass
         tool_ok = False
         tool_result = _core_none()
         try:

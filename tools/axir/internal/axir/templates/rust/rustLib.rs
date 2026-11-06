@@ -18381,12 +18381,12 @@ fn expect_fixture_last_request_tail(fixture: &Value, client: &FixtureClient) -> 
     let start = if count == 0 { 0 } else { prompt.len().saturating_sub(count) };
     let tail = prompt[start..]
         .iter()
-        .map(|message| {
+        .zip(expected.as_array().into_iter().flatten())
+        .map(|(message, fields)| {
             let mut kept = serde_json::Map::new();
-            for key in ["role", "content"] {
-                if let Some(value) = message.get(key) {
-                    kept.insert(key.to_string(), value.clone());
-                }
+            for key in fields.as_object().into_iter().flat_map(|fields| fields.keys()) {
+                let default = if key == "is_error" { Value::Bool(false) } else { Value::Null };
+                kept.insert(key.to_string(), message.get(key).cloned().unwrap_or(default));
             }
             Value::Object(kept)
         })

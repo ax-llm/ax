@@ -6,14 +6,14 @@
       "type": "archive",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-rust-llm/skill.tar.gz",
-      "digest": "sha256:5fc054ae4868adabd6018b56f8ea22fafea6701628d4996486c9bb21f7711a5b"
+      "digest": "sha256:f068d45d875e9250d0589b1f2f484094ad45ac23e5ee73245064285b8a41d90f"
     },
     {
       "name": "ax-rust-ai",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-rust-ai/SKILL.md",
-      "digest": "sha256:77f87dd31e27f2f59c6c8b45ca19063bf80632b60cfbd9ac0377b2d82be3784d"
+      "digest": "sha256:016b986dfe38d196fa74f9f4ad50d819ea50d6a06b4a9b041ee01cc0c91f2801"
     },
     {
       "name": "ax-rust-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:ef555bad1696c80c0f3cd2a8a2416d58f6a2c2325e1aa212afe0618683d338e4"
+      "digest": "sha256:08d7ed2de6a3b8cd0a897e04dedee70f5e1a37d51db71226548d41f3ffef4ad2"
     },
     {
       "name": "ax-rust-flow",

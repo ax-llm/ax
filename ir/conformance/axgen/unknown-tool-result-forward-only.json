@@ -1,0 +1,70 @@
+{
+  "expected_last_request_tail": [
+    {
+      "function_id": "call_0",
+      "is_error": true,
+      "result": "Function not found: missing. Available functions: lookup. Call one of these exact function names.",
+      "role": "function"
+    }
+  ],
+  "expected_output": {
+    "answer": "recovered"
+  },
+  "expected_request_contains": [
+    "\"Function not found: missing. Available functions: lookup. Call one of these exact function names.\""
+  ],
+  "expected_request_count": 2,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "function"]
+  ],
+  "expected_tool_calls": [],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "unknown-tool-result-forward-only",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "missing",
+                "params": {
+                  "key": "key_0"
+                }
+              },
+              "id": "call_0",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: recovered",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "name": "lookup",
+      "result": "found"
+    }
+  ]
+}

@@ -504,6 +504,7 @@ type Case = {
   // Pin the tool results the last request sent back, each as a JSON string
   // literal, which every runner's JSON text of the request must contain.
   pin_function_results?: boolean;
+  pin_function_result_messages?: boolean;
   pin_thought_replay?: boolean;
   call_function_result_formatter?: { text?: string; throws?: string };
 };
@@ -769,6 +770,18 @@ async function record(name: string, spec: Case): Promise<void> {
       throw new Error(`${name}: no function results to pin`);
     }
     fixture.expected_request_contains = results;
+  }
+  if (spec.pin_function_result_messages) {
+    const messages = ((prompts().at(-1) ?? []) as any[]).filter(
+      (message) => message.role === 'function'
+    );
+    if (messages.length === 0) throw new Error(`${name}: no tool results`);
+    fixture.expected_last_request_tail = messages.map((message) => ({
+      role: 'function',
+      function_id: message.functionId,
+      result: message.result,
+      is_error: message.isError === true,
+    }));
   }
   if (spec.pin_user_prompt) {
     const first = (prompts()[0] ?? []) as { role?: string; content?: Json }[];
@@ -3838,4 +3851,46 @@ for (const label of ['missing-function', 'null'] as const) {
     responses: callResponses(byLabel.get(label) as Json[]),
     expected_deprecations: [],
   });
+}
+
+// Unknown names answer only their own call. Pin each result's call ID, text,
+// and error flag so an unanswered or JSON-wrapped error cannot pass by merely
+// mentioning the unknown name somewhere in the conversation.
+for (const kind of ['forward', 'streaming_forward'] as const) {
+  for (const [name, names] of [
+    ['only', ['missing']],
+    ['first', ['missing', 'lookup', 'lookup']],
+    ['middle', ['lookup', 'missing', 'lookup']],
+    ['last', ['lookup', 'lookup', 'missing']],
+  ] as const) {
+    const calls = names.map((tool, index) => ({
+      id: `call_${index}`,
+      type: 'function',
+      function: { name: tool, params: { key: `key_${index}` } },
+    }));
+    const toolStep = {
+      index: 0,
+      content: '',
+      function_calls: calls,
+      finish_reason: 'function_call',
+    };
+    const answer = { index: 0, content: 'Answer: recovered' };
+    await record(`unknown-tool-result-${kind}-${name}`, {
+      kind,
+      signature: 'question:string -> answer:string',
+      tools: [
+        { name: 'lookup', args: { key: { type: 'string' } }, result: 'found' },
+      ],
+      pin_request_roles: true,
+      pin_function_results: true,
+      pin_function_result_messages: true,
+      responses:
+        kind === 'forward'
+          ? [{ results: [toolStep] }, { results: [answer] }]
+          : [
+              { stream: [{ results: [toolStep] }] },
+              { stream: [{ results: [answer] }] },
+            ],
+    });
+  }
 }

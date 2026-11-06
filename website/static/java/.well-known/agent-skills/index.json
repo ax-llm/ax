@@ -6,14 +6,14 @@
       "type": "archive",
       "description": "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-java-llm/skill.tar.gz",
-      "digest": "sha256:0764c44e9001da155e3bccbebc7d5529216cc5d735226022b9aa6eb0f4dc18e2"
+      "digest": "sha256:17d5af52eb3364bc64c88004d1a859b1d0678baa04b24c29d1c8020862778b92"
     },
     {
       "name": "ax-java-ai",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-java-ai/SKILL.md",
-      "digest": "sha256:89b0328aa1f6385bf8133f1af45137d9502f4c2cc963382839feffdffcb07d8d"
+      "digest": "sha256:797a904ef93789e2d00ed03e0192da6a3d26e5d54c659b26154a91d418915fb0"
     },
     {
       "name": "ax-java-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:94e0f28c45ce2bdb174aa0a90558cbc69ca4ea1e34a6b9c83b7fa2858232daff"
+      "digest": "sha256:0a0f7fa5d56b0c60e18e36a0393977b831f86487feed4067518afc940cfce344"
     },
     {
       "name": "ax-java-flow",

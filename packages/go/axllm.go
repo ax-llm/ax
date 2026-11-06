@@ -35523,6 +35523,7 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 	var v_blocks Value
 	var v_cache Value
 	var v_cache_control Value
+	var v_cacheable Value
 	var v_call Value
 	var v_calls Value
 	var v_calls_camel Value
@@ -35552,6 +35553,7 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 	var v_is_function Value
 	var v_is_system Value
 	var v_last Value
+	var v_last_type Value
 	var v_name Value
 	var v_not_cache Value
 	var v_out Value
@@ -35570,11 +35572,13 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 	var v_system_cache Value
 	var v_system_content Value
 	var v_text_block Value
+	var v_text_cache Value
 	var v_thinking Value
 	var v_thought Value
 	var v_thought_block Value
 	var v_thought_blocks Value
 	var v_thought_blocks_snake Value
+	var v_tool_cache Value
 	var v_tool_use Value
 	if len(args) > 0 { v_message = args[0] }
 	_ = v_message
@@ -35582,6 +35586,7 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 	_ = v_blocks
 	_ = v_cache
 	_ = v_cache_control
+	_ = v_cacheable
 	_ = v_call
 	_ = v_calls
 	_ = v_calls_camel
@@ -35611,6 +35616,7 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 	_ = v_is_function
 	_ = v_is_system
 	_ = v_last
+	_ = v_last_type
 	_ = v_name
 	_ = v_not_cache
 	_ = v_out
@@ -35629,11 +35635,13 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 	_ = v_system_cache
 	_ = v_system_content
 	_ = v_text_block
+	_ = v_text_cache
 	_ = v_thinking
 	_ = v_thought
 	_ = v_thought_block
 	_ = v_thought_blocks
 	_ = v_thought_blocks_snake
+	_ = v_tool_cache
 	_ = v_tool_use
 	v_role = coreGet(v_message, "role", "user")
 	v_out = Object()
@@ -35788,8 +35796,16 @@ func _anthropic_message_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_has_blocks) {
 				v_index = _core_add(v_count, -1)
 				v_last = coreGet(v_blocks, v_index, nil)
-				{ v, err := _core_json_parse("{\"type\":\"ephemeral\"}"); if err != nil { return nil, err }; v_cache_control = v }
-				if err := coreSet(v_last, "cache_control", v_cache_control); err != nil { return nil, err }
+				v_last_type = coreGet(v_last, "type", nil)
+				v_text_cache = _core_eq(v_last_type, "text")
+				v_tool_cache = _core_eq(v_last_type, "tool_use")
+				v_cacheable = _core_or(v_text_cache, v_tool_cache)
+				if coreTruthy(v_cacheable) {
+					{ v, err := _core_json_parse("{\"type\":\"ephemeral\"}"); if err != nil { return nil, err }; v_cache_control = v }
+					if err := coreSet(v_last, "cache_control", v_cache_control); err != nil { return nil, err }
+				} else {
+				// empty
+				}
 			} else {
 			// empty
 			}
@@ -41481,10 +41497,6 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	var v_call Value
 	var v_options Value
 	var v_argument_params Value
-	var v_available Value
-	var v_available_joined Value
-	var v_available_name Value
-	var v_available_names Value
 	var v_direct_name Value
 	var v_direct_params Value
 	var v_empty_params Value
@@ -41495,6 +41507,7 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	var v_fn_name Value
 	var v_matches Value
 	var v_message Value
+	var v_message_text Value
 	var v_missing_params Value
 	var v_name Value
 	var v_params Value
@@ -41509,10 +41522,6 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
 	_ = v_argument_params
-	_ = v_available
-	_ = v_available_joined
-	_ = v_available_name
-	_ = v_available_names
 	_ = v_direct_name
 	_ = v_direct_params
 	_ = v_empty_params
@@ -41523,6 +41532,7 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	_ = v_fn_name
 	_ = v_matches
 	_ = v_message
+	_ = v_message_text
 	_ = v_missing_params
 	_ = v_name
 	_ = v_params
@@ -41567,15 +41577,9 @@ func _execute_tool_call(args ...Value) (Value, error) {
 		// empty
 		}
 	}
-	v_available_names = MutableArray()
-	for _, v_fn = range coreIter(v_functions) {
-		v_available_name = coreGet(v_fn, "name", nil)
-		v_available_names = coreAppend(v_available_names, v_available_name)
-	}
-	v_available_joined = _core_string_join(", ", v_available_names)
-	v_available = _core_string_default_if_empty(v_available_joined, "(none)")
-	v_message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", v_name, v_available)
-	v_error = _core_validation_error(v_message)
+	{ v, err := _unknown_tool_call_message_impl(v_functions, v_call); if err != nil { return nil, err }; v_message = v }
+	v_message_text = _core_string_str(v_message)
+	v_error = _core_validation_error(v_message_text)
 	return nil, asError(v_error)
 }
 
@@ -42504,6 +42508,57 @@ func _date_parse_fields_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _unknown_tool_call_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_unknown_tool_call_message_impl")
+	var v_functions Value
+	var v_call Value
+	var v_available Value
+	var v_available_joined Value
+	var v_available_name Value
+	var v_available_names Value
+	var v_direct_name Value
+	var v_fn Value
+	var v_fn_call Value
+	var v_matches Value
+	var v_message Value
+	var v_name Value
+	var v_nothing Value
+	if len(args) > 0 { v_functions = args[0] }
+	_ = v_functions
+	if len(args) > 1 { v_call = args[1] }
+	_ = v_call
+	_ = v_available
+	_ = v_available_joined
+	_ = v_available_name
+	_ = v_available_names
+	_ = v_direct_name
+	_ = v_fn
+	_ = v_fn_call
+	_ = v_matches
+	_ = v_message
+	_ = v_name
+	_ = v_nothing
+	v_fn_call = coreGet(v_call, "function", nil)
+	v_direct_name = coreGet(v_call, "name", nil)
+	v_name = coreGet(v_fn_call, "name", v_direct_name)
+	v_available_names = MutableArray()
+	for _, v_fn = range coreIter(v_functions) {
+		v_available_name = coreGet(v_fn, "name", nil)
+		v_matches = _core_eq(v_available_name, v_name)
+		if coreTruthy(v_matches) {
+			v_nothing = _core_none()
+			return v_nothing, nil
+		} else {
+		// empty
+		}
+		v_available_names = coreAppend(v_available_names, v_available_name)
+	}
+	v_available_joined = _core_string_join(", ", v_available_names)
+	v_available = _core_string_default_if_empty(v_available_joined, "(none)")
+	v_message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", v_name, v_available)
+	return v_message, nil
+}
+
 func _eval_normalize_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_eval_normalize_impl")
 	var v_text Value
@@ -42884,6 +42939,57 @@ func _eval_normalize_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _render_stream_result_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_render_stream_result_impl")
+	var v_run Value
+	var v_output Value
+	var v_buffered Value
+	var v_client Value
+	var v_gen Value
+	var v_no_render Value
+	var v_no_sink Value
+	var v_options Value
+	var v_render Value
+	var v_rendered Value
+	var v_renders Value
+	var v_sink Value
+	if len(args) > 0 { v_run = args[0] }
+	_ = v_run
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_buffered
+	_ = v_client
+	_ = v_gen
+	_ = v_no_render
+	_ = v_no_sink
+	_ = v_options
+	_ = v_render
+	_ = v_rendered
+	_ = v_renders
+	_ = v_sink
+	v_render = coreGet(v_run, "render_audio", nil)
+	v_no_render = _core_is_none(v_render)
+	if coreTruthy(v_no_render) {
+		return v_output, nil
+	} else {
+	// empty
+	}
+	v_buffered = coreGet(v_run, "buffered", false)
+	v_sink = coreGet(v_run, "sink", nil)
+	v_no_sink = _core_is_none(v_sink)
+	v_renders = _core_or(v_buffered, v_no_sink)
+	if coreTruthy(v_renders) {
+		v_gen = coreGet(v_render, "gen", nil)
+		v_client = coreGet(v_render, "client", nil)
+		v_options = coreGet(v_render, "options", nil)
+		{ v, err := _render_audio_outputs_impl(v_gen, v_client, v_output, v_options); if err != nil { return nil, err }; v_rendered = v }
+		return v_rendered, nil
+	} else {
+	// empty
+	}
+	return v_output, nil
+}
+
 func tool_call_extras(args ...Value) (Value, error) {
 	axirCoverageMark("tool_call_extras")
 	var v_options Value
@@ -42952,57 +43058,6 @@ func tool_call_extras(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_extras, nil
-}
-
-func _render_stream_result_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_render_stream_result_impl")
-	var v_run Value
-	var v_output Value
-	var v_buffered Value
-	var v_client Value
-	var v_gen Value
-	var v_no_render Value
-	var v_no_sink Value
-	var v_options Value
-	var v_render Value
-	var v_rendered Value
-	var v_renders Value
-	var v_sink Value
-	if len(args) > 0 { v_run = args[0] }
-	_ = v_run
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_buffered
-	_ = v_client
-	_ = v_gen
-	_ = v_no_render
-	_ = v_no_sink
-	_ = v_options
-	_ = v_render
-	_ = v_rendered
-	_ = v_renders
-	_ = v_sink
-	v_render = coreGet(v_run, "render_audio", nil)
-	v_no_render = _core_is_none(v_render)
-	if coreTruthy(v_no_render) {
-		return v_output, nil
-	} else {
-	// empty
-	}
-	v_buffered = coreGet(v_run, "buffered", false)
-	v_sink = coreGet(v_run, "sink", nil)
-	v_no_sink = _core_is_none(v_sink)
-	v_renders = _core_or(v_buffered, v_no_sink)
-	if coreTruthy(v_renders) {
-		v_gen = coreGet(v_render, "gen", nil)
-		v_client = coreGet(v_render, "client", nil)
-		v_options = coreGet(v_render, "options", nil)
-		{ v, err := _render_audio_outputs_impl(v_gen, v_client, v_output, v_options); if err != nil { return nil, err }; v_rendered = v }
-		return v_rendered, nil
-	} else {
-	// empty
-	}
-	return v_output, nil
 }
 
 func _regex_node(args ...Value) (Value, error) {
@@ -70390,6 +70445,10 @@ func _run_tool_calls_impl(args ...Value) (Value, error) {
 	var v_tool_ok Value
 	var v_tool_result Value
 	var v_tool_text Value
+	var v_unknown Value
+	var v_unknown_message Value
+	var v_unknown_result Value
+	var v_unknown_text Value
 	if len(args) > 0 { v_gen = args[0] }
 	_ = v_gen
 	if len(args) > 1 { v_functions = args[1] }
@@ -70413,7 +70472,24 @@ func _run_tool_calls_impl(args ...Value) (Value, error) {
 	_ = v_tool_ok
 	_ = v_tool_result
 	_ = v_tool_text
+	_ = v_unknown
+	_ = v_unknown_message
+	_ = v_unknown_result
+	_ = v_unknown_text
 	for _, v_call = range coreIter(v_calls) {
+		{ v, err := _unknown_tool_call_message_impl(v_functions, v_call); if err != nil { return nil, err }; v_unknown_message = v }
+		v_unknown = _core_is_not_none(v_unknown_message)
+		if coreTruthy(v_unknown) {
+			v_unknown_text = _core_string_str(v_unknown_message)
+			{ v, err := _tool_result_message_impl(v_call, v_unknown_text); if err != nil { return nil, err }; v_unknown_result = v }
+			if err := coreSet(v_unknown_result, "is_error", true); err != nil { return nil, err }
+			v_messages = coreAppend(v_messages, v_unknown_result)
+			_core_axgen_memory_add_function_result(v_gen, v_call, v_unknown_text, false, v_unknown_text)
+			_core_axgen_record_function_call(v_gen, v_call, v_unknown_result, "error")
+			continue
+		} else {
+		// empty
+		}
 		v_tool_ok = false
 		v_tool_result = _core_none()
 		{
@@ -120852,10 +120928,10 @@ func conformanceAssertLastRequestTail(fixture map[string]Value, client *conforma
 	tail := Array()
 	for _, message := range prompt[start:] {
 		kept := Object()
-		for _, key := range []string{"role", "content"} {
-			if value, present := asMap(message)[key]; present {
-				coreSet(kept, key, value)
-			}
+		for key := range asMap(asSlice(expected)[len(tail)]) {
+			var fallback Value
+			if key == "is_error" { fallback = false }
+			coreSet(kept, key, coreGet(message, key, fallback))
 		}
 		tail = append(tail, kept)
 	}

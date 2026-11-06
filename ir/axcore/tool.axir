@@ -58,16 +58,39 @@ module @ax.tool version "0.1" {
           core.return %result
         }
       }
+      %message = core.call @unknown_tool_call_message_impl(%functions, %call)
+      %message_text = core.call intrinsic.string.str(%message)
+      %error = core.call intrinsic.error.validation(%message_text)
+      core.raise %error
+    }
+  }
+
+  // An unregistered name is answered as one failed call by the tool loop.
+  // Keep its text shared with the lower-level execute_tool_call boundary.
+  op ax.tool.semantic @unknown_tool_call_message_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/functions.ts#UnknownFunctionError"
+    type signature = "(list<Tool>, json) -> json"
+    body @entry(%functions: list<Tool>, %call: json) {
+      %fn_call = core.get %call["function"]
+      %direct_name = core.get %call["name"]
+      %name = core.get %fn_call["name"] default %direct_name
       %available_names = core.list
       core.for %fn in %functions {
         %available_name = core.get %fn["name"]
+        %matches = core.call intrinsic.eq(%available_name, %name)
+        core.if %matches {
+          %nothing = core.call intrinsic.none()
+          core.return %nothing
+        }
         core.append %available_names, %available_name
       }
       %available_joined = core.call intrinsic.string.join(", ", %available_names)
       %available = core.call intrinsic.string.default_if_empty(%available_joined, "(none)")
       %message = core.call intrinsic.string.format("Function not found: {}. Available functions: {}. Call one of these exact function names.", %name, %available)
-      %error = core.call intrinsic.error.validation(%message)
-      core.raise %error
+      core.return %message
     }
   }
 

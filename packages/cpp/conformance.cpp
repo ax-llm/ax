@@ -1066,9 +1066,9 @@ static void assert_last_request_tail(Value fixture, const ConformanceScriptedAI&
   for (std::size_t index = prompt.size() > count ? prompt.size() - count : 0; index < prompt.size(); ++index) {
     Object message = as_object(prompt[index]);
     Value kept = Value::object();
-    for (const char* key : {"role", "content"}) {
+    for (const auto& [key, ignored] : as_object(Core::iter(expected)[Core::iter(tail).size()])) {
       auto found = message.find(key);
-      if (found != message.end()) Core::set(kept, key, found->second);
+      Core::set(kept, key, found != message.end() ? found->second : key == "is_error" ? Value(false) : Value());
     }
     Core::append(tail, kept);
   }

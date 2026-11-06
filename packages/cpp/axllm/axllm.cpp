@@ -19298,8 +19298,14 @@ Value Core::_anthropic_message_impl(Value message) {
       if (Core::truthy(has_blocks)) {
         Value index = Core::add(count, Value(-1));
         Value last = Core::get(blocks, index, Value());
-        Value cache_control = Core::json_parse(Value("{\"type\":\"ephemeral\"}"));
-        Core::set(last, Value("cache_control"), cache_control);
+        Value last_type = Core::get(last, Value("type"), Value());
+        Value text_cache = Core::eq(last_type, Value("text"));
+        Value tool_cache = Core::eq(last_type, Value("tool_use"));
+        Value cacheable = Core::or_(text_cache, tool_cache);
+        if (Core::truthy(cacheable)) {
+          Value cache_control = Core::json_parse(Value("{\"type\":\"ephemeral\"}"));
+          Core::set(last, Value("cache_control"), cache_control);
+        }
       }
     }
     Value count = Core::len(blocks);
@@ -22032,15 +22038,9 @@ Value Core::_execute_tool_call(Value functions, Value call, Value options) {
       return result;
     }
   }
-  Value available_names = Value::array();
-  for (auto fn : Core::iter(functions)) {
-    Value available_name = Core::get(fn, Value("name"), Value());
-    Core::append(available_names, available_name);
-  }
-  Value available_joined = Core::string_join(Value(", "), available_names);
-  Value available = Core::string_default_if_empty(available_joined, Value("(none)"));
-  Value message = Core::string_format(Value("Function not found: {}. Available functions: {}. Call one of these exact function names."), name, available);
-  Value error = Core::validation_error(message);
+  Value message = Core::_unknown_tool_call_message_impl(functions, call);
+  Value message_text = Core::string_str(message);
+  Value error = Core::validation_error(message_text);
   Core::raise_error(error);
 }
 
@@ -22497,6 +22497,27 @@ Value Core::_date_parse_fields_impl(Value fields, Value base_options, Value opti
   return out;
 }
 
+Value Core::_unknown_tool_call_message_impl(Value functions, Value call) {
+  axir_coverage_mark("_unknown_tool_call_message_impl");
+  Value fn_call = Core::get(call, Value("function"), Value());
+  Value direct_name = Core::get(call, Value("name"), Value());
+  Value name = Core::get(fn_call, Value("name"), direct_name);
+  Value available_names = Value::array();
+  for (auto fn : Core::iter(functions)) {
+    Value available_name = Core::get(fn, Value("name"), Value());
+    Value matches = Core::eq(available_name, name);
+    if (Core::truthy(matches)) {
+      Value nothing = Core::none();
+      return nothing;
+    }
+    Core::append(available_names, available_name);
+  }
+  Value available_joined = Core::string_join(Value(", "), available_names);
+  Value available = Core::string_default_if_empty(available_joined, Value("(none)"));
+  Value message = Core::string_format(Value("Function not found: {}. Available functions: {}. Call one of these exact function names."), name, available);
+  return message;
+}
+
 Value Core::_eval_normalize_impl(Value text, Value tables) {
   axir_coverage_mark("_eval_normalize_impl");
   Value decompositions = Core::get(tables, Value("nfd"), Value());
@@ -22704,6 +22725,27 @@ Value Core::_eval_normalize_impl(Value text, Value tables) {
   return out;
 }
 
+Value Core::_render_stream_result_impl(Value run, Value output) {
+  axir_coverage_mark("_render_stream_result_impl");
+  Value render = Core::get(run, Value("render_audio"), Value());
+  Value no_render = Core::is_none(render);
+  if (Core::truthy(no_render)) {
+    return output;
+  }
+  Value buffered = Core::get(run, Value("buffered"), Value(false));
+  Value sink = Core::get(run, Value("sink"), Value());
+  Value no_sink = Core::is_none(sink);
+  Value renders = Core::or_(buffered, no_sink);
+  if (Core::truthy(renders)) {
+    Value gen = Core::get(render, Value("gen"), Value());
+    Value client = Core::get(render, Value("client"), Value());
+    Value options = Core::get(render, Value("options"), Value());
+    Value rendered = Core::_render_audio_outputs_impl(gen, client, output, options);
+    return rendered;
+  }
+  return output;
+}
+
 Value Core::tool_call_extras(Value options, Value name) {
   axir_coverage_mark("tool_call_extras");
   Value extras = Value::object();
@@ -22735,27 +22777,6 @@ Value Core::tool_call_extras(Value options, Value name) {
     Core::set(extras, Value("eventContext"), event_context);
   }
   return extras;
-}
-
-Value Core::_render_stream_result_impl(Value run, Value output) {
-  axir_coverage_mark("_render_stream_result_impl");
-  Value render = Core::get(run, Value("render_audio"), Value());
-  Value no_render = Core::is_none(render);
-  if (Core::truthy(no_render)) {
-    return output;
-  }
-  Value buffered = Core::get(run, Value("buffered"), Value(false));
-  Value sink = Core::get(run, Value("sink"), Value());
-  Value no_sink = Core::is_none(sink);
-  Value renders = Core::or_(buffered, no_sink);
-  if (Core::truthy(renders)) {
-    Value gen = Core::get(render, Value("gen"), Value());
-    Value client = Core::get(render, Value("client"), Value());
-    Value options = Core::get(render, Value("options"), Value());
-    Value rendered = Core::_render_audio_outputs_impl(gen, client, output, options);
-    return rendered;
-  }
-  return output;
 }
 
 Value Core::_regex_node(Value k) {
@@ -35435,6 +35456,17 @@ Value Core::_stream_marker_incomplete_impl(Value marker) {
 Value Core::_run_tool_calls_impl(Value gen, Value functions, Value messages, Value calls, Value options) {
   axir_coverage_mark("_run_tool_calls_impl");
   for (auto call : Core::iter(calls)) {
+    Value unknown_message = Core::_unknown_tool_call_message_impl(functions, call);
+    Value unknown = Core::is_not_none(unknown_message);
+    if (Core::truthy(unknown)) {
+      Value unknown_text = Core::string_str(unknown_message);
+      Value unknown_result = Core::_tool_result_message_impl(call, unknown_text);
+      Core::set(unknown_result, Value("is_error"), Value(true));
+      Core::append(messages, unknown_result);
+      Core::axgen_memory_add_function_result(gen, call, unknown_text, Value(false), unknown_text);
+      Core::axgen_record_function_call(gen, call, unknown_result, Value("error"));
+      continue;
+    }
     Value tool_ok = Value(false);
     Value tool_result = Core::none();
     try {

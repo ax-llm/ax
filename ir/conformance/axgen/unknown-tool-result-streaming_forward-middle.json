@@ -1,0 +1,134 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "recovered"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_last_request_tail": [
+    {
+      "function_id": "call_0",
+      "is_error": false,
+      "result": "found",
+      "role": "function"
+    },
+    {
+      "function_id": "call_1",
+      "is_error": true,
+      "result": "Function not found: missing. Available functions: lookup. Call one of these exact function names.",
+      "role": "function"
+    },
+    {
+      "function_id": "call_2",
+      "is_error": false,
+      "result": "found",
+      "role": "function"
+    }
+  ],
+  "expected_output": {
+    "answer": "recovered"
+  },
+  "expected_request_contains": [
+    "\"found\"",
+    "\"Function not found: missing. Available functions: lookup. Call one of these exact function names.\"",
+    "\"found\""
+  ],
+  "expected_request_count": 2,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "function", "function", "function"]
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "key_0"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "key_2"
+      },
+      "name": "lookup"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "unknown-tool-result-streaming_forward-middle",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "",
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": {
+                      "key": "key_0"
+                    }
+                  },
+                  "id": "call_0",
+                  "type": "function"
+                },
+                {
+                  "function": {
+                    "name": "missing",
+                    "params": {
+                      "key": "key_1"
+                    }
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                },
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": {
+                      "key": "key_2"
+                    }
+                  },
+                  "id": "call_2",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: recovered",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "name": "lookup",
+      "result": "found"
+    }
+  ]
+}
