@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.unknown-function-recovery.test.ts`
   - Impact: TypeScript now answers a native function call whose name matches no registered function with an error result (isError, 'Function not found: <name>. Available functions: ...') for that call alone, and runs the rest of the batch; before, it threw a ValidationError that abandoned the batch, discarded results of calls that already ran, and sent a correction after the assistant turn with its tool calls unanswered. Ports that still raise for an unknown name keep the old behavior in forward and streaming forward.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-11-02-preserve-anthropic-thinking-replay-without-empty-text-blocks` [axai] Preserve Anthropic thinking replay without empty text blocks
+  - Status: open
+  - Source PR: #876
+  - Source commit: `c826ec119147488b2d01260fe1984561768f51e4`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.thinking-replay.test.ts`
+  - Impact: Generated clients can emit an empty text block after signed or redacted thinking when assistant visible text is empty.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
