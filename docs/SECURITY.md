@@ -2,8 +2,7 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Security updates target the latest release.
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -11,8 +10,14 @@ currently being supported with security updates.
 
 ## Reporting a Vulnerability
 
-To report vulnerabilities please email use the private reporting feature of Github.
-https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability#privately-reporting-a-security-vulnerability
+Use [GitHub's private vulnerability reporting form](https://github.com/ax-llm/ax/security/advisories/new)
+to report a suspected vulnerability to the maintainers. You can also open the
+repository's **Security** tab, select **Advisories**, and choose **Report a
+vulnerability**.
+
+Include the affected Ax version, reproduction steps, expected and actual
+behavior, and the potential impact. Keep vulnerability details out of public
+issues and pull requests while maintainers investigate.
 
 ## AxJSRuntime Threat Model
 
