@@ -34,7 +34,8 @@ Examples:
   npx @ax-llm/ax skills-auto-install off
   npx @ax-llm/ax skills-auto-install on
 
-Automatic setup installs only ax-llm in .claude/skills, outside CI.
+Automatic setup installs only ax-llm in .claude/skills for direct dependencies.
+CI, global installs, and transitive dependency installs skip automatic setup.
 Run skills-auto-install off from your project root to disable future automatic setup.
 This saves ax.skills.autoInstall in package.json; on restores automatic setup.
 Manual setup-claude still works while automatic setup is disabled.

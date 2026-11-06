@@ -37,6 +37,13 @@ beforeEach(() => {
   project = path.join(root, 'project');
   mkdirSync(project);
   mkdirSync(pkg);
+  writeFileSync(
+    path.join(project, 'package.json'),
+    JSON.stringify({
+      name: 'consumer',
+      dependencies: { '@ax-llm/ax': '^25.4.1' },
+    })
+  );
   for (const dir of ['skills', 'scripts', 'cli'])
     cpSync(path.join(repo, 'src/ax', dir), path.join(pkg, dir), {
       recursive: true,
@@ -76,6 +83,8 @@ function automaticEnv(target) {
     'BITBUCKET_BUILD_NUMBER',
     'CODEBUILD_BUILD_ID',
     'TF_BUILD',
+    'npm_config_global',
+    'NPM_CONFIG_GLOBAL',
   ])
     delete env[key];
   return env;
@@ -330,10 +339,6 @@ describe('hybrid skill installation', () => {
 });
 
 describe('persistent automatic setup preference', () => {
-  beforeEach(() => {
-    writeFileSync(path.join(project, 'package.json'), '{"name":"consumer"}\n');
-  });
-
   it('remembers opt-out across package upgrades without touching installed specialists', () => {
     installSkills(pkg, project, { names: ['ax-ai'] });
     const target = path.join(skillDir('ax-ai'), 'SKILL.md');
@@ -460,6 +465,57 @@ describe('persistent automatic setup preference', () => {
       runAutomaticInstall();
       expect(existsSync(path.join(project, '.claude'))).toBe(false);
       expect(readFileSync(manifest, 'utf8')).toBe(source);
+    }
+  );
+});
+
+describe('automatic setup installation scope', () => {
+  it.each(['dependencies', 'devDependencies', 'optionalDependencies'])(
+    'installs when Ax is listed in %s',
+    (field) => {
+      writeFileSync(
+        path.join(project, 'package.json'),
+        JSON.stringify({
+          name: 'consumer',
+          [field]: { '@ax-llm/ax': '^25.4.1' },
+        })
+      );
+      runAutomaticInstall();
+      expect(existsSync(path.join(skillDir(), 'SKILL.md'))).toBe(true);
+    }
+  );
+
+  it('leaves transitive consumers and their existing skills untouched', () => {
+    installSkills(pkg, project);
+    const target = path.join(skillDir(), 'SKILL.md');
+    writeFileSync(target, 'existing user instructions');
+    writeFileSync(
+      path.join(project, 'package.json'),
+      JSON.stringify({
+        name: 'consumer',
+        dependencies: { 'some-cli': '1.0.0' },
+      })
+    );
+    runAutomaticInstall();
+    expect(readFileSync(target, 'utf8')).toBe('existing user instructions');
+    rmSync(path.join(project, '.claude'), { recursive: true });
+    runAutomaticInstall();
+    expect(existsSync(path.join(project, '.claude'))).toBe(false);
+    runCLI('setup-claude');
+    expect(existsSync(path.join(skillDir(), 'SKILL.md'))).toBe(true);
+  });
+
+  it('skips automatic setup when there is no project manifest', () => {
+    rmSync(path.join(project, 'package.json'));
+    runAutomaticInstall();
+    expect(existsSync(path.join(project, '.claude'))).toBe(false);
+  });
+
+  it.each(['npm_config_global', 'NPM_CONFIG_GLOBAL'])(
+    'skips global installation even in a direct consumer (%s)',
+    (variable) => {
+      runAutomaticInstall({ [variable]: 'true' });
+      expect(existsSync(path.join(project, '.claude'))).toBe(false);
     }
   );
 });

@@ -540,13 +540,16 @@ TypeScript / JavaScript:
 npm install @ax-llm/ax
 ```
 
-The package automatically installs one Claude Code skill, `ax-llm`, with a
-compact capability index and local guides that load as needed. Run
+When listed in your project's `dependencies`, `devDependencies`, or
+`optionalDependencies`, the package automatically installs one Claude Code
+skill, `ax-llm`, with a compact capability index and local guides that load as
+needed. Run
 `npx @ax-llm/ax skills-auto-install off` from your project root to disable
 future automatic setup. This saves `ax.skills.autoInstall: false` in your
 project's `package.json`; use `skills-auto-install on` to re-enable it.
 Set `AX_SKIP_SKILL_INSTALL=1` during installation to skip setup for that run;
-CI skips it too.
+CI, global installs, and transitive installs skip it too. Use
+`npx @ax-llm/ax setup-claude` to install the bundle explicitly in other projects.
 Use `npx @ax-llm/ax setup-claude --all` for separate specialist skills, or
 `npx @ax-llm/ax setup-claude --skill ax-ai` for a specific one.
 
