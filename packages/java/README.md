@@ -10,14 +10,14 @@ Add the dependency from Maven Central:
 <dependency>
   <groupId>dev.axllm</groupId>
   <artifactId>ax</artifactId>
-  <version>25.4.8</version>
+  <version>25.4.9</version>
 </dependency>
 ```
 
 Or with Gradle:
 
 ```groovy
-implementation 'dev.axllm:ax:25.4.8'
+implementation 'dev.axllm:ax:25.4.9'
 ```
 
 Realtime audio over WebSocket uses the JDK's built-in `java.net.http` WebSocket — no extra dependency.

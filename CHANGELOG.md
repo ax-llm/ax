@@ -1,5 +1,23 @@
 # Changelog
 
+## [25.4.9](https://github.com/ax-llm/ax/compare/25.4.7...25.4.8) (2026-11-06)
+
+### Features
+
+* **examples:** add authenticated local Sem MCP lookup ([#880](https://github.com/ax-llm/ax/issues/880)) ([e311879](https://github.com/ax-llm/ax/commit/e31187998320e91b4bde725a43a4b5145591f979))
+
+### Bug Fixes
+
+* **anthropic:** omit empty text from thinking replay ([#876](https://github.com/ax-llm/ax/issues/876)) ([bf7bca1](https://github.com/ax-llm/ax/commit/bf7bca1b16b9a069b65d8b0884ec844712fe33ab))
+* **axir:** match unknown-tool results and thinking replay caching ([#883](https://github.com/ax-llm/ax/issues/883)) ([6bf6997](https://github.com/ax-llm/ax/commit/6bf699777923f91e19e5dd3e5048b348a2292c17))
+* **skills:** skip automatic setup for transitive and global installs ([#881](https://github.com/ax-llm/ax/issues/881)) ([60d8b7b](https://github.com/ax-llm/ax/commit/60d8b7b102d44ae4bfbf09a16f23916ccabf0fee))
+
+## [25.4.8](https://github.com/ax-llm/ax/compare/25.4.7...25.4.8) (2026-11-03)
+
+### Bug Fixes
+
+* **dsp:** answer an unknown tool name with a per-call error result ([#878](https://github.com/ax-llm/ax/issues/878)) ([761c5ae](https://github.com/ax-llm/ax/commit/761c5ae611a29b509ce627d5d63e225a1be91c54))
+
 ## [25.4.8](https://github.com/ax-llm/ax/compare/25.4.7...25.4.8) (2026-11-03)
 
 ### Bug Fixes
