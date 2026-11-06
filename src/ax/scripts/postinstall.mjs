@@ -3,6 +3,7 @@
 // Register one entry-point skill with bundled guides. Specialist skills are
 // available through the explicit setup command; package installation never
 // adds them individually. Failures must never break dependency installation.
+import { readFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { autoSkillInstallEnabled } from './skill-config.mjs';
@@ -11,6 +12,15 @@ import { installSkills } from './skill-install.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function shouldSkip() {
+  // A global install must not modify the directory it was launched from.
+  if (
+    [process.env.npm_config_global, process.env.NPM_CONFIG_GLOBAL].some(
+      (value) => value === 'true' || value === '1'
+    )
+  ) {
+    return true;
+  }
+
   // Skip in CI environments
   if (process.env.CI === 'true' || process.env.CI === '1') {
     return true;
@@ -74,14 +84,24 @@ function findProjectRoot() {
   return join(__dirname, '..', '..', '..', '..');
 }
 
+function isDirectDependency(projectRoot) {
+  const config = JSON.parse(
+    readFileSync(join(projectRoot, 'package.json'), 'utf8')
+  );
+  return ['dependencies', 'devDependencies', 'optionalDependencies'].some(
+    (field) => typeof config?.[field]?.['@ax-llm/ax'] === 'string'
+  );
+}
+
 if (!shouldSkip()) {
   try {
     const projectRoot = findProjectRoot();
-    const installed = autoSkillInstallEnabled(projectRoot)
-      ? installSkills(join(__dirname, '..'), projectRoot, {
-          upgradeInstalled: true,
-        })
-      : [];
+    const installed =
+      isDirectDependency(projectRoot) && autoSkillInstallEnabled(projectRoot)
+        ? installSkills(join(__dirname, '..'), projectRoot, {
+            upgradeInstalled: true,
+          })
+        : [];
     if (installed.length > 0 && process.stdout.isTTY) {
       console.log(
         '✓ Ax skills updated; entry point includes local reference guides.'

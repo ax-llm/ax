@@ -200,14 +200,18 @@ compiler-owned API metadata so package docs, future docs-site pages, and agent
 docs can consume the same source without scraping generated code.
 
 The npm-installed Claude Code skill in `@ax-llm/ax` stays focused on the
-TypeScript package: automatic setup registers only `ax-llm`, whose compact
-index links to bundled local reference guides. From the consumer project root,
+TypeScript package: automatic setup runs only when the consumer's `package.json`
+lists Ax in `dependencies`, `devDependencies`, or `optionalDependencies`.
+It registers only `ax-llm`, whose compact index links to bundled local reference
+guides. From the consumer project root,
 `npx @ax-llm/ax skills-auto-install off` saves `ax.skills.autoInstall: false`
 in `package.json` to disable future automatic setup; `skills-auto-install on`
 restores it. The same setting can be added before the first installation.
 `AX_SKIP_SKILL_INSTALL=1` skips automatic setup for a single installation;
-CI environments skip it even if the saved setting is enabled. Manual `setup-claude`
-defaults to the same bundle, with `--all` or `--skill <name>` for optional
+CI environments and global installs skip it even if the saved setting is enabled.
+Transitive dependency installs never write skills into the consumer project.
+Manual `setup-claude` defaults to the same bundle, with `--all` or
+`--skill <name>` for optional
 specialists. Existing specialist installations are preserved and upgraded
 alongside the entry point; automatic setup adds no new specialist entries.
 Changing the preference leaves installed skills in place. Manual setup and
