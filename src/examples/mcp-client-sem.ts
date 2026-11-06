@@ -1,7 +1,8 @@
 import { AxMCPClient, AxMCPStreamableHTTPTransport } from '@ax-llm/ax';
 
 // Optional local repository lookup through Sem (https://github.com/Ataraxy-Labs/sem).
-// Install Sem, then start it in another terminal in the same network namespace:
+// Install Sem 0.28.0 or later for HTTP support, then start it in another terminal
+// in the same network namespace:
 //   export SEM_REPO=/absolute/path/to/checkout
 //   export SEM_MCP_HTTP_TOKEN="$(openssl rand -hex 32)"
 //   SEM_LOCAL=1 SEM_NO_NETWORK=1 SEM_NO_TELEMETRY=1 sem mcp --http 127.0.0.1:8787
