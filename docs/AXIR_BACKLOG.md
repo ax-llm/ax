@@ -27,7 +27,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Status: open
   - Source PR: #886
   - Source commit: `e8888f89221ea14357547dfa63c85515926369f0`
-  - TS paths: `src/ax/dsp/standardSchema.ts`
+  - TS paths: `src/ax/dsp/standardSchema.ts`, `src/ax/dsp/standardSchema.test.ts`
   - Impact: Generated Python, Java, C++, Go, and Rust packages introspect zod 3 layouts only, so on zod 4 they degrade arrays to untyped json, drop enum options, and lose string/number check constraints unless their introspection learns the v4 def shapes (def.element, def.entries, nested check defs).
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
