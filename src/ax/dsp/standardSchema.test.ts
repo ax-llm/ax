@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { z as z4 } from 'zod/v4';
 import { ValidationError } from './errors.js';
 import { f, fn } from './sig.js';
 import {
@@ -319,5 +320,61 @@ describe('AxFunctionBuilder — unified arg/returns overloads', () => {
       .handler(async () => ({ summary: 'x' }))
       .build();
     expect(tool.name).toBe('summarize');
+  });
+});
+
+describe('zod v4 introspection', () => {
+  it('arrays keep their element type', () => {
+    const fields = standardSchemaToAxFields(
+      z4.object({ tags: z4.array(z4.string()) })
+    );
+    const tags = fields.find((f) => f.name === 'tags');
+    expect(tags?.type?.name).toBe('string');
+    expect(tags?.type?.isArray).toBe(true);
+  });
+
+  it('arrays of numbers survive optional wrappers', () => {
+    const fields = standardSchemaToAxFields(
+      z4.object({ xs: z4.array(z4.number()).optional() })
+    );
+    expect(fields[0]?.type?.name).toBe('number');
+    expect(fields[0]?.type?.isArray).toBe(true);
+    expect(fields[0]?.isOptional).toBe(true);
+  });
+
+  it('enums keep their allowed values', () => {
+    const fields = standardSchemaToAxFields(
+      z4.object({ tone: z4.enum(['formal', 'casual']) })
+    );
+    const tone = fields.find((f) => f.name === 'tone');
+    expect(tone?.type?.name).toBe('class');
+    expect(tone?.type?.options).toEqual(['formal', 'casual']);
+  });
+
+  it('string min/max/email checks survive', () => {
+    const fields = standardSchemaToAxFields(
+      z4.object({
+        s: z4.string().min(2).max(5),
+        e: z4.string().email(),
+      })
+    );
+    expect(fields[0]?.type?.minLength).toBe(2);
+    expect(fields[0]?.type?.maxLength).toBe(5);
+    expect(fields[1]?.type?.format).toBe('email');
+  });
+
+  it('number min/max checks survive', () => {
+    const fields = standardSchemaToAxFields(
+      z4.object({ n: z4.number().min(1).max(9) })
+    );
+    expect(fields[0]?.type?.minimum).toBe(1);
+    expect(fields[0]?.type?.maximum).toBe(9);
+  });
+
+  it('regex checks keep the pattern without slash delimiters', () => {
+    const fields = standardSchemaToAxFields(
+      z4.object({ r: z4.string().regex(/^a+$/) })
+    );
+    expect(fields[0]?.type?.pattern).toBe('^a+$');
   });
 });

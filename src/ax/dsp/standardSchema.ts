@@ -141,6 +141,12 @@ function getZodDef(schema: ZodLike): Record<string, any> | undefined {
   return schema._def ?? schema._zod?.def;
 }
 
+/** Normalize a zod check entry: v3 exposes `kind`/`value` directly, v4 nests
+ * them under `_zod.def` (or `def`) and renames `kind` to `check`. */
+function checkDef(check: Record<string, any>): Record<string, any> {
+  return check?._zod?.def ?? check?.def ?? check;
+}
+
 function zodIsOptional(schema: ZodLike): boolean {
   const def = getZodDef(schema);
   const typeName = def?.typeName ?? def?.type;
@@ -190,18 +196,42 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
   switch (typeName) {
     case 'ZodString':
     case 'string': {
-      const checks: Array<{ kind: string; value?: any; regex?: RegExp }> =
-        def?.checks ?? [];
+      const checks: Array<Record<string, any>> = def?.checks ?? [];
       const extra: MutableAxFieldType = {};
-      for (const c of checks) {
-        if (c.kind === 'min' || c.kind === 'min_length')
-          extra.minLength = c.value ?? (c as any).minimum;
-        if (c.kind === 'max' || c.kind === 'max_length')
-          extra.maxLength = c.value ?? (c as any).maximum;
-        if (c.kind === 'email') extra.format = 'email';
-        if (c.kind === 'url' || c.kind === 'uri') extra.format = 'uri';
-        if (c.kind === 'regex') {
-          extra.pattern = c.regex?.source ?? String(c.regex);
+      for (const raw of checks) {
+        // zod v4 check objects carry their def at `_zod.def`/`def` and name
+        // it `check`; v3 used top-level `kind`.
+        const c = checkDef(raw);
+        const kind = c.kind ?? c.check;
+        if (kind === 'min' || kind === 'min_length')
+          extra.minLength = c.value ?? c.minimum;
+        if (kind === 'max' || kind === 'max_length')
+          extra.maxLength = c.value ?? c.maximum;
+        if (
+          kind === 'email' ||
+          (kind === 'string_format' && c.format === 'email')
+        )
+          extra.format = 'email';
+        if (
+          kind === 'url' ||
+          kind === 'uri' ||
+          (kind === 'string_format' &&
+            (c.format === 'url' || c.format === 'uri'))
+        )
+          extra.format = 'uri';
+        if (
+          kind === 'regex' ||
+          (kind === 'string_format' && c.format === 'regex')
+        ) {
+          const re = c.regex ?? c.pattern;
+          // v4 serializes the pattern as a slash-delimited string ('/^a+$/')
+          const asString = re instanceof RegExp ? re.source : String(re);
+          extra.pattern =
+            asString.length > 1 &&
+            asString.startsWith('/') &&
+            asString.endsWith('/')
+              ? asString.slice(1, -1)
+              : asString;
           extra.patternDescription = description ?? 'match the regex pattern';
         }
       }
@@ -209,13 +239,15 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
     }
     case 'ZodNumber':
     case 'number': {
-      const checks: Array<{ kind: string; value?: any }> = def?.checks ?? [];
+      const checks: Array<Record<string, any>> = def?.checks ?? [];
       const extra: MutableAxFieldType = {};
-      for (const c of checks) {
-        if (c.kind === 'min' || c.kind === 'greater_than')
-          extra.minimum = c.value ?? (c as any).minimum;
-        if (c.kind === 'max' || c.kind === 'less_than')
-          extra.maximum = c.value ?? (c as any).maximum;
+      for (const raw of checks) {
+        const c = checkDef(raw);
+        const kind = c.kind ?? c.check;
+        if (kind === 'min' || kind === 'greater_than')
+          extra.minimum = c.value ?? c.minimum ?? c.greater_than;
+        if (kind === 'max' || kind === 'less_than')
+          extra.maximum = c.value ?? c.maximum ?? c.less_than;
       }
       return base('number', extra);
     }
@@ -228,9 +260,12 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
     case 'ZodEnum':
     case 'ZodNativeEnum':
     case 'enum': {
+      // v3 stores allowed values in `def.values`; v4 in `def.entries`.
       const values: string[] = Array.isArray(def?.values)
         ? def.values
-        : Object.values(def?.values ?? {});
+        : def?.entries && typeof def.entries === 'object'
+          ? Object.values(def.entries)
+          : Object.values(def?.values ?? {});
       return base('class', { options: values });
     }
     case 'ZodLiteral':
@@ -242,7 +277,10 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
     }
     case 'ZodArray':
     case 'array': {
-      const inner = def?.type ?? def?.element;
+      // v3 keeps the inner schema at `def.type`; v4 at `def.element` (its
+      // `def.type` is the literal string 'array').
+      const inner =
+        def?.element ?? (typeof def?.type === 'object' ? def?.type : undefined);
       const innerType = inner ? zodToAxFieldType(inner) : base('string');
       return {
         ...innerType,
