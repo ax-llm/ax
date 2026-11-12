@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { z as z4 } from 'zod/v4';
+import { AxMockAIService } from '../ai/mock/api.js';
 import { ValidationError } from './errors.js';
+import { validateAndParseFieldValue } from './extract/fieldValue.js';
 import { f, fn } from './sig.js';
 import {
   AX_VENDOR,
@@ -13,6 +15,7 @@ import {
   standardSchemaToJsonSchema,
   validateWithStandardSchema,
 } from './standardSchema.js';
+import { ax } from './template.js';
 
 describe('Standard Schema detection helpers', () => {
   it('recognises zod schemas as Standard Schema values', () => {
@@ -351,30 +354,75 @@ describe('zod v4 introspection', () => {
     expect(tone?.type?.options).toEqual(['formal', 'casual']);
   });
 
-  it('string min/max/email checks survive', () => {
-    const fields = standardSchemaToAxFields(
-      z4.object({
-        s: z4.string().min(2).max(5),
-        e: z4.string().email(),
-      })
+  it('exports typed arrays and enum options in tool JSON schemas', () => {
+    const schema = standardSchemaToJsonSchema(
+      z4.object({ tags: z4.array(z4.enum(['formal', 'casual'])) })
     );
-    expect(fields[0]?.type?.minLength).toBe(2);
-    expect(fields[0]?.type?.maxLength).toBe(5);
-    expect(fields[1]?.type?.format).toBe('email');
+    expect(schema.properties?.tags).toMatchObject({
+      type: 'array',
+      items: { type: 'string', enum: ['formal', 'casual'] },
+    });
   });
 
-  it('number min/max checks survive', () => {
-    const fields = standardSchemaToAxFields(
-      z4.object({ n: z4.number().min(1).max(9) })
-    );
-    expect(fields[0]?.type?.minimum).toBe(1);
-    expect(fields[0]?.type?.maximum).toBe(9);
-  });
+  it.each([
+    ['case-insensitive regex', z4.string().regex(/^a+$/i), 'AAA', 'AAA', 'bbb'],
+    ['Unicode regex', z4.string().regex(/^\p{Letter}+$/u), 'é', 'é', '123'],
+    [
+      'uppercase before regex',
+      z4
+        .string()
+        .toUpperCase()
+        .regex(/^[A-Z]+$/),
+      'abc',
+      'ABC',
+      'abc1',
+    ],
+    ['trim before length', z4.string().trim().max(2), '   a', 'a', '   abc'],
+    ['string bounds', z4.string().min(2).max(5), 'abc', 'abc', 'a'],
+    ['email', z4.string().email(), 'a@example.com', 'a@example.com', 'invalid'],
+    ['number bounds', z4.number().min(1).max(9), '5', 5, '10'],
+  ] as const)(
+    'preserves Zod validation semantics for %s',
+    (_name, schema, input, expected, invalid) => {
+      const field = standardSchemaToAxField('answer', schema);
+      expect(validateAndParseFieldValue(field, input)).toBe(expected);
+      expect(() => validateAndParseFieldValue(field, invalid)).toThrow(
+        ValidationError
+      );
+    }
+  );
 
-  it('regex checks keep the pattern without slash delimiters', () => {
-    const fields = standardSchemaToAxFields(
-      z4.object({ r: z4.string().regex(/^a+$/) })
-    );
-    expect(fields[0]?.type?.pattern).toBe('^a+$');
-  });
+  it.each([false, true])(
+    'preserves regex flags through forward (stream: %s)',
+    async (stream) => {
+      const gen = ax(
+        f()
+          .input('question', f.string())
+          .output(
+            z4.object({
+              answer: z4.string().regex(/^a+$/i),
+            })
+          )
+          .build()
+      );
+      const response = {
+        results: [{ index: 0, content: 'Answer: AAA' }],
+      };
+      const ai = new AxMockAIService({
+        features: { streaming: true },
+        chatResponse: async (_req, options) =>
+          options?.stream
+            ? new ReadableStream({
+                start(controller) {
+                  controller.enqueue(response);
+                  controller.close();
+                },
+              })
+            : response,
+      });
+      await expect(
+        gen.forward(ai, { question: 'q' }, { stream, maxRetries: 0 })
+      ).resolves.toEqual({ answer: 'AAA' });
+    }
+  );
 });

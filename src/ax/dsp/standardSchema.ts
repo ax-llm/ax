@@ -141,12 +141,6 @@ function getZodDef(schema: ZodLike): Record<string, any> | undefined {
   return schema._def ?? schema._zod?.def;
 }
 
-/** Normalize a zod check entry: v3 exposes `kind`/`value` directly, v4 nests
- * them under `_zod.def` (or `def`) and renames `kind` to `check`. */
-function checkDef(check: Record<string, any>): Record<string, any> {
-  return check?._zod?.def ?? check?.def ?? check;
-}
-
 function zodIsOptional(schema: ZodLike): boolean {
   const def = getZodDef(schema);
   const typeName = def?.typeName ?? def?.type;
@@ -196,42 +190,20 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
   switch (typeName) {
     case 'ZodString':
     case 'string': {
-      const checks: Array<Record<string, any>> = def?.checks ?? [];
+      // Keep v4 checks in its Standard Schema validator: copying them into
+      // Ax constraints loses regex flags and can run checks before transforms.
+      const checks: Array<{ kind: string; value?: any; regex?: RegExp }> =
+        def?.checks ?? [];
       const extra: MutableAxFieldType = {};
-      for (const raw of checks) {
-        // zod v4 check objects carry their def at `_zod.def`/`def` and name
-        // it `check`; v3 used top-level `kind`.
-        const c = checkDef(raw);
-        const kind = c.kind ?? c.check;
-        if (kind === 'min' || kind === 'min_length')
-          extra.minLength = c.value ?? c.minimum;
-        if (kind === 'max' || kind === 'max_length')
-          extra.maxLength = c.value ?? c.maximum;
-        if (
-          kind === 'email' ||
-          (kind === 'string_format' && c.format === 'email')
-        )
-          extra.format = 'email';
-        if (
-          kind === 'url' ||
-          kind === 'uri' ||
-          (kind === 'string_format' &&
-            (c.format === 'url' || c.format === 'uri'))
-        )
-          extra.format = 'uri';
-        if (
-          kind === 'regex' ||
-          (kind === 'string_format' && c.format === 'regex')
-        ) {
-          const re = c.regex ?? c.pattern;
-          // v4 serializes the pattern as a slash-delimited string ('/^a+$/')
-          const asString = re instanceof RegExp ? re.source : String(re);
-          extra.pattern =
-            asString.length > 1 &&
-            asString.startsWith('/') &&
-            asString.endsWith('/')
-              ? asString.slice(1, -1)
-              : asString;
+      for (const c of checks) {
+        if (c.kind === 'min' || c.kind === 'min_length')
+          extra.minLength = c.value ?? (c as any).minimum;
+        if (c.kind === 'max' || c.kind === 'max_length')
+          extra.maxLength = c.value ?? (c as any).maximum;
+        if (c.kind === 'email') extra.format = 'email';
+        if (c.kind === 'url' || c.kind === 'uri') extra.format = 'uri';
+        if (c.kind === 'regex') {
+          extra.pattern = c.regex?.source ?? String(c.regex);
           extra.patternDescription = description ?? 'match the regex pattern';
         }
       }
@@ -239,15 +211,13 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
     }
     case 'ZodNumber':
     case 'number': {
-      const checks: Array<Record<string, any>> = def?.checks ?? [];
+      const checks: Array<{ kind: string; value?: any }> = def?.checks ?? [];
       const extra: MutableAxFieldType = {};
-      for (const raw of checks) {
-        const c = checkDef(raw);
-        const kind = c.kind ?? c.check;
-        if (kind === 'min' || kind === 'greater_than')
-          extra.minimum = c.value ?? c.minimum ?? c.greater_than;
-        if (kind === 'max' || kind === 'less_than')
-          extra.maximum = c.value ?? c.maximum ?? c.less_than;
+      for (const c of checks) {
+        if (c.kind === 'min' || c.kind === 'greater_than')
+          extra.minimum = c.value ?? (c as any).minimum;
+        if (c.kind === 'max' || c.kind === 'less_than')
+          extra.maximum = c.value ?? (c as any).maximum;
       }
       return base('number', extra);
     }
