@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:f49ea43da83174dcdeef0b2d454dd3627984d513e4671e323c15aa614f2f2a4c"
+      "digest": "sha256:852e9c4ca0a07d3ddb25458e7785f67259a4c3c87a2b4dc1ee0baedebd756420"
     },
     {
       "name": "ax-ai",
@@ -34,7 +34,7 @@
       "type": "archive",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/skill.tar.gz",
-      "digest": "sha256:df9ce0c1ec15b1931f064555ef9391e7476bb2b117aff6f236c1f30b21e9b337"
+      "digest": "sha256:121ad5d0896f1b0741d66456a8da431a52aa40db6ad3256c94e5ec04f31ce397"
     },
     {
       "name": "ax-gen",

@@ -1,0 +1,41 @@
+{
+  "expected_error_category": "validation",
+  "expected_error_contains": "formal, casual",
+  "kind": "validate_output",
+  "name": "zod-v4-invalid-array-enum",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "tags": {
+        "array": true,
+        "type": "string"
+      },
+      "counts": {
+        "array": true,
+        "optional": true,
+        "type": "number"
+      },
+      "tone": {
+        "options": ["formal", "casual"],
+        "type": "class"
+      },
+      "tones": {
+        "array": true,
+        "options": ["formal", "casual"],
+        "type": "class"
+      }
+    }
+  },
+  "ts_error_message": "Field 'Tones' has an invalid value 'unknown': Invalid class 'unknown', expected one of the following: formal, casual. Provide a classification class. Ensure formatting exactly matches the expected type.",
+  "ts_error_name": "ValidationError",
+  "values": {
+    "counts": [1, 2],
+    "tags": ["summary", "review"],
+    "tone": "formal",
+    "tones": ["formal", "unknown"]
+  }
+}

@@ -447,6 +447,13 @@ npm run axir:backlog:validate
 full generated-backend verification so coding agents get a fast, command-first
 failure when portable TS changes need AxIR follow-up.
 
+Zod introspection is a TypeScript host bridge, not a generated-language API.
+The generated languages use native Ax field descriptors for arrays, classes,
+and optional fields. The `zod-v4-*` schema and validation fixtures compare
+those descriptors against the corrected TypeScript bridge from PR #886;
+Zod-specific validator callbacks and regex flags stay with the TypeScript host.
+See [`schema.axir` reference notes](../ir/axcore/schema.md).
+
 Some TypeScript integrations are intentionally host-specific rather than
 portable Ax semantics. Browser-only providers such as WebLLM should be tracked
 as non-portable exemptions instead of AxIR backlog items:

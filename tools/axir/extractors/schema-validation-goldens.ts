@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { z as z4 } from 'zod/v4';
+
 import { validateStructuredOutputValues } from '../../../src/ax/dsp/extract/structuredJson.js';
 import { toJsonSchema } from '../../../src/ax/dsp/jsonSchema.js';
 import { type AxField, type AxSignature, f } from '../../../src/ax/dsp/sig.js';
@@ -338,6 +340,81 @@ const arraySig = f()
   )
   .build();
 schemaCase('arrays-and-array-objects', arraySpec, arraySig);
+
+// Zod introspection stays in the TypeScript host. The ports build the same
+// portable fields natively and must match the schemas produced by that bridge.
+// Keep the descriptor independent of introspection so a lost element type or
+// enum option changes the TS golden and fails generated-language conformance.
+const zod4FieldsSpec = {
+  tags: { type: 'string', array: true },
+  counts: { type: 'number', array: true, optional: true },
+  tone: { type: 'class', options: ['formal', 'casual'] },
+  tones: { type: 'class', options: ['formal', 'casual'], array: true },
+};
+const zod4Spec = {
+  inputs: { query: { type: 'string' } },
+  outputs: zod4FieldsSpec,
+};
+const zod4Sig = f()
+  .input('query', f.string())
+  .output(
+    z4.object({
+      tags: z4.array(z4.string()),
+      counts: z4.array(z4.number()).optional(),
+      tone: z4.enum(['formal', 'casual']),
+      tones: z4.array(z4.enum(['formal', 'casual'])),
+    })
+  )
+  .build();
+schemaCase('zod-v4-arrays-enums-output', zod4Spec, zod4Sig);
+schemaCase('zod-v4-arrays-enums-strict-output', zod4Spec, zod4Sig, 'outputs', {
+  strictStructuredOutputs: true,
+});
+
+const zod4InputSpec = {
+  inputs: {
+    tags: zod4FieldsSpec.tags,
+    counts: zod4FieldsSpec.counts,
+  },
+  outputs: { answer: { type: 'string' } },
+};
+const zod4InputSig = f()
+  .input(
+    z4.object({
+      tags: z4.array(z4.string()),
+      counts: z4.array(z4.number()).optional(),
+    })
+  )
+  .output('answer', f.string())
+  .build();
+schemaCase('zod-v4-array-input', zod4InputSpec, zod4InputSig, 'inputs');
+
+const zod4Values = {
+  tags: ['summary', 'review'],
+  counts: [1, 2],
+  tone: 'formal',
+  tones: ['formal', 'casual'],
+};
+validateOutputCase('zod-v4-arrays-enums-valid', zod4Spec, zod4Sig, zod4Values);
+validateOutputCase('zod-v4-optional-array-omitted', zod4Spec, zod4Sig, {
+  tags: [],
+  tone: 'casual',
+  tones: [],
+});
+validateOutputErrorCase(
+  'zod-v4-invalid-enum',
+  zod4Spec,
+  zod4Sig,
+  { ...zod4Values, tone: 'unknown' },
+  'formal, casual'
+);
+validateOutputErrorCase(
+  'zod-v4-invalid-array-enum',
+  zod4Spec,
+  zod4Sig,
+  { ...zod4Values, tones: ['formal', 'unknown'] },
+  'formal, casual'
+);
 
 const flexibleSpec = {
   inputs: { query: { type: 'string' } },

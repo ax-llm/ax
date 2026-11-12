@@ -1,0 +1,43 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "counts": {
+        "items": {
+          "type": "number"
+        },
+        "type": "array"
+      },
+      "tags": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["tags"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "zod-v4-array-input",
+  "signature_spec": {
+    "inputs": {
+      "tags": {
+        "array": true,
+        "type": "string"
+      },
+      "counts": {
+        "array": true,
+        "optional": true,
+        "type": "number"
+      }
+    },
+    "outputs": {
+      "answer": {
+        "type": "string"
+      }
+    }
+  },
+  "target": "inputs"
+}
