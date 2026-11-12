@@ -3667,6 +3667,28 @@
       "completedAt": "2026-11-06",
       "completedByCommit": "354bba5e968c4216afa9eb298af4022090c8e057",
       "verification": "All 22 new TS-derived fixtures pass in Python, Java, C++, Go, and Rust. npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run test:examples:generated; npm run skills:check; npm run website:check."
+    },
+    {
+      "id": "axir-2026-11-12-preserve-cumulative-assistant-text-around-streamed-tool-calls",
+      "status": "open",
+      "title": "Preserve cumulative assistant text around streamed tool calls",
+      "createdAt": "2026-11-12",
+      "sourcePR": 887,
+      "sourceCommit": "26b2e15db1077d5a9e9eb10a61003fbbde55ae71",
+      "tsPaths": [
+        "src/ax/dsp/response/streaming.ts",
+        "src/ax/dsp/generate.streamParity.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "Generated AxGen streaming implementations must accumulate text accompanying tool-call deltas and store the full assistant text in history before the next model request, matching handwritten TypeScript.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
