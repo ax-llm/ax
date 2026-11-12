@@ -282,6 +282,14 @@ const sig3 = f()
   .build();
 ```
 
+Zod 4 arrays preserve their element types, including optional arrays, and enums
+preserve their class options, including arrays of enums. Zod 4 checks run through
+the original validator; they are not copied into Ax prompt or JSON Schema
+constraints, which could lose regex flags or change transformation order.
+This Zod bridge is TypeScript-only. Generated Python, Java, C++, Go, and Rust
+use native field descriptors for the equivalent array, class, and optional
+contracts; they do not execute JavaScript validators.
+
 **Companion options** (`AxFieldOptions`) carry ax-specific hints that schema libraries don't represent:
 
 | Option | Effect |

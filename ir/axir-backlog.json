@@ -3670,7 +3670,7 @@
     },
     {
       "id": "axir-2026-11-10-keep-zod-v4-array-element-types-enum-values-and-checks-in-standa",
-      "status": "open",
+      "status": "done",
       "title": "Keep Zod 4 array element types and enum options in standard-schema conversion",
       "createdAt": "2026-11-10",
       "sourcePR": 886,
@@ -3686,9 +3686,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-11-12",
+      "completedByCommit": "f6959bcacf768f5cc98e703f10fbfce8cfe2da29",
+      "verification": "Audited the TypeScript-only Zod host boundary. All seven new TS-derived schema/validation fixtures pass directly in Python, Java, C++, Go, and Rust using existing native descriptors and Core helpers; no generated runtime change is required. Conformance synchronization, generated-package freshness, documentation website and skill checks pass; 78 backlog/conformance tooling and skill tests pass."
     }
   ],
   "nonPortableExemptions": [

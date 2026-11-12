@@ -1,0 +1,63 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "counts": {
+        "items": {
+          "type": "number"
+        },
+        "type": "array"
+      },
+      "tags": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "tone": {
+        "enum": ["formal", "casual"],
+        "type": "string"
+      },
+      "tones": {
+        "items": {
+          "enum": ["formal", "casual"],
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["tags", "tone", "tones"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "zod-v4-arrays-enums-output",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "tags": {
+        "array": true,
+        "type": "string"
+      },
+      "counts": {
+        "array": true,
+        "optional": true,
+        "type": "number"
+      },
+      "tone": {
+        "options": ["formal", "casual"],
+        "type": "class"
+      },
+      "tones": {
+        "array": true,
+        "options": ["formal", "casual"],
+        "type": "class"
+      }
+    }
+  },
+  "target": "outputs"
+}

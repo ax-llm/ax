@@ -23,13 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-11-10-keep-zod-v4-array-element-types-enum-values-and-checks-in-standa` [axgen] Keep Zod 4 array element types and enum options in standard-schema conversion
-  - Status: open
-  - Source PR: #886
-  - Source commit: `e8888f89221ea14357547dfa63c85515926369f0`
-  - TS paths: `src/ax/dsp/standardSchema.ts`, `src/ax/dsp/standardSchema.test.ts`
-  - Impact: TypeScript standard-schema conversion now retains Zod 4 array element types, including optional wrappers, and enum options in Ax fields and tool JSON schemas. Audit equivalent portable schema conversion for parity. Zod 4 constraints remain delegated to the original validator so regex flags and transformation order are preserved.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1525,3 +1519,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-06
   - Completed by: `354bba5e968c4216afa9eb298af4022090c8e057`
   - Verification: `All 22 new TS-derived fixtures pass in Python, Java, C++, Go, and Rust. npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run test:examples:generated; npm run skills:check; npm run website:check.`
+- `axir-2026-11-10-keep-zod-v4-array-element-types-enum-values-and-checks-in-standa` [axgen] Keep Zod 4 array element types and enum options in standard-schema conversion
+  - Status: done
+  - Source PR: #886
+  - Source commit: `e8888f89221ea14357547dfa63c85515926369f0`
+  - TS paths: `src/ax/dsp/standardSchema.ts`, `src/ax/dsp/standardSchema.test.ts`
+  - Impact: TypeScript standard-schema conversion now retains Zod 4 array element types, including optional wrappers, and enum options in Ax fields and tool JSON schemas. Audit equivalent portable schema conversion for parity. Zod 4 constraints remain delegated to the original validator so regex flags and transformation order are preserved.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-12
+  - Completed by: `f6959bcacf768f5cc98e703f10fbfce8cfe2da29`
+  - Verification: `Audited the TypeScript-only Zod host boundary. All seven new TS-derived schema/validation fixtures pass directly in Python, Java, C++, Go, and Rust using existing native descriptors and Core helpers; no generated runtime change is required. Conformance synchronization, generated-package freshness, documentation website and skill checks pass; 78 backlog/conformance tooling and skill tests pass.`
