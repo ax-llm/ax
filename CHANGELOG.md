@@ -1,17 +1,14 @@
 # Changelog
 
-## [25.4.10](https://github.com/ax-llm/ax/compare/25.4.8...25.4.9) (2026-11-12)
-
-### Features
-
-* **examples:** add authenticated local Sem MCP lookup ([#880](https://github.com/ax-llm/ax/issues/880)) ([e311879](https://github.com/ax-llm/ax/commit/e31187998320e91b4bde725a43a4b5145591f979))
+## [25.4.10](https://github.com/ax-llm/ax/compare/25.4.9...25.4.10) (2026-11-12)
 
 ### Bug Fixes
 
-* **anthropic:** omit empty text from thinking replay ([#876](https://github.com/ax-llm/ax/issues/876)) ([bf7bca1](https://github.com/ax-llm/ax/commit/bf7bca1b16b9a069b65d8b0884ec844712fe33ab))
-* **axir:** match unknown-tool results and thinking replay caching ([#883](https://github.com/ax-llm/ax/issues/883)) ([6bf6997](https://github.com/ax-llm/ax/commit/6bf699777923f91e19e5dd3e5048b348a2292c17))
-* **ax:** preserve Zod 4 array types and enum options ([#886](https://github.com/ax-llm/ax/issues/886)) ([f2f7c79](https://github.com/ax-llm/ax/commit/f2f7c79de90c9d134b1e3ea5a7f80f29b67280e7))
-* **skills:** skip automatic setup for transitive and global installs ([#881](https://github.com/ax-llm/ax/issues/881)) ([60d8b7b](https://github.com/ax-llm/ax/commit/60d8b7b102d44ae4bfbf09a16f23916ccabf0fee))
+* **ax:** preserve Zod 4 array element types and enum options while retaining validation flags and transforms ([#886](https://github.com/ax-llm/ax/pull/886)).
+
+### Generated-language parity
+
+* **axir:** verify the corresponding native array and enum behavior with seven conformance cases across Python, Java, C++, Go, and Rust, and document the TypeScript-only Zod bridge ([#888](https://github.com/ax-llm/ax/pull/888)).
 
 ## [25.4.9](https://github.com/ax-llm/ax/compare/25.4.8...25.4.9) (2026-11-06)
 
