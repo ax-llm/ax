@@ -212,12 +212,11 @@ async function* processStreamingResult<OUT extends AxGenOut>({
 
   if (result.functionCalls && result.functionCalls.length > 0) {
     mergeFunctionCalls(state.functionCalls, result.functionCalls);
-    if (hasDecisionFields(signature.getOutputFields()) && result.content)
-      state.content += result.content;
+    if (result.content) state.content += result.content;
     mem?.updateResult(
       {
         name: result.name,
-        content: result.content,
+        content: state.content || undefined,
         functionCalls: state.functionCalls,
         thoughtBlocks: result.thoughtBlocks,
         phase: result.phase,
