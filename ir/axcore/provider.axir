@@ -4606,6 +4606,13 @@ module @ax.provider version "0.1" {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
       %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_google_decisions = core.call intrinsic.eq(%transport, "google-gemini-decisions")
+      core.if %is_google_decisions {
+        %prepared = core.call @google_decisions_prepare_request(%request)
+        %sampled = core.call @provider_apply_model_sampling_support_impl(%profile, %provider_id, %transport, %prepared, %options)
+        %payload = core.call @google_decisions_build_chat_request(%sampled, %options)
+        core.return %payload
+      }
       %is_decisions = core.call intrinsic.eq(%transport, "openai-decisions")
       core.if %is_decisions {
         %payload = core.call @decisions_build_chat_request(%request, %options)
@@ -5173,6 +5180,11 @@ module @ax.provider version "0.1" {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_google_decisions = core.call intrinsic.eq(%transport, "google-gemini-decisions")
+      core.if %is_google_decisions {
+        %response = core.call @google_decisions_normalize_chat_response(%raw, %context)
+        core.return %response
+      }
       %is_decisions = core.call intrinsic.eq(%transport, "openai-decisions")
       core.if %is_decisions {
         %response = core.call @decisions_normalize_chat_response(%raw, %context)
@@ -11515,6 +11527,8 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string) {
       %config = core.map
       %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_google_decisions = core.call intrinsic.eq(%provider_id, "google-gemini-decisions")
+      core.if %is_google_decisions { core.return %config }
       %is_decisions = core.call intrinsic.eq(%provider_id, "openai-decisions")
       core.if %is_decisions {
         core.return %config

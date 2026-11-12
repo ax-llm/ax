@@ -520,6 +520,7 @@ async function renderContext(language, page) {
     aiServiceTierExample: snippetBlock(language, 'ai.serviceTier'),
     aiProviderStreamExample: snippetBlock(language, 'ai.providerStream'),
     aiTypesafeExample: snippetBlock(language, 'ai.typesafe'),
+    googleDecisionsExample: snippetBlock(language, 'googleDecisionsExample'),
     typesafeSkillPath: `/${language.id}/skills/ax-${language.id === 'typescript' ? '' : `${language.id}-`}typesafe/`,
     aiCancellationExample: snippetBlock(language, 'ai.cancellation'),
     aiBalancerExample:

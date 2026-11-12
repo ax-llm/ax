@@ -4,11 +4,7 @@
     "catalog": [
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -92,11 +88,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -268,11 +260,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -323,10 +311,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -384,13 +369,7 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API",
@@ -402,13 +381,7 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Chat Completions",
@@ -420,13 +393,7 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Messages",
@@ -436,10 +403,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -451,18 +415,9 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "grok-4.6",
         "displayName": "xAI Grok",
@@ -495,11 +450,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -521,10 +472,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -546,11 +494,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -561,10 +505,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -586,10 +527,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -611,11 +549,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -626,11 +560,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -641,10 +571,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -895,14 +822,24 @@
         "isDynamic": false,
         "models": [],
         "name": "openai-decisions"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "defaultModel": "gemini-decision-1",
+        "displayName": "Google Gemini Decisions",
+        "isDynamic": false,
+        "models": [],
+        "name": "google-gemini-decisions"
       }
     ],
     "modelCount": 9,
     "openaiFirstModel": "text-embedding-3-small",
-    "openaiModelTypes": [
-      "embeddings"
-    ],
-    "providerCount": 51,
+    "openaiModelTypes": ["embeddings"],
+    "providerCount": 52,
     "providerNames": [
       "openai",
       "google-gemini",
@@ -954,7 +891,8 @@
       "localai",
       "baseten-engine",
       "typesafe",
-      "openai-decisions"
+      "openai-decisions",
+      "google-gemini-decisions"
     ]
   },
   "kind": "ai_model_catalog_runtime",

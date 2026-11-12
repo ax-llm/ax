@@ -3450,6 +3450,56 @@ export const axAIProviderProfiles = {
       "https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts"
     ],
     "reviewedAt": "2026-10-07"
+  },
+  "google-gemini-decisions": {
+    "id": "google-gemini-decisions",
+    "name": "Google Gemini Decisions",
+    "aliases": [
+      "google-gemini-decisions"
+    ],
+    "transport": "google-gemini-decisions",
+    "baseURL": "https://generativelanguage.googleapis.com/v1beta",
+    "requiresApiURL": false,
+    "auth": {
+      "type": "api-key-header",
+      "required": true,
+      "header": "x-goog-api-key"
+    },
+    "defaults": {
+      "model": "gemini-decision-1"
+    },
+    "capabilities": {
+      "functions": false,
+      "functionEmulation": false,
+      "streaming": false,
+      "structuredOutputs": true,
+      "structuredOutputModes": [
+        "native"
+      ],
+      "requiresStructuredOutput": true,
+      "thinking": false,
+      "multiTurn": false,
+      "images": true,
+      "audio": true,
+      "files": {
+        "uploadMethod": "cloud",
+        "formats": [
+          "application/pdf"
+        ]
+      },
+      "serviceTiers": []
+    },
+    "operations": {
+      "chat": {
+        "path": "/decisions",
+        "dialect": "google-gemini-decisions"
+      }
+    },
+    "modelRules": [],
+    "sources": [
+      "https://aistudio.google.com/docs/decisions-api"
+    ],
+    "reviewedAt": "2026-11-11"
   }
 } as const;
 
@@ -3544,7 +3594,8 @@ export const axAIProviderAliases = {
   "baseten-engine": "baseten-engine",
   "truss": "baseten-engine",
   "typesafe": "typesafe",
-  "openai-decisions": "openai-decisions"
+  "openai-decisions": "openai-decisions",
+  "google-gemini-decisions": "google-gemini-decisions"
 } as const;
 
 // biome-ignore format: generated file
@@ -3599,5 +3650,6 @@ export const axAIProviderProfileIds = [
   "localai",
   "baseten-engine",
   "typesafe",
-  "openai-decisions"
+  "openai-decisions",
+  "google-gemini-decisions"
 ] as const;

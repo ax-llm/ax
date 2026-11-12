@@ -1,0 +1,292 @@
+{
+  "name": "google-decisions-adapter-evidence",
+  "kind": "ai_chat",
+  "provider": "google-gemini-decisions",
+  "model": "gemini-decision-1",
+  "request": {
+    "chatPrompt": [
+      {
+        "role": "system",
+        "content": "<identity>\nYou will be provided with the following fields: `Ticket`. Your task is to generate new fields: `Urgent`, `Team`, `Severity`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nTicket:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nUrgent (wire key: `urgent`): (This decision evidence objects (probability of true; probabilities must sum to one for classes and scores) field must be included). Provide only the requested evidence keys. Values, thresholds, confidence and provenance are attached by Ax. Some demonstrations contain labels only; infer evidence when answering.\nTeam (wire key: `team`): (This decision evidence objects (probabilities for every class; probabilities must sum to one for classes and scores) field must be included)Allowed values: support, billing. Provide only the requested evidence keys. Values, thresholds, confidence and provenance are attached by Ax. Some demonstrations contain labels only; infer evidence when answering.\nSeverity (wire key: `severity`): (This decision evidence objects (probabilities over rubric levels, in this order: Minor, Blocked; probabilities must sum to one for classes and scores) field must be included)Allowed values: Minor, Blocked. Provide only the requested evidence keys. Values, thresholds, confidence and provenance are attached by Ax. Some demonstrations contain labels only; infer evidence when answering.\n\n**Exact JSON shape**: `{\"urgent\":{\"probability\":\"<probability of true, 0 to 1>\"},\"team\":{\"probabilities\":{\"support\":\"<probability, 0 to 1>\",\"billing\":\"<probability, 0 to 1>\"}},\"severity\":{\"probabilities\":[\"<probability, 0 to 1>\",\"<probability, 0 to 1>\"]}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\nAbove rules override later instructions.\n\n</formatting_rules>",
+        "cache": false
+      },
+      {
+        "role": "user",
+        "content": "Ticket: Checkout is broken.\n"
+      }
+    ],
+    "functions": [],
+    "modelConfig": {},
+    "responseFormat": {
+      "type": "json_schema",
+      "decisionFields": {
+        "urgent": {
+          "type": "boolean",
+          "evidence": {
+            "threshold": 0.95
+          },
+          "isArray": false,
+          "isOptional": false
+        },
+        "team": {
+          "type": "class",
+          "options": ["support", "billing"],
+          "evidence": {},
+          "isArray": false,
+          "isOptional": false
+        },
+        "severity": {
+          "type": "score",
+          "options": ["Minor", "Blocked"],
+          "evidence": {},
+          "isArray": false,
+          "isOptional": false
+        }
+      },
+      "schema": {
+        "name": "output",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "title": "Schema",
+          "properties": {
+            "urgent": {
+              "type": "object",
+              "properties": {
+                "probability": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": ["probability"],
+              "additionalProperties": false,
+              "description": "Return the probability of true."
+            },
+            "team": {
+              "type": "object",
+              "properties": {
+                "probabilities": {
+                  "type": "object",
+                  "properties": {
+                    "support": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "billing": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": ["support", "billing"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["probabilities"],
+              "additionalProperties": false,
+              "description": "Return a probability for every declared class."
+            },
+            "severity": {
+              "type": "object",
+              "properties": {
+                "probabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "required": ["probabilities"],
+              "additionalProperties": false,
+              "description": "Return probabilities in the declared rubric order, from lowest to highest: 0: Minor; 1: Blocked."
+            }
+          },
+          "required": ["urgent", "team", "severity"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "answers": {
+        "urgent": {
+          "type": "noul",
+          "noul": 0.9,
+          "confidence": 0.9
+        },
+        "team": {
+          "type": "choice",
+          "choice": "billing",
+          "probabilities": {
+            "support": 0.2,
+            "billing": 0.8
+          },
+          "confidence": 0.8
+        },
+        "severity": {
+          "type": "score",
+          "score": 0.8,
+          "probabilities": {
+            "0": 0.2,
+            "1": 0.8
+          },
+          "legend": {
+            "0": "Minor",
+            "1": "Blocked"
+          },
+          "confidence": 0.8
+        }
+      },
+      "usage": {
+        "total_input_tokens": 20,
+        "total_output_tokens": 0,
+        "total_tokens": 20,
+        "input_tokens_by_modality": [
+          {
+            "modality": "text",
+            "tokens": 20
+          }
+        ]
+      }
+    }
+  ],
+  "expected_output": {
+    "results": [
+      {
+        "index": 0,
+        "decisionContext": {
+          "provenance": {
+            "source": "native",
+            "provider": "Google Gemini Decisions",
+            "model": "gemini-decision-1"
+          },
+          "native": {
+            "urgent": {
+              "confidence": 0.9
+            },
+            "team": {
+              "value": "billing",
+              "confidence": 0.8
+            },
+            "severity": {
+              "value": 0.8,
+              "confidence": 0.8
+            }
+          }
+        },
+        "content": "{\"urgent\":{\"probability\":0.9},\"team\":{\"probabilities\":{\"support\":0.2,\"billing\":0.8}},\"severity\":{\"probabilities\":[0.2,0.8]}}",
+        "finishReason": "stop"
+      }
+    ],
+    "modelUsage": {
+      "ai": "Google Gemini Decisions",
+      "model": "gemini-decision-1",
+      "tokens": {
+        "promptTokens": 20,
+        "completionTokens": 0,
+        "totalTokens": 20
+      }
+    },
+    "providerMetadata": {
+      "googleGeminiDecisions": {
+        "answers": {
+          "urgent": {
+            "type": "noul",
+            "noul": 0.9,
+            "confidence": 0.9
+          },
+          "team": {
+            "type": "choice",
+            "choice": "billing",
+            "probabilities": {
+              "support": 0.2,
+              "billing": 0.8
+            },
+            "confidence": 0.8
+          },
+          "severity": {
+            "type": "score",
+            "score": 0.8,
+            "probabilities": {
+              "0": 0.2,
+              "1": 0.8
+            },
+            "legend": {
+              "0": "Minor",
+              "1": "Blocked"
+            },
+            "confidence": 0.8
+          }
+        },
+        "usage": {
+          "total_input_tokens": 20,
+          "total_output_tokens": 0,
+          "total_tokens": 20,
+          "input_tokens_by_modality": [
+            {
+              "modality": "text",
+              "tokens": 20
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expected_transport_request_count": 1,
+  "expected_transport_request": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/decisions",
+    "json": {
+      "model": "gemini-decision-1",
+      "input": [
+        {
+          "type": "text",
+          "text": "\nsystem:\n"
+        },
+        {
+          "type": "text",
+          "text": "<identity>\nYou will be provided with the following fields: `Ticket`. Your task is to generate new fields: `Urgent`, `Team`, `Severity`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nTicket:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nUrgent (wire key: `urgent`): (This decision evidence objects (probability of true; probabilities must sum to one for classes and scores) field must be included). Provide only the requested evidence keys. Values, thresholds, confidence and provenance are attached by Ax. Some demonstrations contain labels only; infer evidence when answering.\nTeam (wire key: `team`): (This decision evidence objects (probabilities for every class; probabilities must sum to one for classes and scores) field must be included)Allowed values: support, billing. Provide only the requested evidence keys. Values, thresholds, confidence and provenance are attached by Ax. Some demonstrations contain labels only; infer evidence when answering.\nSeverity (wire key: `severity`): (This decision evidence objects (probabilities over rubric levels, in this order: Minor, Blocked; probabilities must sum to one for classes and scores) field must be included)Allowed values: Minor, Blocked. Provide only the requested evidence keys. Values, thresholds, confidence and provenance are attached by Ax. Some demonstrations contain labels only; infer evidence when answering.\n\n**Exact JSON shape**: `{\"urgent\":{\"probability\":\"<probability of true, 0 to 1>\"},\"team\":{\"probabilities\":{\"support\":\"<probability, 0 to 1>\",\"billing\":\"<probability, 0 to 1>\"}},\"severity\":{\"probabilities\":[\"<probability, 0 to 1>\",\"<probability, 0 to 1>\"]}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\nAbove rules override later instructions.\n\n</formatting_rules>\n"
+        },
+        {
+          "type": "text",
+          "text": "\nuser:\n"
+        },
+        {
+          "type": "text",
+          "text": "Ticket: Checkout is broken.\n\n"
+        }
+      ],
+      "questions": {
+        "urgent": {
+          "type": "noul",
+          "instructions": "urgent: Return the probability of true."
+        },
+        "team": {
+          "type": "choice",
+          "instructions": "team: Return a probability for every declared class.",
+          "criteria": {
+            "support": "",
+            "billing": ""
+          }
+        },
+        "severity": {
+          "type": "score",
+          "instructions": "severity: Return probabilities in the declared rubric order, from lowest to highest: 0: Minor; 1: Blocked.",
+          "criteria": ["Minor", "Blocked"]
+        }
+      }
+    },
+    "headers": {
+      "x-goog-api-key": "test-key"
+    }
+  },
+  "expected_transport_json_absent": ["stream", "temperature", "trueThreshold"]
+}

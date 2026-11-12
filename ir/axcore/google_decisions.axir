@@ -1,0 +1,1198 @@
+module @ax.google_decisions version "0.1" {
+  dialect @ax.provider version "0.1"
+
+  op ax.provider.class @AxAIGoogleGeminiDecisionsClient {
+    attr core_kind = "record"
+    attr public = true
+    tag "google-gemini-decisions-native-client"
+    type signature = "(options?:json) -> AxAIGoogleGeminiDecisionsClient"
+  }
+
+  op ax.provider.semantic @google_decisions_require_object {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, string) -> json throws"
+    body @entry(%value: json, %context: string) {
+      %valid = core.type_is %value type "object"
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Google Gemini Decisions: {} must be an object", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_require_string {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, string, bool) -> string throws"
+    body @entry(%value: json, %context: string, %nonempty: bool) {
+      %valid = core.type_is %value type "string"
+      core.if %valid {
+        core.if %nonempty {
+          %text = core.string_trim %value
+          %valid = core.call intrinsic.ne(%text, "")
+        }
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Google Gemini Decisions: {} must be a string (nonempty where required)", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_require_number {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, string, f64, f64) -> f64 throws"
+    body @entry(%value: json, %context: string, %minimum: f64, %maximum: f64) {
+      %valid = core.type_is %value type "number"
+      core.if %valid {
+        %valid = core.call intrinsic.math.is_finite(%value)
+        %low = core.call intrinsic.lt(%value, %minimum)
+        %high = core.call intrinsic.gt(%value, %maximum)
+        %outside = core.call intrinsic.or(%low, %high)
+        %within = core.call intrinsic.not(%outside)
+        %valid = core.call intrinsic.and(%valid, %within)
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Google Gemini Decisions: {} must be a finite number between {} and {}", %context, %minimum, %maximum)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_require_list {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, string, f64, f64) -> json throws"
+    body @entry(%value: json, %context: string, %minimum: f64, %maximum: f64) {
+      %valid = core.type_is %value type "list"
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Google Gemini Decisions: {} must be an array", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      %size = core.call intrinsic.len(%value)
+      core.call @google_decisions_require_number(%size, %context, %minimum, %maximum)
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_require_count {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json) -> void throws"
+    body @entry(%value: json) {
+      core.call @google_decisions_require_number(%value, "token count", 0, 9007199254740991)
+      %integer = core.call intrinsic.math.floor(%value)
+      %fractional = core.call intrinsic.ne(%integer, %value)
+      core.if %fractional {
+        core.raise "Google Gemini Decisions: token counts must be nonnegative safe integers"
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_text_content {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions"
+    type signature = "(json, string) -> void throws"
+    body @entry(%value: json, %context: string) {
+      %is_string = core.type_is %value type "string"
+      core.if %is_string {
+        core.call @google_decisions_require_string(%value, %context, true)
+        core.return
+      }
+      %blocks = core.list
+      %list = core.type_is %value type "list"
+      core.if %list {
+        %blocks = core.let %value
+      } else {
+        core.append %blocks, %value
+      }
+      %joined = core.let ""
+      core.for %block in %blocks {
+        core.call @google_decisions_require_object(%block, %context)
+        %kind = core.get %block["type"]
+        %wrong = core.call intrinsic.ne(%kind, "text")
+        core.if %wrong {
+          core.raise "Google Gemini Decisions: instructions accepts text only"
+        }
+        %text = core.get %block["text"]
+        core.call @google_decisions_require_string(%text, %context, false)
+        %joined = core.call intrinsic.string.format("{}{}", %joined, %text)
+      }
+      core.call @google_decisions_require_string(%joined, %context, true)
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_validate_input {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions"
+    type signature = "(json) -> void throws"
+    body @entry(%value: json) {
+      %text = core.type_is %value type "string"
+      core.if %text {
+        core.call @google_decisions_require_string(%value, "input", true)
+        core.return
+      }
+      %blocks = core.list
+      %list = core.type_is %value type "list"
+      core.if %list {
+        %blocks = core.let %value
+      } else {
+        core.append %blocks, %value
+      }
+      core.call @google_decisions_require_list(%blocks, "input", 1, 9007199254740991)
+      %has_content = core.let false
+      %bytes = core.let 0
+      %pdf_bytes = core.let 0
+      core.for %block in %blocks {
+        core.call @google_decisions_require_object(%block, "input block")
+        %kind = core.get %block["type"]
+        %is_text = core.call intrinsic.eq(%kind, "text")
+        core.if %is_text {
+          %text = core.get %block["text"]
+          core.call @google_decisions_require_string(%text, "input text", false)
+          %trimmed = core.string_trim %text
+          %nonempty = core.call intrinsic.ne(%trimmed, "")
+          %has_content = core.call intrinsic.or(%has_content, %nonempty)
+          core.continue
+        }
+        %allowed = core.regex_match %kind pattern "^(image|audio|video|document)$"
+        %invalid = core.call intrinsic.not(%allowed)
+        core.if %invalid {
+          core.raise "Google Gemini Decisions: unsupported input block"
+        }
+        %mime = core.get %block["mime_type"]
+        core.call @google_decisions_require_string(%mime, "mime_type", true)
+        %document = core.call intrinsic.eq(%kind, "document")
+        %prefix = core.call intrinsic.string.format("{}/", %kind)
+        %valid_mime = core.call intrinsic.string.starts_with(%mime, %prefix)
+        core.if %document {
+          %valid_mime = core.call intrinsic.eq(%mime, "application/pdf")
+        }
+        %invalid = core.call intrinsic.not(%valid_mime)
+        core.if %invalid {
+          core.raise "Google Gemini Decisions: MIME type must match the input block type (documents must be PDF)"
+        }
+        %resolution = core.get %block["resolution"]
+        %has_resolution = core.call intrinsic.map.contains(%block, "resolution")
+        core.if %has_resolution {
+          %media = core.regex_match %kind pattern "^(image|video)$"
+          %valid_resolution = core.regex_match %resolution pattern "^(low|medium|high|ultra_high)$"
+          %valid_resolution = core.call intrinsic.and(%media, %valid_resolution)
+          %video = core.call intrinsic.eq(%kind, "video")
+          %ultra = core.call intrinsic.eq(%resolution, "ultra_high")
+          %bad_ultra = core.call intrinsic.and(%video, %ultra)
+          %not_ultra = core.call intrinsic.not(%bad_ultra)
+          %valid_resolution = core.call intrinsic.and(%valid_resolution, %not_ultra)
+          %invalid = core.call intrinsic.not(%valid_resolution)
+          core.if %invalid {
+            core.raise "Google Gemini Decisions: invalid media resolution"
+          }
+        }
+        %has_data = core.call intrinsic.map.contains(%block, "data")
+        %has_uri = core.call intrinsic.map.contains(%block, "uri")
+        %same = core.call intrinsic.eq(%has_data, %has_uri)
+        core.if %same {
+          core.raise "Google Gemini Decisions: media requires exactly one of data or uri"
+        }
+        core.if %has_data {
+          %data = core.get %block["data"]
+          core.call @google_decisions_require_string(%data, "media data", true)
+          %length = core.call intrinsic.len(%data)
+          %groups = core.call intrinsic.div(%length, 4)
+          %whole = core.call intrinsic.math.floor(%groups)
+          %padded = core.call intrinsic.eq(%groups, %whole)
+          %base64 = core.regex_match %data pattern "^[A-Za-z0-9+/]+={0,2}$"
+          %lf = core.call intrinsic.string.ends_with(%data, "\n")
+          %cr = core.call intrinsic.string.ends_with(%data, "\r")
+          %newline = core.call intrinsic.or(%lf, %cr)
+          %valid = core.call intrinsic.and(%padded, %base64)
+          %invalid = core.call intrinsic.not(%valid)
+          %invalid = core.call intrinsic.or(%invalid, %newline)
+          core.if %invalid {
+            core.raise "Google Gemini Decisions: media data must be base64 without a data URL prefix"
+          }
+          %size = core.call intrinsic.mul(%groups, 3)
+          %two = core.call intrinsic.string.ends_with(%data, "==")
+          %one = core.call intrinsic.string.ends_with(%data, "=")
+          core.if %two {
+            %size = core.call intrinsic.add(%size, -2)
+          } else {
+            core.if %one {
+              %size = core.call intrinsic.add(%size, -1)
+            }
+          }
+          %bytes = core.call intrinsic.add(%bytes, %size)
+          core.if %document {
+            %pdf_bytes = core.call intrinsic.add(%pdf_bytes, %size)
+          }
+        } else {
+          %uri = core.get %block["uri"]
+          core.call @google_decisions_require_string(%uri, "media URI", true)
+          %valid = core.call intrinsic.url.valid(%uri)
+          %uri = core.string_trim %uri
+          %lower = core.call intrinsic.string.lower(%uri)
+          %https = core.call intrinsic.string.starts_with(%lower, "https://")
+          %valid = core.call intrinsic.and(%valid, %https)
+          %youtube = core.regex_match %lower pattern "^https://([^/?#]*@)?([^/?#:]+\\.)*(youtube\\.com|youtu\\.be)(:[0-9]+)?([/?#]|$)"
+          %invalid = core.call intrinsic.not(%valid)
+          %invalid = core.call intrinsic.or(%invalid, %youtube)
+          core.if %invalid {
+            core.raise "Google Gemini Decisions: media URI must be a Files API or public HTTPS URL; YouTube is unsupported"
+          }
+        }
+        %has_content = core.let true
+      }
+      %empty = core.call intrinsic.not(%has_content)
+      core.if %empty {
+        core.raise "Google Gemini Decisions: input cannot be empty"
+      }
+      %large = core.call intrinsic.gt(%bytes, 104857600)
+      %large_pdf = core.call intrinsic.gt(%pdf_bytes, 52428800)
+      %large = core.call intrinsic.or(%large, %large_pdf)
+      core.if %large {
+        core.raise "Google Gemini Decisions: inline media exceeds 100 MB (50 MB for PDFs)"
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_validate_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions"
+    type signature = "(json) -> void throws"
+    body @entry(%request: json) {
+      core.call @google_decisions_require_object(%request, "request")
+      %model = core.get %request["model"]
+      core.call @google_decisions_require_string(%model, "model", true)
+      %input = core.get %request["input"]
+      core.call @google_decisions_validate_input(%input)
+      %questions = core.get %request["questions"]
+      core.call @google_decisions_require_object(%questions, "questions")
+      %names = core.call intrinsic.map.keys(%questions)
+      %count = core.call intrinsic.len(%names)
+      core.call @google_decisions_require_number(%count, "questions (1–1000)", 1, 1000)
+      core.for %name in %names {
+        %valid = core.regex_match %name pattern "^[A-Za-z0-9_-]{1,64}$"
+        %trimmed = core.string_trim %name
+        %same = core.call intrinsic.eq(%trimmed, %name)
+        %valid = core.call intrinsic.and(%valid, %same)
+        %invalid = core.call intrinsic.not(%valid)
+        core.if %invalid {
+          core.raise "Google Gemini Decisions: question keys must contain 1–64 ASCII letters, digits, underscores or hyphens"
+        }
+        %question = core.get %questions[%name]
+        core.call @google_decisions_require_object(%question, "question")
+        %instructions = core.get %question["instructions"]
+        core.call @google_decisions_text_content(%instructions, "instructions")
+        %kind = core.get %question["type"]
+        %criteria = core.get %question["criteria"]
+        %noul = core.call intrinsic.eq(%kind, "noul")
+        %choice = core.call intrinsic.eq(%kind, "choice")
+        %score = core.call intrinsic.eq(%kind, "score")
+        core.if %noul {
+          %has_criteria = core.call intrinsic.map.contains(%question, "criteria")
+          core.if %has_criteria {
+            core.call @google_decisions_require_object(%criteria, "criteria")
+            %keys = core.call intrinsic.map.keys(%criteria)
+            core.for %key in %keys {
+              %valid = core.regex_match %key pattern "^(true_description|false_description)$"
+              %invalid = core.call intrinsic.not(%valid)
+              core.if %invalid {
+                core.raise "Google Gemini Decisions: unknown noul criterion"
+              }
+              %description = core.get %criteria[%key]
+              core.call @google_decisions_require_string(%description, "criteria", false)
+            }
+          }
+        } else {
+          core.if %choice {
+            core.call @google_decisions_require_object(%criteria, "choice criteria")
+            %keys = core.call intrinsic.map.keys(%criteria)
+            %count = core.call intrinsic.len(%keys)
+            core.call @google_decisions_require_number(%count, "choice requires 2–255 options", 2, 255)
+            core.for %key in %keys {
+              %count = core.call intrinsic.string.codepoint_length(%key)
+              core.call @google_decisions_require_number(%count, "option key", 1, 128)
+              %bytes = core.call intrinsic.string.utf8_length(%key)
+              core.call @google_decisions_require_number(%bytes, "option key bytes", 1, 512)
+              %trimmed = core.string_trim %key
+              %changed = core.call intrinsic.ne(%trimmed, %key)
+              core.if %changed {
+                core.raise "Google Gemini Decisions: invalid option key"
+              }
+              %units = core.call intrinsic.string.utf16_units(%key)
+              core.for %unit in %units {
+                %control = core.call intrinsic.lt(%unit, 32)
+                %high_control = core.call intrinsic.gte(%unit, 127)
+                %below = core.call intrinsic.lte(%unit, 159)
+                %high_control = core.call intrinsic.and(%high_control, %below)
+                %control = core.call intrinsic.or(%control, %high_control)
+                %unicode_space = core.call @google_decisions_space(%unit)
+                %not_space = core.call intrinsic.ne(%unit, 32)
+                %unicode_space = core.call intrinsic.and(%unicode_space, %not_space)
+                %invalid = core.call intrinsic.or(%control, %unicode_space)
+                core.if %invalid {
+                  core.raise "Google Gemini Decisions: invalid option key"
+                }
+              }
+              %description = core.get %criteria[%key]
+              core.call @google_decisions_require_string(%description, "criteria", false)
+            }
+          } else {
+            core.if %score {
+              core.call @google_decisions_require_list(%criteria, "score requires 2–255 levels", 2, 255)
+              core.for %level in %criteria {
+                core.call @google_decisions_require_string(%level, "criteria", true)
+              }
+            } else {
+              core.raise "Google Gemini Decisions: unknown question type"
+            }
+          }
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_prepare_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/api.ts"
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      %empty = core.map
+      %snake = core.get %request["model_config"] default %empty
+      %camel = core.get %request["modelConfig"] default %empty
+      %config = core.call intrinsic.map.merge(%snake, %camel)
+      %prepared = core.call intrinsic.map.merge(%empty, %request)
+      core.set %prepared["model_config"] = %config
+      core.call intrinsic.map.delete(%prepared, "modelConfig")
+      core.return %prepared
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_truthy {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/api.ts"
+    type signature = "(json) -> bool"
+    body @entry(%value: json) {
+      %object = core.type_is %value type "object"
+      %list = core.type_is %value type "list"
+      %collection = core.call intrinsic.or(%object, %list)
+      %truthy = core.call intrinsic.truthy(%value)
+      %truthy = core.call intrinsic.or(%truthy, %collection)
+      core.return %truthy
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_build_chat_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%request: json, %options: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %threshold_snake = core.get %options["true_threshold"] default 0.5
+      %threshold = core.get %options["trueThreshold"] default %threshold_snake
+      core.call @google_decisions_require_number(%threshold, "trueThreshold", 0, 1)
+      %functions = core.get %request["functions"] default %empty_list
+      %function_call_snake = core.get %request["function_call"] default "none"
+      %function_call = core.get %request["functionCall"] default %function_call_snake
+      %has_functions = core.call intrinsic.truthy(%functions)
+      %has_call = core.call intrinsic.ne(%function_call, "none")
+      %has_call_value = core.call intrinsic.truthy(%function_call)
+      %has_call = core.call intrinsic.and(%has_call, %has_call_value)
+      %tools = core.call intrinsic.or(%has_functions, %has_call)
+      core.if %tools {
+        core.raise "Google Gemini Decisions does not support tools; use a generative provider for tool execution"
+      }
+      %config_snake = core.get %request["model_config"] default %empty_map
+      %config = core.get %request["modelConfig"] default %config_snake
+      %controls = core.call intrinsic.map.keys(%config)
+      core.for %control in %controls {
+        %value = core.get %config[%control]
+        %present = core.call intrinsic.is_not_none(%value)
+        core.if %present {
+          %is_stream = core.call intrinsic.eq(%control, "stream")
+          %is_n = core.call intrinsic.eq(%control, "n")
+          %one = core.call intrinsic.eq(%value, 1)
+          %numeric = core.type_is %value type "number"
+          %one = core.call intrinsic.and(%one, %numeric)
+          %allowed_n = core.call intrinsic.and(%is_n, %one)
+          %allowed = core.call intrinsic.or(%is_stream, %allowed_n)
+          %unsupported = core.call intrinsic.not(%allowed)
+          core.if %unsupported {
+            %message = core.call intrinsic.string.format("Google Gemini Decisions does not support generation control {}", %control)
+            %error = core.call intrinsic.error.validation(%message)
+            core.raise %error
+          }
+        }
+      }
+      %format_snake = core.get %request["response_format"]
+      %format = core.get %request["responseFormat"] default %format_snake
+      %format_type = core.get %format["type"]
+      %wrong_format = core.call intrinsic.ne(%format_type, "json_schema")
+      core.if %wrong_format {
+        core.raise "Google Gemini Decisions requires an output schema. Use ax() with required boolean, class or rubric score outputs"
+      }
+      %wrapper = core.get %format["schema"]
+      core.call @google_decisions_require_object(%wrapper, "responseFormat.schema")
+      %schema = core.get %wrapper["schema"]
+      core.call @google_decisions_require_object(%schema, "output schema")
+      %root_type = core.get %schema["type"]
+      %flat = core.call intrinsic.eq(%root_type, "object")
+      %forbidden = core.list
+      core.append %forbidden, "anyOf"
+      core.append %forbidden, "oneOf"
+      core.append %forbidden, "allOf"
+      core.append %forbidden, "$ref"
+      core.for %key in %forbidden {
+        %value = core.get %schema[%key]
+        %has_value = core.call @google_decisions_truthy(%value)
+        core.if %has_value {
+          %flat = core.let false
+        }
+      }
+      %not_flat = core.call intrinsic.not(%flat)
+      core.if %not_flat {
+        core.raise "Google Gemini Decisions requires a flat object output schema"
+      }
+      %properties = core.get %schema["properties"]
+      core.call @google_decisions_require_object(%properties, "output properties")
+      %required = core.get %schema["required"] default %empty_list
+      %required_list = core.type_is %required type "list"
+      %annotations = core.get %format["fieldDescriptions"] default %empty_map
+      %decision_fields = core.get %format["decisionFields"] default %empty_map
+      %questions = core.map
+      %names = core.call intrinsic.map.keys(%properties)
+      %count = core.call intrinsic.len(%names)
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        core.raise "Google Gemini Decisions requires at least one output field"
+      }
+      core.append %forbidden, "const"
+      core.for %name in %names {
+        %field = core.get %properties[%name]
+        core.call @google_decisions_require_object(%field, %name)
+        %decision = core.get %decision_fields[%name]
+        %rich = core.call intrinsic.is_not_none(%decision)
+        core.if %rich {
+          %array = core.get %decision["isArray"] default false
+          %optional = core.get %decision["isOptional"] default false
+          %invalid = core.call intrinsic.or(%array, %optional)
+          core.if %invalid {
+            core.raise "Decision providers require flat, required scalar outputs"
+          }
+          %wire_description = core.get %field["description"]
+          %field = core.call intrinsic.map.merge(%empty_map, %field)
+          core.call intrinsic.map.delete(%field, "anyOf")
+          core.call intrinsic.map.delete(%field, "enum")
+          %kind = core.get %decision["type"]
+          %class_kind = core.call intrinsic.eq(%kind, "class")
+          core.if %class_kind {
+            %kind = core.let "string"
+          }
+          core.set %field["type"] = %kind
+          core.set %field["description"] = %wire_description
+          core.if %class_kind {
+            %labels = core.get %decision["options"]
+            core.set %field["enum"] = %labels
+          }
+        }
+        %supported = core.let false
+        core.if %required_list {
+          %supported = core.call intrinsic.contains(%required, %name)
+        }
+        core.for %key in %forbidden {
+          %has_key = core.call intrinsic.map.contains(%field, %key)
+          %is_const = core.call intrinsic.eq(%key, "const")
+          %not_const = core.call intrinsic.not(%is_const)
+          core.if %not_const {
+            %value = core.get %field[%key]
+            %has_key = core.call @google_decisions_truthy(%value)
+          }
+          core.if %has_key {
+            %supported = core.let false
+          }
+        }
+        %type_name = core.get %field["type"]
+        %class_options = core.get %field["enum"]
+        %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
+        %has_enum = core.call intrinsic.is_not_none(%class_options)
+        %no_enum = core.call intrinsic.not(%has_enum)
+        %is_boolean = core.call intrinsic.and(%is_boolean, %no_enum)
+        %is_string = core.call intrinsic.eq(%type_name, "string")
+        %is_enum = core.type_is %class_options type "list"
+        %is_class = core.call intrinsic.and(%is_string, %is_enum)
+        %supported_type = core.call intrinsic.or(%is_boolean, %is_class)
+        %is_score = core.call intrinsic.eq(%type_name, "score")
+        %supported_type = core.call intrinsic.or(%supported_type, %is_score)
+        %is_box = core.call intrinsic.eq(%type_name, "box")
+        %supported = core.call intrinsic.and(%supported, %supported_type)
+        %unsupported = core.call intrinsic.not(%supported)
+        core.if %unsupported {
+          %message = core.call intrinsic.string.format("Google Gemini Decisions cannot evaluate output {}. Use required boolean, class, rubric score fields, or a generative provider for other outputs", %name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %annotation = core.get %annotations[%name]
+        %description = core.get %field["description"]
+        %has_annotation = core.call intrinsic.is_not_none(%annotation)
+        %descriptions = core.map
+        core.if %has_annotation {
+          core.call @google_decisions_require_object(%annotation, %name)
+          %description = core.get %annotation["description"]
+          %has_description = core.call intrinsic.is_not_none(%description)
+          core.if %has_description {
+            core.call @google_decisions_require_string(%description, %name, false)
+          }
+          %descriptions = core.get %annotation["valueDescriptions"]
+          core.call @google_decisions_require_object(%descriptions, %name)
+          %type_attrs = core.map
+          %annotation_type = core.let "boolean"
+          core.if %is_class {
+            %annotation_type = core.let "class"
+          }
+          core.set %type_attrs["name"] = %annotation_type
+          core.set %type_attrs["options"] = %class_options
+          core.set %type_attrs["value_descriptions"] = %descriptions
+          %typ = core.call intrinsic.record.new("FieldType", %type_attrs)
+          core.call @signature_validate_value_descriptions_impl(%typ, %name)
+        }
+        %instructions = core.call intrinsic.string.format("Evaluate the output field {}.", %name)
+        %is_description_string = core.type_is %description type "string"
+        %has_description = core.call intrinsic.truthy(%description)
+        %use_description = core.call intrinsic.and(%is_description_string, %has_description)
+        core.if %use_description {
+          %instructions = core.call intrinsic.string.format("{}: {}", %name, %description)
+        }
+        %question = core.map
+        core.set %question["instructions"] = %instructions
+        core.if %is_box {
+          core.raise "Google Gemini Decisions does not support box outputs"
+        }
+        core.if %is_score {
+          core.set %question["type"] = "score"
+          %levels = core.get %decision["options"]
+          core.set %question["criteria"] = %levels
+          core.set %questions[%name] = %question
+          core.continue
+        }
+        core.if %is_boolean {
+          core.set %question["type"] = "noul"
+          core.if %has_annotation {
+            %criteria = core.map
+            %keys = core.call intrinsic.map.keys(%descriptions)
+            core.for %key in %keys {
+              %mapped = core.call intrinsic.string.format("{}_description", %key)
+              %description = core.get %descriptions[%key]
+              core.set %criteria[%mapped] = %description
+            }
+            core.set %question["criteria"] = %criteria
+          }
+        } else {
+          core.set %question["type"] = "choice"
+          %criteria = core.map
+          core.for %label in %class_options {
+            core.call @google_decisions_require_string(%label, %name, false)
+            %duplicate = core.call intrinsic.map.contains(%criteria, %label)
+            core.if %duplicate {
+              core.raise "Google Gemini Decisions: Choice labels must be unique"
+            }
+            %description = core.get %descriptions[%label] default ""
+            core.set %criteria[%label] = %description
+          }
+          core.set %question["criteria"] = %criteria
+        }
+        core.set %questions[%name] = %question
+      }
+      %input = core.call @google_decisions_prompt(%request)
+      %payload = core.map
+      %model = core.get %request["model"] default "gemini-decision-1"
+      core.set %payload["model"] = %model
+      core.set %payload["input"] = %input
+      core.set %payload["questions"] = %questions
+      core.call @google_decisions_validate_request(%payload)
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_decode_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%raw: json, %questions: json) {
+      core.call @google_decisions_require_object(%raw, "response")
+      %usage = core.get %raw["usage"]
+      core.call @google_decisions_require_object(%usage, "usage")
+      %token_keys = core.list
+      core.append %token_keys, "total_input_tokens"
+      core.append %token_keys, "total_output_tokens"
+      core.append %token_keys, "total_tokens"
+      core.for %key in %token_keys {
+        %count = core.get %usage[%key]
+        core.call @google_decisions_require_number(%count, %key, 0, 9007199254740991)
+        %integer = core.call intrinsic.math.floor(%count)
+        %invalid = core.call intrinsic.ne(%count, %integer)
+        core.if %invalid {
+          core.raise "Google Gemini Decisions: token counts must be nonnegative safe integers"
+        }
+      }
+      %input_tokens = core.get %usage["total_input_tokens"]
+      %output_tokens = core.get %usage["total_output_tokens"]
+      %total_tokens = core.get %usage["total_tokens"]
+      %nonzero = core.call intrinsic.ne(%output_tokens, 0)
+      %bad_total = core.call intrinsic.ne(%total_tokens, %input_tokens)
+      %invalid = core.call intrinsic.or(%nonzero, %bad_total)
+      core.if %invalid {
+        core.raise "Google Gemini Decisions: expected zero output tokens"
+      }
+      %has_modality = core.call intrinsic.map.contains(%usage, "input_tokens_by_modality")
+      core.if %has_modality {
+        %modalities = core.get %usage["input_tokens_by_modality"]
+        core.call @google_decisions_require_list(%modalities, "modality usage", 0, 9007199254740991)
+        core.for %entry in %modalities {
+          core.call @google_decisions_require_object(%entry, "modality usage")
+          %modality = core.get %entry["modality"]
+          %valid = core.regex_match %modality pattern "^(text|image|audio)$"
+          %invalid = core.call intrinsic.not(%valid)
+          core.if %invalid {
+            core.raise "Google Gemini Decisions: invalid usage modality"
+          }
+          %tokens = core.get %entry["tokens"]
+          core.call @google_decisions_require_count(%tokens)
+        }
+      }
+      %answers = core.get %raw["answers"]
+      core.call @google_decisions_require_object(%answers, "answers")
+      %keys = core.call intrinsic.map.keys(%questions)
+      %count = core.call intrinsic.len(%keys)
+      %answer_keys = core.call intrinsic.map.keys(%answers)
+      %answer_count = core.call intrinsic.len(%answer_keys)
+      %wrong = core.call intrinsic.ne(%count, %answer_count)
+      core.if %wrong {
+        core.raise "Google Gemini Decisions: answer keys must match question keys"
+      }
+      core.for %key in %keys {
+        %question = core.get %questions[%key]
+        %kind = core.get %question["type"]
+        %present = core.call intrinsic.map.contains(%answers, %key)
+        %missing = core.call intrinsic.not(%present)
+        core.if %missing {
+          core.raise "Google Gemini Decisions: missing answer"
+        }
+        %answer = core.get %answers[%key]
+        core.call @google_decisions_require_object(%answer, %key)
+        %answer_kind = core.get %answer["type"]
+        %mismatch = core.call intrinsic.ne(%kind, %answer_kind)
+        core.if %mismatch {
+          %message = core.call intrinsic.string.format("Google Gemini Decisions: incorrect answer type for {}", %key)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %confidence = core.get %answer["confidence"]
+        core.call @google_decisions_require_number(%confidence, "confidence probability", 0, 1)
+        %is_noul = core.call intrinsic.eq(%kind, "noul")
+        core.if %is_noul {
+          %probability = core.get %answer["noul"]
+          core.call @google_decisions_require_number(%probability, "noul", 0.01, 0.99)
+        } else {
+          %confidence = core.get %answer["confidence"]
+          core.call @google_decisions_require_number(%confidence, "confidence", 0, 1)
+          %is_box = core.call intrinsic.eq(%kind, "box")
+          core.if %is_box {
+            %box = core.get %answer["box"]
+            core.call @box_validate_impl(%box, %key)
+            core.continue
+          }
+          %criteria = core.get %question["criteria"]
+          %is_choice = core.call intrinsic.eq(%kind, "choice")
+          %labels = core.list
+          core.if %is_choice {
+            %labels = core.call intrinsic.map.keys(%criteria)
+            %choice = core.get %answer["choice"]
+            core.call @google_decisions_require_string(%choice, %key, false)
+            %known = core.call intrinsic.contains(%labels, %choice)
+            %unknown = core.call intrinsic.not(%known)
+            core.if %unknown {
+              %message = core.call intrinsic.string.format("Google Gemini Decisions: unknown choice for {}", %key)
+              %error = core.call intrinsic.error.validation(%message)
+              core.raise %error
+            }
+          } else {
+            %index = core.let 0
+            core.for %entry in %criteria {
+              %label = core.call intrinsic.string.format("{}", %index)
+              core.append %labels, %label
+              %index = core.call intrinsic.add(%index, 1)
+            }
+            %upper = core.call intrinsic.add(%index, -1)
+            %score = core.get %answer["score"]
+            core.call @google_decisions_require_number(%score, %key, 0, %upper)
+            %legend = core.get %answer["legend"]
+            core.call @google_decisions_require_object(%legend, "legend")
+            %legend_keys = core.call intrinsic.map.keys(%legend)
+            %legend_size = core.call intrinsic.len(%legend_keys)
+            %wrong_size = core.call intrinsic.ne(%legend_size, %index)
+            core.if %wrong_size {
+              core.raise "Google Gemini Decisions: Score legend must match rubric indices"
+            }
+            %legend_index = core.let 0
+            core.for %label in %labels {
+              %present = core.call intrinsic.map.contains(%legend, %label)
+              %missing = core.call intrinsic.not(%present)
+              core.if %missing {
+                core.raise "Google Gemini Decisions: Score legend must match rubric indices"
+              }
+              %entry = core.get %legend[%label]
+              %description = core.get %criteria[%legend_index]
+              %wrong = core.call intrinsic.ne(%description, %entry)
+              core.if %wrong {
+                core.raise "Google Gemini Decisions: invalid legend"
+              }
+              %legend_index = core.call intrinsic.add(%legend_index, 1)
+            }
+          }
+          %probabilities = core.get %answer["probabilities"]
+          core.call @google_decisions_require_object(%probabilities, "probabilities")
+          %probability_keys = core.call intrinsic.map.keys(%probabilities)
+          %size = core.call intrinsic.len(%probability_keys)
+          %expected_size = core.call intrinsic.len(%labels)
+          %wrong_size = core.call intrinsic.ne(%size, %expected_size)
+          core.if %wrong_size {
+            core.raise "Google Gemini Decisions: incomplete probability distribution"
+          }
+          %total = core.let 0
+          core.for %label in %labels {
+            %probability = core.get %probabilities[%label]
+            core.call @google_decisions_require_number(%probability, %label, 0, 1)
+            %total = core.call intrinsic.add(%total, %probability)
+          }
+          %difference = core.call intrinsic.add(%total, -1)
+          %difference = core.call intrinsic.math.abs(%difference)
+          %roundoff = core.call intrinsic.mul(0.0000000000000002220446049250313, %expected_size)
+          %tolerance = core.call intrinsic.add(0.01, %roundoff)
+          %invalid_sum = core.call intrinsic.gt(%difference, %tolerance)
+          core.if %invalid_sum {
+            core.raise "Google Gemini Decisions: invalid probability distribution"
+          }
+        }
+      }
+      core.return %raw
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_normalize_chat_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%raw: json, %context: json) {
+      %questions = core.get %context["questions"]
+      core.call @google_decisions_require_object(%questions, "response request questions")
+      %raw = core.call @google_decisions_decode_response(%raw, %questions)
+      %threshold = core.get %context["trueThreshold"] default 0.5
+      core.call @google_decisions_require_number(%threshold, "trueThreshold", 0, 1)
+      %answers = core.get %raw["answers"]
+      %values = core.map
+      %decision_fields = core.get %context["decisionFields"]
+      %native_state = core.map
+      %names = core.call intrinsic.map.keys(%questions)
+      core.for %name in %names {
+        %answer = core.get %answers[%name]
+        %kind = core.get %answer["type"]
+        %decision = core.get %decision_fields[%name]
+        %rich = core.call intrinsic.is_not_none(%decision)
+        %box = core.call intrinsic.eq(%kind, "box")
+        core.if %box {
+          %coordinates = core.get %answer["box"]
+          %evidence = core.get %decision["evidence"]
+          %has_evidence = core.call intrinsic.is_not_none(%evidence)
+          %value = core.let %coordinates
+          core.if %has_evidence {
+            %value = core.map
+            core.set %value["box"] = %coordinates
+            %native_box = core.map
+            %confidence = core.get %answer["confidence"]
+            core.set %native_box["confidence"] = %confidence
+            core.set %native_state[%name] = %native_box
+          }
+          core.set %values[%name] = %value
+          core.continue
+        }
+        core.if %rich {
+          %raw_evidence = core.map
+          %native_evidence = core.map
+          %refusal = core.call intrinsic.eq(%kind, "refusal")
+          core.if %refusal {
+            core.set %raw_evidence["status"] = "refused"
+            core.set %native_evidence["refused"] = true
+          } else {
+            %is_boolean = core.call intrinsic.eq(%kind, "noul")
+            core.if %is_boolean {
+              %p = core.get %answer["noul"]
+              core.set %raw_evidence["probability"] = %p
+              %confidence = core.get %answer["confidence"]
+              core.set %native_evidence["confidence"] = %confidence
+            } else {
+              %ps = core.map
+              %value = core.let 0
+              %distribution = core.get %answer["probabilities"]
+              %score = core.call intrinsic.eq(%kind, "score")
+              core.if %score {
+                %labels = core.get %decision["options"]
+                %ps = core.list
+                %index = core.let 0
+                core.for %label in %labels {
+                  %key = core.call intrinsic.string.format("{}", %index)
+                  %p = core.get %distribution[%key]
+                  core.append %ps, %p
+                  %index = core.call intrinsic.add(%index, 1)
+                }
+                %value = core.get %answer["score"]
+              } else {
+                %ps = core.let %distribution
+                %value = core.get %answer["choice"]
+              }
+              core.set %raw_evidence["probabilities"] = %ps
+              core.set %native_evidence["value"] = %value
+              %confidence = core.get %answer["confidence"]
+              %has_confidence = core.call intrinsic.is_not_none(%confidence)
+              core.if %has_confidence {
+                core.set %native_evidence["confidence"] = %confidence
+              }
+            }
+          }
+          core.set %values[%name] = %raw_evidence
+          core.set %native_state[%name] = %native_evidence
+          core.continue
+        }
+        %is_noul = core.call intrinsic.eq(%kind, "noul")
+        %value = core.get %answer["choice"]
+        core.if %is_noul {
+          %probability = core.get %answer["noul"]
+          %below = core.call intrinsic.lt(%probability, %threshold)
+          %value = core.call intrinsic.not(%below)
+        }
+        %is_score = core.call intrinsic.eq(%kind, "score")
+        core.if %is_score {
+          %value = core.get %answer["score"]
+        }
+        core.set %values[%name] = %value
+      }
+      %content = core.call intrinsic.json.stringify(%values)
+      %result = core.map
+      %trusted = core.map
+      %provenance = core.map
+      core.set %provenance["source"] = "native"
+      core.set %provenance["provider"] = "Google Gemini Decisions"
+      %model = core.get %context["model"]
+      core.set %provenance["model"] = %model
+      core.set %trusted["provenance"] = %provenance
+      core.set %trusted["native"] = %native_state
+      %has_native = core.call intrinsic.truthy(%native_state)
+      core.if %has_native {
+        core.set %result["decisionContext"] = %trusted
+      }
+      core.set %result["index"] = 0
+      core.set %result["content"] = %content
+      core.set %result["finishReason"] = "stop"
+      %results = core.list
+      core.append %results, %result
+      %usage = core.get %raw["usage"]
+      %input = core.get %usage["total_input_tokens"]
+      %output = core.get %usage["total_output_tokens"]
+      %total = core.call intrinsic.add(%input, %output)
+      %tokens = core.map
+      core.set %tokens["promptTokens"] = %input
+      core.set %tokens["completionTokens"] = %output
+      core.set %tokens["totalTokens"] = %total
+      %model_usage = core.map
+      %model = core.get %context["model"]
+      core.set %model_usage["ai"] = "Google Gemini Decisions"
+      core.set %model_usage["model"] = %model
+      core.set %model_usage["tokens"] = %tokens
+      %google_decisions_metadata = core.map
+      core.set %google_decisions_metadata["answers"] = %answers
+      core.set %google_decisions_metadata["usage"] = %usage
+      %metadata = core.map
+      core.set %metadata["googleGeminiDecisions"] = %google_decisions_metadata
+      %response = core.map
+      core.set %response["results"] = %results
+      core.set %response["modelUsage"] = %model_usage
+      core.set %response["providerMetadata"] = %metadata
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_response_context {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions/validate.ts"
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%payload: json, %options: json, %request: json) {
+      %empty = core.map
+      %context = core.call intrinsic.map.merge(%empty, %payload)
+      %threshold_snake = core.get %options["true_threshold"] default 0.5
+      %threshold = core.get %options["trueThreshold"] default %threshold_snake
+      core.set %context["trueThreshold"] = %threshold
+      %format_snake = core.get %request["response_format"]
+      %format = core.get %request["responseFormat"] default %format_snake
+      %decision_fields = core.get %format["decisionFields"]
+      core.set %context["decisionFields"] = %decision_fields
+      core.return %context
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_space {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions"
+    type signature = "(json) -> bool throws"
+    body @entry(%unit: json) {
+      %spaces = core.list
+      core.append %spaces, 9
+      core.append %spaces, 10
+      core.append %spaces, 11
+      core.append %spaces, 12
+      core.append %spaces, 13
+      core.append %spaces, 32
+      core.append %spaces, 160
+      core.append %spaces, 5760
+      core.append %spaces, 8192
+      core.append %spaces, 8193
+      core.append %spaces, 8194
+      core.append %spaces, 8195
+      core.append %spaces, 8196
+      core.append %spaces, 8197
+      core.append %spaces, 8198
+      core.append %spaces, 8199
+      core.append %spaces, 8200
+      core.append %spaces, 8201
+      core.append %spaces, 8202
+      core.append %spaces, 8232
+      core.append %spaces, 8233
+      core.append %spaces, 8239
+      core.append %spaces, 8287
+      core.append %spaces, 12288
+      core.append %spaces, 65279
+      %space = core.call intrinsic.contains(%spaces, %unit)
+      core.return %space
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_media {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions"
+    type signature = "(string, json, json, bool, json) -> json throws"
+    body @entry(%kind: string, %mime: json, %data: json, %uri: bool, %resolution: json) {
+      core.call @google_decisions_require_string(%data, "media data or URI", true)
+      core.call @google_decisions_require_string(%mime, "mime_type", true)
+      %is_data = core.call intrinsic.not(%uri)
+      %data_url = core.call intrinsic.string.starts_with(%data, "data:")
+      %data_url = core.call intrinsic.and(%is_data, %data_url)
+      core.if %data_url {
+        %parts = core.call intrinsic.string.split_once(%data, ";base64,")
+        %found = core.get %parts["found"] default false
+        %header = core.get %parts["left"]
+        %expected = core.call intrinsic.string.format("data:{}", %mime)
+        %same = core.call intrinsic.eq(%header, %expected)
+        %valid = core.call intrinsic.and(%found, %same)
+        %invalid = core.call intrinsic.not(%valid)
+        core.if %invalid {
+          core.raise "Google Gemini Decisions: invalid media data URL"
+        }
+        %data = core.get %parts["right"]
+      }
+      %part = core.map
+      core.set %part["type"] = %kind
+      core.set %part["mime_type"] = %mime
+      core.if %uri {
+        core.set %part["uri"] = %data
+      } else {
+        core.set %part["data"] = %data
+      }
+      %has_resolution = core.call intrinsic.truthy(%resolution)
+      core.if %has_resolution {
+        core.set %part["resolution"] = %resolution
+      }
+      core.return %part
+    }
+  }
+
+  op ax.provider.semantic @google_decisions_prompt {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini-decisions"
+    type signature = "(json) -> json throws"
+    body @entry(%request: json) {
+      %empty = core.map
+      %empty_list = core.list
+      %prompt_snake = core.get %request["chat_prompt"] default %empty_list
+      %prompt = core.get %request["chatPrompt"] default %prompt_snake
+      %input = core.list
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %content = core.get %message["content"] default ""
+        %tool = core.regex_match %role pattern "^(function|tool)$"
+        %assistant = core.call intrinsic.eq(%role, "assistant")
+        %calls_snake = core.get %message["function_calls"]
+        %calls = core.get %message["functionCalls"] default %calls_snake
+        %audio = core.get %message["audio"]
+        %images = core.get %message["images"]
+        %calls = core.call intrinsic.truthy(%calls)
+        %audio = core.call intrinsic.truthy(%audio)
+        %images = core.call intrinsic.truthy(%images)
+        %media = core.call intrinsic.or(%audio, %images)
+        %media = core.call intrinsic.or(%media, %calls)
+        %media = core.call intrinsic.and(%assistant, %media)
+        %invalid = core.call intrinsic.or(%tool, %media)
+        core.if %invalid {
+          core.raise "Google Gemini Decisions does not support tool or media history"
+        }
+        %part = core.map
+        %label = core.call intrinsic.string.format("\n{}:\n", %role)
+        core.set %part["type"] = "text"
+        core.set %part["text"] = %label
+        core.append %input, %part
+        %text = core.type_is %content type "string"
+        core.if %text {
+          %part = core.map
+          %content = core.call intrinsic.string.format("{}\n", %content)
+          core.set %part["type"] = "text"
+          core.set %part["text"] = %content
+          core.append %input, %part
+          core.continue
+        }
+        %user = core.call intrinsic.eq(%role, "user")
+        core.if %user {
+          core.call @google_decisions_require_list(%content, "message content", 0, 9007199254740991)
+          core.for %raw in %content {
+            %kind = core.get %raw["type"]
+            %text = core.call intrinsic.eq(%kind, "text")
+            core.if %text {
+              %part = core.map
+              %value = core.get %raw["text"]
+              core.set %part["type"] = "text"
+              core.set %part["text"] = %value
+              core.append %input, %part
+              core.continue
+            }
+            %mime_snake = core.get %raw["mime_type"]
+            %mime = core.get %raw["mimeType"] default %mime_snake
+            %data = core.get %raw["data"]
+            %uri = core.let false
+            %resolution = core.get %empty["resolution"]
+            %image = core.call intrinsic.eq(%kind, "image")
+            %audio = core.call intrinsic.eq(%kind, "audio")
+            %file = core.call intrinsic.eq(%kind, "file")
+            core.if %image {
+              %data = core.get %raw["image"]
+              core.call @google_decisions_require_string(%data, "image", true)
+              %uri = core.call intrinsic.string.starts_with(%data, "https://")
+              %resolution = core.get %raw["details"]
+              %automatic = core.call intrinsic.eq(%resolution, "auto")
+              core.if %automatic {
+                %resolution = core.get %empty["resolution"]
+              }
+            } else {
+              core.if %audio {
+                %format = core.get %raw["format"]
+                %has_mime = core.call intrinsic.truthy(%mime)
+                %has_format = core.call intrinsic.truthy(%format)
+                %valid = core.call intrinsic.or(%has_mime, %has_format)
+                %invalid = core.call intrinsic.not(%valid)
+                core.if %invalid {
+                  core.raise "Google Gemini Decisions requires an audio MIME type or format"
+                }
+                %no_mime = core.call intrinsic.not(%has_mime)
+                core.if %no_mime {
+                  %mime = core.call @audio_mime_type_impl(%format)
+                  %rate_snake = core.get %raw["sample_rate"]
+                  %rate = core.get %raw["sampleRate"] default %rate_snake
+                  %has_rate = core.call intrinsic.truthy(%rate)
+                  %raw_audio = core.regex_match %mime pattern "^audio/(pcm|basic|alaw)$"
+                  %add_rate = core.call intrinsic.and(%has_rate, %raw_audio)
+                  core.if %add_rate {
+                    %mime = core.call intrinsic.string.format("{};rate={}", %mime, %rate)
+                  }
+                }
+              } else {
+                core.if %file {
+                  core.call @google_decisions_require_string(%mime, "mime_type", true)
+                  %kind = core.let "document"
+                  %is_image = core.call intrinsic.string.starts_with(%mime, "image/")
+                  %is_audio = core.call intrinsic.string.starts_with(%mime, "audio/")
+                  %is_video = core.call intrinsic.string.starts_with(%mime, "video/")
+                  core.if %is_image {
+                    %kind = core.let "image"
+                  }
+                  core.if %is_audio {
+                    %kind = core.let "audio"
+                  }
+                  core.if %is_video {
+                    %kind = core.let "video"
+                  }
+                  %has_uri_snake = core.call intrinsic.map.contains(%raw, "file_uri")
+                  %has_uri_camel = core.call intrinsic.map.contains(%raw, "fileUri")
+                  %uri = core.call intrinsic.or(%has_uri_snake, %has_uri_camel)
+                  core.if %uri {
+                    %data_snake = core.get %raw["file_uri"]
+                    %data = core.get %raw["fileUri"] default %data_snake
+                  }
+                } else {
+                  core.raise "Google Gemini Decisions supports text, images, audio, video and PDF files; URL context is unsupported"
+                }
+              }
+            }
+            %part = core.call @google_decisions_media(%kind, %mime, %data, %uri, %resolution)
+            core.append %input, %part
+          }
+        }
+      }
+      core.return %input
+    }
+  }
+}

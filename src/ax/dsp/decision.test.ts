@@ -108,6 +108,13 @@ describe('signature decision evidence', () => {
     expect(sig.toJSONSchema().properties.relevant.properties).toHaveProperty(
       'value'
     );
+    const booleanResult = sig.toJSONSchema().properties.relevant;
+    expect(booleanResult.properties.confidence).toEqual({
+      type: 'number',
+      minimum: 0,
+      maximum: 1,
+    });
+    expect(booleanResult.required).not.toContain('confidence');
     expect(new AxSignature(sig.toString()).getOutputFields()).toEqual(
       sig.getOutputFields()
     );

@@ -1,0 +1,53 @@
+{
+  "name": "google-decisions-native-empty-questions",
+  "kind": "ai_google_decisions_native",
+  "provider": "google-gemini-decisions",
+  "request": {
+    "input": "Checkout is broken.",
+    "questions": {}
+  },
+  "response": {
+    "answers": {
+      "urgent": {
+        "type": "noul",
+        "noul": 0.9,
+        "confidence": 0.9
+      },
+      "team": {
+        "type": "choice",
+        "choice": "billing",
+        "probabilities": {
+          "support": 0.2,
+          "billing": 0.8
+        },
+        "confidence": 0.8
+      },
+      "severity": {
+        "type": "score",
+        "score": 0.8,
+        "probabilities": {
+          "0": 0.2,
+          "1": 0.8
+        },
+        "legend": {
+          "0": "Minor",
+          "1": "Blocked"
+        },
+        "confidence": 0.8
+      }
+    },
+    "usage": {
+      "total_input_tokens": 20,
+      "total_output_tokens": 0,
+      "total_tokens": 20,
+      "input_tokens_by_modality": [
+        {
+          "modality": "text",
+          "tokens": 20
+        }
+      ]
+    }
+  },
+  "expected_error_contains": "questions",
+  "expected_transport_request_count": 0
+}

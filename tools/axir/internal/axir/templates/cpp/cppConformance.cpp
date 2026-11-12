@@ -4751,6 +4751,13 @@ static void run_kind(Value fixture) {
     Value result=expect_maybe_error([&]{return client.create(Core::get(fixture,"request"));},fixture);
     if(Core::get(fixture,"expected_error_contains").is_null())assert_equal(result,Core::get(fixture,"expected_output"),"native Decisions output");
     assert_transport(fixture,transport);
+  } else if (kind == "ai_google_decisions_native") {
+    Value responses=Value::array();Core::append(responses,Core::get(fixture,"response"));
+    ScriptedTransport transport(responses);
+    auto client=google_gemini_decisions(object({{"api_key","test-key"}}),&transport);
+    Value result=expect_maybe_error([&]{return client.create(Core::get(fixture,"request"));},fixture);
+    if(Core::get(fixture,"expected_error_contains").is_null())assert_equal(result,Core::get(fixture,"expected_output"),"native Decisions output");
+    assert_transport(fixture,transport);
   } else if (kind == "ai_typesafe_native") {
     Value responses=Value::array();Core::append(responses,Core::get(fixture,"response"));
     ScriptedTransport transport(responses);

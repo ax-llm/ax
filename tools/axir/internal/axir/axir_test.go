@@ -4815,3 +4815,20 @@ func TestVerifyGojaProfileIsGoNative(t *testing.T) {
 		}
 	}
 }
+
+func TestGoogleDecisionsNativeSurfaces(t *testing.T) {
+	targets := map[string]string{
+		"python": pyAI + pyInit + pyConformance,
+		"java":   javaAx + javaGoogleDecisions + javaConformance,
+		"cpp":    cppHeader + cppRuntime + cppConformance,
+		"go":     goRuntime + goConformance,
+		"rust":   rustLib,
+	}
+	for target, source := range targets {
+		for _, marker := range []string{"AxAIGoogleGeminiDecisionsClient", "google_decisions_validate_request", "google_decisions_decode_response", "ai_google_decisions_native"} {
+			if !strings.Contains(source, marker) {
+				t.Errorf("%s missing Google Decisions surface %s", target, marker)
+			}
+		}
+	}
+}

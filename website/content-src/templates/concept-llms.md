@@ -26,6 +26,13 @@ for conversion settings and question design. TypeScript, Python, Java, C++, Go,
 and Rust all support both interfaces, with signature, native, and hybrid examples
 in each language’s [generation gallery](/{{languageId}}/examples/generation/).
 
+All six languages also support `google-gemini-decisions` with `gemini-decision-1`.
+Use the same boolean/class/score signatures with native evidence, or
+`googleGeminiDecisions({ apiKey }).create({ input, questions })` for named native
+questions and multimodal input. See [Google Gemini Decisions](/typescript/subsystems/ai/#google-gemini-decisions)
+for capabilities and the [decision integration guide](/typescript/skills/ax-typesafe/)
+for request details. Runnable signature and native examples are in each language’s generation gallery.
+
 ## Model Catalog
 
 Use the model catalog before runtime when a UI or router needs model choices, costs, and capabilities. It can filter for text, code, embedding, and audio models, and reports provider/model portable thinking levels plus verified explicit service tiers. Provider capabilities describe the default deployment profile; static model entries carry their resolved capability arrays.

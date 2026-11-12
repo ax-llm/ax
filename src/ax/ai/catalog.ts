@@ -14,6 +14,8 @@ import {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
+import { axModelInfoGoogleGeminiDecisions } from './google-gemini-decisions/info.js';
+import { AxAIGoogleGeminiDecisionsModel } from './google-gemini-decisions/types.js';
 import {
   axModelInfoMeta,
   axModelInfoMetaMessages,
@@ -144,6 +146,12 @@ const axKnownModelCatalogProviderDefinitions = {
     defaultEmbedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     isDynamic: false,
     modelInfo: axModelInfoOpenAI,
+  },
+  'google-gemini-decisions': {
+    displayName: 'Google Gemini Decisions',
+    defaultModel: AxAIGoogleGeminiDecisionsModel.GeminiDecision1,
+    isDynamic: false,
+    modelInfo: axModelInfoGoogleGeminiDecisions,
   },
   'openai-decisions': {
     displayName: 'OpenAI Decisions',

@@ -176,6 +176,34 @@ public final class TypesafeMCPTest {
       check(inherited.subscriptionCount()==0&&perCall.subscriptionCount()==0,"Decisions cancellation subscription leak");
     }
   }
+  static void googleDecisionsClient()throws Exception {
+    for(boolean nativeClient:new boolean[]{true,false}) {
+      var calls=new AtomicInteger();var credentials=new AtomicInteger();
+      OpenAICompatibleClient.CredentialProvider credential=request->{
+        check(request.profile().equals("google-gemini-decisions")&&request.operation().equals("chat"),"wrong Decisions credential operation");
+        return Map.of("x-goog-api-key","Bearer fresh-"+credentials.incrementAndGet());
+      };
+      OpenAICompatibleClient.Transport transport=request->{
+        int count=calls.incrementAndGet();var headers=(Map<?,?>)request.get("headers");
+        check(headers.keySet().stream().filter(key->key.toString().equalsIgnoreCase("x-goog-api-key")).count()==1,"duplicate credential headers");
+        check(headers.get("x-goog-api-key").equals("Bearer fresh-"+count)&&headers.get("x-trace").equals("kept"),"credential precedence");
+        check(request.get("url").equals("https://generativelanguage.googleapis.com/v1beta/decisions"),"wrong Decisions endpoint");
+        if(count==1)return Map.of("status",429,"json",Map.of("error","retry"));
+        return Json.parse("{\"answers\":{\"flag\":{\"type\":\"noul\",\"noul\":0.8,\"confidence\":0.8}},\"usage\":{\"total_input_tokens\":1,\"total_output_tokens\":0,\"total_tokens\":1}}");
+      };
+      var inherited=new AxCancellationToken();var perCall=new AxCancellationToken();
+      var options=Map.<String,Object>of("api_key","static","headers",Map.of("X-GOOG-API-KEY","Bearer custom","x-trace","kept"),"credential_provider",credential,"transport",transport,"cancellation",inherited,"retry",Map.of("maxRetries",1,"initialDelayMs",1));
+      var nativeRequest=Map.<String,Object>of("input","red","questions",Map.of("flag",Map.of("type","noul","instructions","Is this red?")));
+      var chatRequest=Map.<String,Object>of("chatPrompt",List.of(Map.of("role","user","content","red")),"responseFormat",Map.of("type","json_schema","schema",Map.of("name","output","schema",Map.of("type","object","properties",Map.of("flag",Map.of("type","boolean")),"required",List.of("flag")))));
+      var nativeApi=Ax.googleGeminiDecisions(options);var adapter=Ax.ai("google-gemini-decisions",options);
+      java.util.concurrent.Callable<Map<String,Object>> call=()->nativeClient?nativeApi.create(nativeRequest,Map.of("cancellation",perCall)):adapter.chat(chatRequest,Map.of("cancellation",perCall));
+      var result=call.call();check(result.containsKey(nativeClient?"answers":"results"),"Decisions response missing");
+      inherited.cancel("stop Decisions");
+      try{call.call();throw new AssertionError("pre-aborted Decisions call accepted");}catch(AxAIServiceAbortedError expected){}
+      check(calls.get()==2&&credentials.get()==2,"Decisions retry refresh/cancellation count");
+      check(inherited.subscriptionCount()==0&&perCall.subscriptionCount()==0,"Decisions cancellation subscription leak");
+    }
+  }
   static void imageBox()throws Exception{
     var coordinates=new AxAITypesafeClient.BoxCoordinates(0.2,0.8,0.1,0.7);
     OpenAICompatibleClient.Transport transport=call->{
@@ -197,5 +225,5 @@ public final class TypesafeMCPTest {
     try {transport.startListening();check(ended.await(2,TimeUnit.SECONDS),"listener did not reach reconnect wait");long started=System.nanoTime();transport.close();check(System.nanoTime()-started<TimeUnit.MILLISECONDS.toNanos(500),"close retained reconnect delay");}
     finally {transport.close();server.stop(0);}
   }
-  public static void main(String[] args)throws Exception{mcpListenDelayCleanup();imageBox();decisionsClient();decisionsNestedValidation();websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
+  public static void main(String[] args)throws Exception{mcpListenDelayCleanup();googleDecisionsClient();imageBox();decisionsClient();decisionsNestedValidation();websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
 }

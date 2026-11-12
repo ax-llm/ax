@@ -1,0 +1,60 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "urgent": {
+        "additionalProperties": false,
+        "description": "",
+        "properties": {
+          "confidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "probability": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "provenance": {
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "source": {
+                "enum": ["native", "elicited"],
+                "type": "string"
+              }
+            },
+            "required": ["source", "provider"],
+            "type": "object"
+          },
+          "threshold": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "value": {
+            "type": "boolean"
+          }
+        },
+        "required": ["value", "provenance", "probability", "threshold"],
+        "type": "object"
+      }
+    },
+    "required": ["urgent"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "google-decisions-boolean-result-schema",
+  "schema_options": {
+    "decisionMode": "result"
+  },
+  "signature": "ticket:string -> urgent:boolean(evidence)",
+  "target": "outputs"
+}

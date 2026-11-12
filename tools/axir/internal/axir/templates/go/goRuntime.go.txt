@@ -4327,6 +4327,66 @@ func (c *AxAIOpenAIDecisionsClient) requestOnce(ctx context.Context, operation s
 }
 
 
+// AxAIGoogleGeminiDecisionsClient exposes named questions and complete native responses.
+type AxAIGoogleGeminiDecisionsClient struct { client *OpenAICompatibleClient }
+func GoogleGeminiDecisions(options map[string]Value) *AxAIGoogleGeminiDecisionsClient {
+    return &AxAIGoogleGeminiDecisionsClient{client: NewAI("google-gemini-decisions", options).(*OpenAICompatibleClient)}
+}
+func (c *AxAIGoogleGeminiDecisionsClient) Create(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+    encoded,err:=json.Marshal(runtimeJSONValue(request));if err!=nil{return nil,err}
+    var payload map[string]Value
+    if err=json.Unmarshal(encoded,&payload);err!=nil{return nil,err}
+    if _,err=google_decisions_require_object(payload,"request");err!=nil{return nil,err}
+    if payload["model"]==nil { payload["model"]=coreGet(c.client.optionsSnapshot(),"model","gemini-decision-1") }
+    if _,err=google_decisions_validate_request(payload);err!=nil{return nil,err}
+    raw,err:=c.request(ctx,"chat",payload,options);if err!=nil{return nil,err}
+    return google_decisions_decode_response(raw,payload["questions"])
+}
+func (c *AxAIGoogleGeminiDecisionsClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
+    opts := mergeAIOptions(c.client.optionsSnapshot(), asMap(mustCore(provider_normalize_call_options(options))))
+    timeout := num(coreGet(opts, "timeout", 0))
+    config := mustCore(resolve_stream_retry(Value(opts)))
+    for attempt := 0; ; attempt++ {
+        if err := ctx.Err(); err != nil { return nil, normalizeContextError(ctx, err) }
+        result, retryAfter, err := c.requestOnce(ctx, operation, payload, opts, timeout)
+        if err == nil { return result, nil }
+        if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+        // TS apiCall's request-layer retry: a listed status or a network
+        // failure, never a timeout the request ran out of.
+        retry, waitErr := c.client.retryWait(ctx, config, attempt, err, retryAfter)
+        if waitErr != nil { return nil, waitErr }
+        if !retry { return nil, err }
+    }
+}
+
+// requestOnce sends one request under the client's timeout (seconds), which
+// TS arms for each attempt, and returns the body, or the error and the status
+// response's Retry-After.
+func (c *AxAIGoogleGeminiDecisionsClient) requestOnce(ctx context.Context, operation string, payload map[string]Value, opts map[string]Value, timeout float64) (Value, string, error) {
+    attemptCtx := ctx
+    if timeout > 0 {
+        var cancel context.CancelFunc
+        attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(timeout*float64(time.Second)))
+        defer cancel()
+    }
+    var call Value
+    if _, buildErr := safeValue(func() Value { call = c.client.requestJSON(attemptCtx, operation, Object(), false, opts, payload); return nil }); buildErr != nil {
+        return nil, "", buildErr
+    }
+    raw, err := c.client.Transport.Call(attemptCtx, call)
+    if err != nil {
+        // The client's own timeout, not the caller's deadline, ended it.
+        if timeout > 0 && ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+            return nil, "", clientTimeoutError(timeout, err, call, opts)
+        }
+        return nil, "", chatTransportError(ctx, err, call, opts)
+    }
+    body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, opts) })
+    if statusErr != nil { return nil, transportRetryAfter(raw), statusErr }
+    return body, "", nil
+}
+
+
 type OpenAICompatibleClient struct {
 	mu                  sync.RWMutex
 	Profile             string
@@ -4368,6 +4428,7 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 		options = map[string]Value{}
 	}
     options = cloneMap(options)
+    if profile == "google-gemini-decisions" { mustCore(google_decisions_require_number(coreGet(options, "trueThreshold", coreGet(options, "true_threshold", 0.5)), "trueThreshold", 0, 1)) }
     if profile == "openai-decisions" { mustCore(decisions_require_number(coreGet(options, "trueThreshold", coreGet(options, "true_threshold", 0.5)), "trueThreshold", 0, 1)) }
     if profile == "typesafe" { mustCore(typesafe_require_number(coreGet(options, "trueThreshold", coreGet(options, "true_threshold", 0.5)), "trueThreshold", 0, 1)) }
 	hooks := runtimeHooksFromOptions(options)
@@ -4446,7 +4507,7 @@ func NewAI(provider string, options map[string]Value) AIClient {
 		return newGoogleGeminiClient(profile, options)
 	case "anthropic-messages":
 		return newAnthropicClient(profile, options)
-	case "openai-chat", "typesafe-system-one", "openai-decisions":
+	case "openai-chat", "typesafe-system-one", "openai-decisions", "google-gemini-decisions":
 		return newProviderClient(profile, profile, options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))
 	}
 	panic(AxError{Category: "provider", Message: "unsupported transport for AxAI profile: " + profile})
@@ -4691,6 +4752,7 @@ func (c *OpenAICompatibleClient) ValidateChatRequest(request map[string]Value) e
 }
 
 func (c *OpenAICompatibleClient) responseContext(payload Value, config Value, options map[string]Value, request map[string]Value) Value {
+    if c.Profile == "google-gemini-decisions" { return mustCore(google_decisions_response_context(payload, options, request)) }
     if c.Profile == "openai-decisions" { return mustCore(decisions_response_context(payload, options, request)) }
     if c.Profile == "typesafe" { return mustCore(typesafe_response_context(payload, options, request)) }
     return mustCore(provider_response_context(payload, config, options))
@@ -13455,6 +13517,16 @@ func runConformanceFixtureKind(fixture map[string]Value) {
     case "ai_decisions_native":
         transport:=NewScriptedTransport([]Value{coreGet(fixture,"response",nil)})
         client:=OpenAIDecisions(map[string]Value{"api_key":"test-key","transport":transport})
+        result:=expectMaybeFixtureError(func() Value {
+            result,err:=client.Create(context.Background(),asMap(coreGet(fixture,"request",nil)),nil)
+            if err!=nil{panic(err)}
+            return result
+        },fixture,nil)
+        if _,expectedError:=fixture["expected_error_contains"];!expectedError{assertEqual(result,coreGet(fixture,"expected_output",nil),"native Decisions output")}
+        assertTransportRequest(fixture,transport)
+    case "ai_google_decisions_native":
+        transport:=NewScriptedTransport([]Value{coreGet(fixture,"response",nil)})
+        client:=GoogleGeminiDecisions(map[string]Value{"api_key":"test-key","transport":transport})
         result:=expectMaybeFixtureError(func() Value {
             result,err:=client.Create(context.Background(),asMap(coreGet(fixture,"request",nil)),nil)
             if err!=nil{panic(err)}

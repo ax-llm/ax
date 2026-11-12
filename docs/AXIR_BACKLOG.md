@@ -1529,3 +1529,13 @@ No entries.
   - Completed at: 2026-11-12
   - Completed by: `f6959bcacf768f5cc98e703f10fbfce8cfe2da29`
   - Verification: `Audited the TypeScript-only Zod host boundary. All seven new TS-derived schema/validation fixtures pass directly in Python, Java, C++, Go, and Rust using existing native descriptors and Core helpers; no generated runtime change is required. Conformance synchronization, generated-package freshness, documentation website and skill checks pass; 78 backlog/conformance tooling and skill tests pass.`
+- `axir-2026-11-11-google-gemini-decisions` [axai] Port Google Gemini Decisions provider, native client and boolean confidence
+  - Status: done
+  - Source PR: #890
+  - Source commit: `acee6c4c9010c62f7a02589ce2405395e76e981f`
+  - TS paths: `src/ax/ai/google-gemini-decisions`, `src/ax/ai/wrap.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/dsp/decision.ts`, `src/ax/dsp/jsonSchema.ts`
+  - Impact: Add the google-gemini-decisions dedicated v1beta endpoint and typed native client, named noul/choice/score questions, multimodal input validation, decision evidence including boolean confidence, zero-output usage and catalog capabilities to generated languages.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-11
+  - Completed by: `acee6c4c9010c62f7a02589ce2405395e76e981f`
+  - Verification: `Core-owned provider mapping and native clients in Python, Java, C++, Go, and Rust. All 60 TypeScript-derived Google Decisions fixtures, native credentials/retry/cancellation tests, and ten live provider examples passed across the generated languages. All 91 compiler tests passed across split runs; the monolithic npm run test:axir reached its 30-minute Go-test limit, and its remaining tests and Core check/lint/provenance/lower phases were completed separately. All five release verifications passed; Java was rerun sequentially after a parallel cancellation timing failure. Also passed axir:conformance:check, profiles:check, axir:check-packages, test:examples:generated, TypeScript provider/schema tests and build, doc:build:markdown, skills:check, website:check, formatting, lint, spelling, and git diff --check.`
