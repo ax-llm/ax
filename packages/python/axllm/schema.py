@@ -1195,6 +1195,10 @@ def _schema_field_schema_impl(field: Field, is_nested: bool, options: Any) -> An
         else:
             pass
         description = _signature_describe_field_values_impl(field)
+        if result_mode:
+            description = _core_coalesce(description, "")
+        else:
+            pass
         if box:
             hint = "Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right."
             if result_mode:
@@ -1519,11 +1523,7 @@ def _evidence_result_schema_impl(typ: FieldType) -> Any:
         schema["required"] = required
         schema["properties"] = props
         schema["additionalProperties"] = False
-        non_boolean = _core_not(is_boolean)
-        if non_boolean:
-            props["confidence"] = p
-        else:
-            pass
+        props["confidence"] = p
         policy = _core_get(evidence, "onRefusal", "throw")
         return_policy = _core_eq(policy, "return")
         if return_policy:

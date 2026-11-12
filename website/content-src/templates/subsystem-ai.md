@@ -432,3 +432,27 @@ rejected while thinking is off; use `high` or below, or leave thinking on.
 Omitting effort leaves the provider default in control. Explicitly forced tool
 choices are rejected. These rules apply to TypeScript and the generated Python,
 Go, Java, C++, and Rust clients.
+
+
+### Google Gemini Decisions {#google-gemini-decisions}
+
+TypeScript, Python, Java, C++, Go, and Rust support `google-gemini-decisions`,
+defaulting to `gemini-decision-1`, for required boolean, class, and rubric score
+outputs. Add `(evidence)` to preserve native probabilities and confidence,
+including boolean confidence. Scalar booleans use the provider threshold;
+evidence fields use their declared threshold.
+
+{{googleDecisionsExample}}
+
+The native client accepts shared input and a named questions map. Its factories
+are `googleGeminiDecisions` (TypeScript), `google_gemini_decisions` (Python/Rust),
+`Ax.googleGeminiDecisions` (Java), `axllm::google_gemini_decisions` (C++), and
+`axllm.GoogleGeminiDecisions` (Go). Native Choice and Score allow 2–255 outcomes;
+Ax signature score rubrics retain the shared 2–10-level limit.
+
+Input supports text, images, audio, video, and PDF blocks, with base64 bytes or
+HTTPS URIs. This uses the Developer API `/v1beta/decisions` endpoint and reports
+zero output tokens. Tools, prose generation, caching, Vertex AI, and Flex/Priority
+are unsupported. Safety blocks remain HTTP errors. See the
+[decision integration guide](/typescript/skills/ax-typesafe/)
+and [generation examples](/{{languageId}}/examples/generation/).

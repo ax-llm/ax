@@ -8,6 +8,11 @@ For compiler and IR details, see [`docs/COMPILER.md`](./COMPILER.md). For
 audio and realtime usage, see [`docs/AUDIO.md`](./AUDIO.md). For reward-scored
 candidate selection and feedback rounds, see [`docs/REFINE.md`](./REFINE.md).
 
+Google Gemini Decisions uses the dedicated `google-gemini-decisions` profile.
+Its named questions, multimodal validation, decision evidence, and usage mapping
+are Core-owned in `ir/axcore/google_decisions.axir`; generated native clients
+preserve the same request, response, credential, and cancellation contracts.
+
 ## System Shape
 
 Ax has seven main runtime surfaces:

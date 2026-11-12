@@ -1,3 +1,7 @@
+import {
+  AxAIGoogleGeminiDecisions,
+  type AxAIGoogleGeminiDecisionsArgs,
+} from './google-gemini-decisions/api.js';
 import { AxOpenAIChatSession } from './openai/chat_session.js';
 import {
   axIsGPT6Family,
@@ -88,6 +92,7 @@ export type AxAIArgs<TModelKey> =
   | AxAIMetaArgs<TModelKey>
   | AxAITypesafeArgs<TModelKey>
   | AxAIOpenAIDecisionsArgs<TModelKey>
+  | AxAIGoogleGeminiDecisionsArgs<TModelKey>
   | AxAIDeploymentProfileArgs<TModelKey>
   // axir-nonportable:start webllm
   | AxAIWebLLMArgs<TModelKey>
@@ -306,6 +311,11 @@ export class AxAI<TModelKey = string>
           profile.id === 'anthropic'
             ? new AxAIAnthropic<TModelKey>(options as any)
             : new AxAIAnthropicProfile<TModelKey>(options as any);
+        break;
+      case 'google-gemini-decisions':
+        this.ai = new AxAIGoogleGeminiDecisions<TModelKey>(
+          options as AxAIGoogleGeminiDecisionsArgs<TModelKey>
+        );
         break;
       case 'openai-decisions':
         this.ai = new AxAIOpenAIDecisions<TModelKey>(

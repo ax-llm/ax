@@ -678,19 +678,26 @@ struct Core {
   static Value _prompt_user_content_impl(Value signature, Value values);
   static Value _prompt_messages_impl(Value system, Value user);
   static Value decisions_require_object(Value value, Value context);
+  static Value google_decisions_require_object(Value value, Value context);
   static Value typesafe_require_object(Value value, Value context);
   static Value decisions_require_string(Value value, Value context, Value nonempty);
+  static Value google_decisions_require_string(Value value, Value context, Value nonempty);
   static Value typesafe_require_string(Value value, Value context, Value nonempty);
   static Value openai_build_chat_request(Value request, Value options, Value prompt_caching);
   static Value _openai_build_chat_request_impl(Value request, Value options, Value prompt_caching, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value decisions_require_number(Value value, Value context, Value minimum, Value maximum);
+  static Value google_decisions_require_number(Value value, Value context, Value minimum, Value maximum);
   static Value typesafe_require_number(Value value, Value context, Value minimum, Value maximum);
   static Value decisions_require_list(Value value, Value context, Value minimum, Value maximum);
+  static Value google_decisions_require_list(Value value, Value context, Value minimum, Value maximum);
   static Value typesafe_validate_json(Value value);
   static Value decisions_require_count(Value value);
+  static Value google_decisions_require_count(Value value);
   static Value decisions_validate_request(Value request);
+  static Value google_decisions_text_content(Value value, Value context);
   static Value typesafe_validate_entry(Value value, Value context);
   static Value typesafe_utf8_size(Value text);
+  static Value google_decisions_validate_input(Value value);
   static Value typesafe_collect_strings(Value value);
   static Value _openai_apply_cache_breakpoint_impl(Value message);
   static Value typesafe_validate_assets(Value request);
@@ -698,6 +705,7 @@ struct Core {
   static Value _openai_apply_model_config_impl(Value payload, Value model_config);
   static Value decisions_decode_response(Value raw, Value questions);
   static Value typesafe_image_headers(Value request);
+  static Value google_decisions_validate_request(Value request);
   static Value _openai_is_gpt56_family_impl(Value model);
   static Value typesafe_validate_request(Value request);
   static Value _openai_is_gpt6_family_impl(Value model);
@@ -708,9 +716,12 @@ struct Core {
   static Value _openai_is_bedrock_model_impl(Value model);
   static Value _openai_supports_breakpoint_caching_impl(Value model);
   static Value _openai_supports_chat_sessions_impl(Value model);
+  static Value google_decisions_prepare_request(Value request);
   static Value validate_chat_request(Value request);
   static Value openai_reasoning_effort(Value model, Value budget);
+  static Value google_decisions_truthy(Value value);
   static Value decisions_build_chat_request(Value request, Value options);
+  static Value google_decisions_build_chat_request(Value request, Value options);
   static Value typesafe_decode_response(Value raw, Value questions);
   static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
@@ -725,6 +736,7 @@ struct Core {
   static Value normalize_token_usage(Value usage);
   static Value _url_part_text_impl(Value part);
   static Value _openai_content_part_impl(Value part);
+  static Value google_decisions_decode_response(Value raw, Value questions);
   static Value merge_usage_context(Value defaults, Value overrides);
   static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value decisions_response_context(Value payload, Value options, Value request);
@@ -733,6 +745,7 @@ struct Core {
   static Value _openai_tool_call_to_provider_impl(Value call);
   static Value ai_merge_replay_metadata(Value previous, Value incoming);
   static Value _openai_tool_spec_impl(Value fn);
+  static Value google_decisions_normalize_chat_response(Value raw, Value context);
   static Value openai_build_embed_request(Value request);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _openai_usage_with_service_tier(Value raw, Value usage);
@@ -741,11 +754,15 @@ struct Core {
   static Value provider_merge_headers(Value base, Value override);
   static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value google_decisions_response_context(Value payload, Value options, Value request);
+  static Value google_decisions_space(Value unit);
   static Value chat_response_to_completion(Value response);
   static Value typesafe_response_context(Value payload, Value options, Value request);
   static Value _openai_normalize_tool_calls_impl(Value calls);
+  static Value google_decisions_media(Value kind, Value mime, Value data, Value uri, Value resolution);
   static Value provider_validate_chat_request(Value profile, Value request, Value options);
   static Value _openai_finish_reason_impl(Value value);
+  static Value google_decisions_prompt(Value request);
   static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
@@ -1063,8 +1080,8 @@ struct Core {
   static Value _date_offset_zone_minutes_impl(Value units, Value start, Value end);
   static Value _stream_js_number_impl(Value value);
   static Value _regex_character_class(Value s);
-  static Value _evidence_decode_values_impl(Value fields, Value values, Value context, Value prefix);
   static Value chat_session_observe_output(Value gen, Value state, Value event);
+  static Value _evidence_decode_values_impl(Value fields, Value values, Value context, Value prefix);
   static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
   static Value chat_session_apply_boundary_updates(Value request, Value updates, Value level);
   static Value _date_zone_offset_seconds_impl(Value zone, Value millis);
@@ -2167,6 +2184,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   friend class ResponsesChatSession;
   friend class AxAITypesafeClient;
   friend class AxAIOpenAIDecisionsClient;
+  friend class AxAIGoogleGeminiDecisionsClient;
   std::string profile_;
   Value descriptor_;
   std::string base_url_;
@@ -2253,6 +2271,17 @@ class AxAIOpenAIDecisionsClient {
   AxCredentialProvider credential_provider_;
 };
 AxAIOpenAIDecisionsClient openai_decisions(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+
+class AxAIGoogleGeminiDecisionsClient {
+ public:
+  explicit AxAIGoogleGeminiDecisionsClient(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+  Value create(Value request, Value options = Value::object(), const AxCancellationToken* cancellation = nullptr);
+ private:
+  Value options_;
+  Transport* transport_;
+  AxCredentialProvider credential_provider_;
+};
+AxAIGoogleGeminiDecisionsClient google_gemini_decisions(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
 
 class AxAITypesafeClient {
  public:

@@ -42,6 +42,18 @@ Core validates response names, kinds, rubric membership, finite bounds, and dist
 
 Use api_key/apiKey or renewable credential providers with shared timeout, retry, and cancellation. Fresh credential headers override static/custom headers case-insensitively on every attempt. Inherited and per-call cancellation both apply. The endpoint returns a completed result without token streaming. Public signature and native examples are under src/examples/cpp/generation/.
 
+## Google Gemini Decisions
+
+Use the google-gemini-decisions provider for required boolean, class and rubric score signatures. Its default model is gemini-decision-1. Add (evidence) to retain native probabilities, confidence (including booleans), requested-model provenance, and the continuous score. Scalar booleans use trueThreshold/true_threshold (default 0.5); evidence fields use their own local threshold.
+
+Use `axllm::google_gemini_decisions` for named native questions. create/Create accepts input and a questions map. Noul requires instructions and optional criteria.true_description/false_description. Choice uses 2–255 named criteria mapped to strings (an empty description is allowed). Score uses 2–255 nonempty ordered descriptions; signature rubrics retain the shared 2–10-level limit. Instructions accept strings or text blocks. Question keys match [A-Za-z0-9_-]{1,64}; option keys are 1–128 characters and reject leading/trailing/control/non-ASCII whitespace.
+
+Input accepts strings or Interactions-style text, image, audio, video and PDF blocks. Media uses mime_type plus exactly one of base64 data or HTTPS uri; image/video resolution is optional. Serialize JSON objects to text. The signature adapter serializes conversation roles with separators and supports image/audio inputs and media/PDF file parts. PCM format conversion preserves sample rate. Generic URL context, YouTube, gs:// URIs, tools, prose, optional/nested/array/Box outputs, context caching, and Flex/Priority inference are unsupported.
+
+The Developer API uses POST /v1beta/decisions with x-goog-api-key. Renewable credentials override static/custom header names case-insensitively on each retry. Shared timeout, inherited/per-call cancellation and native request snapshots are preserved. There is no token streaming. Input and per-modality usage remain native, output tokens are always zero, and safety blocks surface as HTTP errors rather than per-question refusals. Noul stays in [0.01,0.99]; probabilities are validated without normalization. The provider does not echo a model, so provenance records the requested model.
+
+Runnable signature and native examples are under src/examples/cpp/generation/. See https://aistudio.google.com/docs/decisions-api for the upstream contract.
+
 ## Astra Session Work
 
 Select `gpt-6-astra` through the ordinary OpenAI factory. The adapter chooses Responses automatically; existing model defaults are unchanged. Use low reasoning and standard processing. Portable minimal reasoning maps to low; none is rejected. EU residency does not support priority processing.

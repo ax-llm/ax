@@ -58,6 +58,7 @@ const allowedTransports = new Set([
   'webllm',
   'typesafe-system-one',
   'openai-decisions',
+  'google-gemini-decisions',
 ]);
 const allowedDialects = new Set([
   ...allowedTransports,
@@ -365,6 +366,7 @@ const transportClient = {
   webllm: null,
   'typesafe-system-one': 'AxAITypesafeClient',
   'openai-decisions': 'AxAIOpenAIDecisionsClient',
+  'google-gemini-decisions': 'AxAIGoogleGeminiDecisionsClient',
 };
 const registry = {
   registryVersion: source.schemaVersion,
@@ -477,7 +479,10 @@ const descriptors = Object.fromEntries(
             files: profile.capabilities.files
               ? {
                   supported: true,
-                  formats: ['application/pdf', 'text/plain'],
+                  formats: profile.capabilities.files.formats ?? [
+                    'application/pdf',
+                    'text/plain',
+                  ],
                   upload_method: profile.capabilities.files.uploadMethod,
                 }
               : { supported: false, formats: [], upload_method: 'none' },

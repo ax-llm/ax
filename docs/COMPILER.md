@@ -334,6 +334,14 @@ array/nested decoding. AxGen decodes evidence before processors, assertions,
 traces, and caching, and emits complete evidence when streaming. Transport
 wrappers refresh credentials per retry and merge header names case-insensitively.
 
+Core owns Google Gemini Decisions in `ir/axcore/google_decisions.axir`: named
+Noul/Choice/Score questions, text/media/PDF input, request/response validation,
+signature conversion, native confidence (including booleans), zero-output usage,
+and requested-model provenance. All five generated languages expose native
+clients and the `google-gemini-decisions` provider. Target wrappers only handle
+transport, retries, request snapshots, renewable credentials, and cancellation.
+TypeScript-derived native, adapter, and AxGen fixtures cover these contracts.
+
 Core also owns Vertex routing for Gemini and Anthropic. Generated clients accept
 project, region, and optional endpoint identifiers; resolve `global`, `us`,
 `eu`, and regional hosts; preserve explicit base-URL precedence; and use the

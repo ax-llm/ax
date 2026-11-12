@@ -199,6 +199,9 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     // provider's sampling defaults (as its TS class starts from) under them,
     // after dropping the explicit ones the model rejects.
     this.modelConfig = new LinkedHashMap<>(Core.asMap(options.get("model_config")));
+    if (this.profile.equals("google-gemini-decisions")) {
+      Core.google_decisions_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
+    }
     if (this.profile.equals("openai-decisions")) {
       Core.decisions_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
     }
@@ -269,7 +272,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
     if (raw == null) raw = requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat", activeCancellation(), options);
-    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("openai-decisions") ? Core.decisions_response_context(payload, options, request) : profile.equals("typesafe") ? Core.typesafe_response_context(payload, options, request) : Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options)));
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("google-gemini-decisions") ? Core.google_decisions_response_context(payload, options, request) : profile.equals("openai-decisions") ? Core.decisions_response_context(payload, options, request) : profile.equals("typesafe") ? Core.typesafe_response_context(payload, options, request) : Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options)));
   }
 
   @Override public void validateChatRequest(Map<String, Object> request) {
@@ -481,7 +484,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
 
   @Override public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
-    if (!"openai-decisions".equals(profile)) return super.chat(request, callOptions);
+    if (!"openai-decisions".equals(profile) && !"google-gemini-decisions".equals(profile)) return super.chat(request, callOptions);
     var inherited = cancellation(options);
     var perCall = cancellation(callOptions);
     boolean merge = inherited != null && perCall != null && inherited != perCall;

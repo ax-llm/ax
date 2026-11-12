@@ -6,42 +6,42 @@
       "type": "archive",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-go-llm/skill.tar.gz",
-      "digest": "sha256:d23bcc9dfb155f81d548c3379d22b33be1de843236a885db3330b04aa0798631"
+      "digest": "sha256:3c1730958cd0b04a075d149a5fa39f51da843d7d0f70dacde8c9fcf3e043dbc7"
     },
     {
       "name": "ax-go-ai",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:d7d8b1ae789df702166ba8b5cf22cafbd41fc6e73d4c9f8e30606f89f153d62a"
+      "digest": "sha256:b7ddeabf2d5ba391785ba0e4a9615081876372c91d31162f6796c59918243b9c"
     },
     {
       "name": "ax-go-typesafe",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-go-typesafe/SKILL.md",
-      "digest": "sha256:ca2af418b73d92060e6fa4722653093621c7fd3f90f894a4059a96e4304ac088"
+      "digest": "sha256:d409398564c71dd7485de316406b96f9d8293269e3fe59da5dace70a2e5ee519"
     },
     {
       "name": "ax-go-audio",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-go-audio/SKILL.md",
-      "digest": "sha256:0621d927182c5ef1d7cef6f64def49f73d6bc7094b05abca27580d2c81be1300"
+      "digest": "sha256:c5351c6a537cb446382ea7827ea1df0a66f7bbe5469eb30ffdd1dbb175ee3e73"
     },
     {
       "name": "ax-go-signature",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-go-signature/SKILL.md",
-      "digest": "sha256:a67d76215fe3f8b997cfc9bb40a16b0d5118f1d776f4eae99e9f7e3268deed1c"
+      "digest": "sha256:c3598f3a0f71e480d0a0cdeefcbd9f4418046196ed913afc222a80bff799eedd"
     },
     {
       "name": "ax-go-gen",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:a7cdbbf8bd9a4ec1458f0c1613f77c1d40029dc11ef0d7d3d8d1ba2dfa559dfb"
+      "digest": "sha256:34013ea93f4354a12e8f06a3c3a68a981aa3b0afa2281e3c50b815bc91dbdf1a"
     },
     {
       "name": "ax-go-flow",
@@ -76,7 +76,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-go-agent-observability/SKILL.md",
-      "digest": "sha256:95dcc3f1fe0f9f2af92f29be5de7b59a2df11a2b7a43be85d20cf5d869cea865"
+      "digest": "sha256:f5fdc3c826818b0ca75cf077f95aa3246bb5535d39b7ab15295f1886e61293eb"
     },
     {
       "name": "ax-go-agent-optimize",
