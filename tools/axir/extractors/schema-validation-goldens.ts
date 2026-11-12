@@ -401,19 +401,21 @@ validateOutputCase('zod-v4-optional-array-omitted', zod4Spec, zod4Sig, {
   tone: 'casual',
   tones: [],
 });
+// Native diagnostics format option lists differently. Require the rejection
+// to identify an allowed option, without pinning TypeScript's punctuation.
 validateOutputErrorCase(
   'zod-v4-invalid-enum',
   zod4Spec,
   zod4Sig,
   { ...zod4Values, tone: 'unknown' },
-  'formal, casual'
+  'formal'
 );
 validateOutputErrorCase(
   'zod-v4-invalid-array-enum',
   zod4Spec,
   zod4Sig,
   { ...zod4Values, tones: ['formal', 'unknown'] },
-  'formal, casual'
+  'formal'
 );
 
 const flexibleSpec = {

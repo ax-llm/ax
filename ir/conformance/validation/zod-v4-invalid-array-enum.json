@@ -1,6 +1,6 @@
 {
   "expected_error_category": "validation",
-  "expected_error_contains": "formal, casual",
+  "expected_error_contains": "formal",
   "kind": "validate_output",
   "name": "zod-v4-invalid-array-enum",
   "signature_spec": {
