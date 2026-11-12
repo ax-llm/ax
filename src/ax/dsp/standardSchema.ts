@@ -190,6 +190,8 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
   switch (typeName) {
     case 'ZodString':
     case 'string': {
+      // Keep v4 checks in its Standard Schema validator: copying them into
+      // Ax constraints loses regex flags and can run checks before transforms.
       const checks: Array<{ kind: string; value?: any; regex?: RegExp }> =
         def?.checks ?? [];
       const extra: MutableAxFieldType = {};
@@ -228,9 +230,12 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
     case 'ZodEnum':
     case 'ZodNativeEnum':
     case 'enum': {
+      // v3 stores allowed values in `def.values`; v4 in `def.entries`.
       const values: string[] = Array.isArray(def?.values)
         ? def.values
-        : Object.values(def?.values ?? {});
+        : def?.entries && typeof def.entries === 'object'
+          ? Object.values(def.entries)
+          : Object.values(def?.values ?? {});
       return base('class', { options: values });
     }
     case 'ZodLiteral':
@@ -242,7 +247,10 @@ function zodToAxFieldType(schema: ZodLike): AxFieldType {
     }
     case 'ZodArray':
     case 'array': {
-      const inner = def?.type ?? def?.element;
+      // v3 keeps the inner schema at `def.type`; v4 at `def.element` (its
+      // `def.type` is the literal string 'array').
+      const inner =
+        def?.element ?? (typeof def?.type === 'object' ? def?.type : undefined);
       const innerType = inner ? zodToAxFieldType(inner) : base('string');
       return {
         ...innerType,

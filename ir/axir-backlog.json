@@ -3667,6 +3667,28 @@
       "completedAt": "2026-11-06",
       "completedByCommit": "354bba5e968c4216afa9eb298af4022090c8e057",
       "verification": "All 22 new TS-derived fixtures pass in Python, Java, C++, Go, and Rust. npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run test:examples:generated; npm run skills:check; npm run website:check."
+    },
+    {
+      "id": "axir-2026-11-10-keep-zod-v4-array-element-types-enum-values-and-checks-in-standa",
+      "status": "open",
+      "title": "Keep Zod 4 array element types and enum options in standard-schema conversion",
+      "createdAt": "2026-11-10",
+      "sourcePR": 886,
+      "sourceCommit": "e8888f89221ea14357547dfa63c85515926369f0",
+      "tsPaths": [
+        "src/ax/dsp/standardSchema.ts",
+        "src/ax/dsp/standardSchema.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript standard-schema conversion now retains Zod 4 array element types, including optional wrappers, and enum options in Ax fields and tool JSON schemas. Audit equivalent portable schema conversion for parity. Zod 4 constraints remain delegated to the original validator so regex flags and transformation order are preserved.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

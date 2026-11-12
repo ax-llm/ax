@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-10-keep-zod-v4-array-element-types-enum-values-and-checks-in-standa` [axgen] Keep Zod 4 array element types and enum options in standard-schema conversion
+  - Status: open
+  - Source PR: #886
+  - Source commit: `e8888f89221ea14357547dfa63c85515926369f0`
+  - TS paths: `src/ax/dsp/standardSchema.ts`, `src/ax/dsp/standardSchema.test.ts`
+  - Impact: TypeScript standard-schema conversion now retains Zod 4 array element types, including optional wrappers, and enum options in Ax fields and tool JSON schemas. Audit equivalent portable schema conversion for parity. Zod 4 constraints remain delegated to the original validator so regex flags and transformation order are preserved.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
