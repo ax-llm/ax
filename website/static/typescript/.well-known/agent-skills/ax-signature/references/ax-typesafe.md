@@ -38,7 +38,7 @@ Boolean evidence contains `value`, `probability`, `threshold`, and `provenance`.
 Class evidence contains `value`, a complete label-to-probability map, and
 `provenance`. Score evidence contains a continuous `value` from zero to the last
 rubric index, ordered `levels`, ordered `probabilities`, and `provenance`.
-Native class and score results can also contain the provider's `confidence`.
+Native boolean, class and score results can also contain the provider's `confidence`.
 A score without `(evidence)` returns only its numeric value. Existing scalar
 boolean and class fields keep their existing behavior.
 
@@ -341,3 +341,61 @@ covers all primitives and model discovery; the
 [hybrid example](https://github.com/ax-llm/ax/blob/main/src/examples/typescript/generation/typesafe-hybrid.ts)
 shows the two-program composition. Assert response contracts in live checks,
 not exact model probabilities.
+
+
+## Google Gemini Decisions
+
+Use `ai({ name: 'google-gemini-decisions', apiKey })` with the same required
+boolean/class/rubric score signatures and `(evidence)` annotations. The default
+is `gemini-decision-1`. Ax sends `POST /v1beta/decisions` with `x-goog-api-key`,
+batches output questions, and serializes conversation roles as text. Boolean
+value descriptions map to `true_description`/`false_description`; classes map
+to named criteria with empty descriptions when omitted. Scores use ordered
+rubrics. Native boolean evidence also preserves `confidence` when supplied.
+`trueThreshold` defaults to `0.5` for ordinary boolean outputs; evidence fields
+use their own signature threshold (also `0.5` by default).
+
+```typescript
+import { ai, ax, googleGeminiDecisions } from '@ax-llm/ax';
+
+const model = ai({ name: 'google-gemini-decisions', apiKey });
+const check = ax('ticket:string -> urgent:boolean(evidence, threshold 0.9) "Is a core task blocked?"');
+const result = await check.forward(model, { ticket });
+
+const native = await googleGeminiDecisions({ apiKey }).create({
+  input: ticket,
+  questions: {
+    urgent: { type: 'noul', instructions: 'Is a core task blocked?' },
+    team: { type: 'choice', instructions: 'Which team?', criteria: { support: '', engineering: '' } },
+  },
+});
+// native.answers.team.choice: 'support' | 'engineering'
+```
+
+The native client accepts string input or Interactions-style text/image/audio/
+video/PDF blocks (`type`, `mime_type`, and either inline base64 `data` or HTTPS
+`uri`). Instructions accept strings or text blocks. Serialize structured JSON
+as text. Choice requires 2–255 options; native Score permits 2–255 nonempty
+levels, while Ax signature score rubrics retain the shared 2–10-level limit.
+Question keys match `[A-Za-z0-9_-]{1,64}`. Native answers and per-modality usage
+are preserved; input tokens map to Ax usage with zero output tokens. The API
+does not return a response model, so Ax provenance uses the requested model.
+
+The adapter supports image/audio inputs and PDF, audio, image, and video files;
+use a file's `fileUri` for HTTPS/Files API URLs or `data` for base64. Generic URL
+context, YouTube URLs, `gs://` URIs, Box, optional/nested/array outputs, tools,
+freeform generation, caching, thinking, and Flex/Priority inference are
+unsupported. There is no token streaming; `streamingForward()` emits completed
+results. Safety blocks surface as HTTP errors, rather than per-question
+refusals. Noul probabilities are in `[0.01, 0.99]`; choose and evaluate thresholds
+on your own labeled traffic. Choice keys are sorted by UTF-8 byte order by the
+API, which also resolves ties. Ax does not reorder or renormalize responses.
+
+TypeScript, Python, Java, C++, Go, and Rust support both the signature adapter
+and native client. Native factories are `googleGeminiDecisions`,
+`google_gemini_decisions`, `Ax.googleGeminiDecisions`,
+`axllm::google_gemini_decisions`, `axllm.GoogleGeminiDecisions`, and
+`google_gemini_decisions`, respectively. Generated clients use native JSON maps;
+TypeScript additionally infers literal question names and choice labels. See Google's [Decisions API contract](https://aistudio.google.com/docs/decisions-api)
+and runnable `google-gemini-decisions.ts` / `google-gemini-decisions-native.ts`
+examples in `src/examples/typescript/generation/`.

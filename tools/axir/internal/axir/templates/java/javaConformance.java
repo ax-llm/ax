@@ -886,6 +886,16 @@ public final class Conformance {
         if(!fixture.containsKey("expected_error_contains"))assertEqual(result,fixture.get("expected_output"),"native Decisions output");
         assertTransport(fixture,transport);
       }
+      case "ai_google_decisions_native" -> {
+        ScriptedTransport transport=new ScriptedTransport(java.util.Collections.singletonList(fixture.get("response")));
+        var client=Ax.googleGeminiDecisions(Map.of("api_key","test-key","transport",transport));
+        Object result=expectMaybeError(()->{
+          try {return client.create(Core.asMap(fixture.get("request")));}
+          catch(Exception error){throw Core.asRuntime(error);}
+        },fixture);
+        if(!fixture.containsKey("expected_error_contains"))assertEqual(result,fixture.get("expected_output"),"native Decisions output");
+        assertTransport(fixture,transport);
+      }
       case "ai_typesafe_native" -> {
         ScriptedTransport transport=new ScriptedTransport(java.util.Collections.singletonList(fixture.get("response")));
         var client=Ax.typesafe(Map.of("api_key","test-key","transport",transport));

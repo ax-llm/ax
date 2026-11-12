@@ -71,7 +71,8 @@ export type AxAIProfileTransport =
   | 'chrome-ai'
   // axir-nonportable:end chrome-ai
   | 'typesafe-system-one'
-  | 'openai-decisions';
+  | 'openai-decisions'
+  | 'google-gemini-decisions';
 
 export type AxAIProfileCapabilities = {
   functions: boolean;
@@ -88,7 +89,10 @@ export type AxAIProfileCapabilities = {
   images?: boolean;
   audio?: boolean;
   audioOutput?: boolean;
-  files?: { uploadMethod: 'inline' | 'upload' | 'cloud' };
+  files?: {
+    uploadMethod: 'inline' | 'upload' | 'cloud';
+    formats?: readonly string[];
+  };
   webSearch?: boolean;
   caching?: {
     types: readonly ('ephemeral' | 'persistent')[];
@@ -364,7 +368,9 @@ const emptyMedia = (
   files: capabilities.files
     ? {
         supported: true,
-        formats: ['application/pdf', 'text/plain'],
+        formats: [
+          ...(capabilities.files.formats ?? ['application/pdf', 'text/plain']),
+        ],
         uploadMethod: capabilities.files.uploadMethod,
       }
     : { supported: false, formats: [], uploadMethod: 'none' },
@@ -905,6 +911,7 @@ export type AxAIDeploymentProfileId = Exclude<
   // axir-nonportable:end chrome-ai
   | 'typesafe'
   | 'openai-decisions'
+  | 'google-gemini-decisions'
   | 'meta'
   | 'meta-chat'
   | 'meta-messages'

@@ -194,6 +194,36 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "google_gemini_decisions",
+          "public_name": "Ax.googleGeminiDecisions",
+          "kind": "function",
+          "description": "Create the native Google Gemini Decisions client for named yes/no, choice and score questions. Default model: gemini-decision-1.",
+          "form": "Ax.googleGeminiDecisions",
+          "important_options": [
+            "API key or credential provider",
+            "multimodal input",
+            "timeout",
+            "retry",
+            "cancellation"
+          ],
+          "returns": "AxAIGoogleGeminiDecisionsClient"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxAIGoogleGeminiDecisionsClient",
+          "public_name": "AxAIGoogleGeminiDecisionsClient",
+          "kind": "type",
+          "description": "Native create requests retain named answers, probability distributions, confidence, fractional scores and zero-output usage. Signature adapters accept required boolean/class/score fields.",
+          "form": "AxAIGoogleGeminiDecisionsClient",
+          "important_options": [
+            "create / Create",
+            "named questions",
+            "text/image/audio/video/PDF"
+          ],
+          "returns": "native Gemini Decisions response JSON"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "openai_decisions",
           "public_name": "Ax.openaiDecisions",
           "kind": "function",

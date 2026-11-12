@@ -1261,3 +1261,16 @@ Anthropic `message_delta` counts are cumulative. Present input and cache counts
 replace earlier counts, including explicit zero; omitted or null fields retain
 previous values. Successive deltas retain the latest input, cache, and speed
 metadata while updating output tokens.
+
+
+### Google Gemini Decisions
+
+TypeScript, Python, Java, C++, Go, and Rust support the
+`google-gemini-decisions` provider (TypeScript: `ai({ name: 'google-gemini-decisions', apiKey })`) for
+required boolean, class, and rubric score signatures with `gemini-decision-1`.
+Use `(evidence)` for native probabilities/confidence or
+`googleGeminiDecisions({ apiKey }).create({ input, questions })` for native
+named questions and multimodal blocks. This dedicated Developer API endpoint
+uses `/v1beta/decisions`, bills input tokens, and returns zero output tokens.
+It does not support Vertex AI, tools, text generation, caching, or inference
+tiers. See `ax-typesafe.md` for criteria, media, validation, and examples.

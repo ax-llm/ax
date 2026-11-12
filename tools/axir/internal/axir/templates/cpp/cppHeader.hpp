@@ -1069,6 +1069,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   friend class ResponsesChatSession;
   friend class AxAITypesafeClient;
   friend class AxAIOpenAIDecisionsClient;
+  friend class AxAIGoogleGeminiDecisionsClient;
   std::string profile_;
   Value descriptor_;
   std::string base_url_;
@@ -1155,6 +1156,17 @@ class AxAIOpenAIDecisionsClient {
   AxCredentialProvider credential_provider_;
 };
 AxAIOpenAIDecisionsClient openai_decisions(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+
+class AxAIGoogleGeminiDecisionsClient {
+ public:
+  explicit AxAIGoogleGeminiDecisionsClient(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+  Value create(Value request, Value options = Value::object(), const AxCancellationToken* cancellation = nullptr);
+ private:
+  Value options_;
+  Transport* transport_;
+  AxCredentialProvider credential_provider_;
+};
+AxAIGoogleGeminiDecisionsClient google_gemini_decisions(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
 
 class AxAITypesafeClient {
  public:

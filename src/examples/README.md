@@ -51,3 +51,17 @@ Typesafe/Jev examples are available in every language’s `generation` directory
 signature decisions with `trueThreshold`, native rich criteria and Score, and an
 explicit two-program hybrid reply. Set `TYPESAFE_APIKEY`; hybrid examples also need
 `OPENAI_API_KEY` or `OPENAI_APIKEY`. Run them with `npm run example -- <language> <path>`.
+
+
+Google Gemini Decisions signature and native examples are available in all six
+languages’ `generation` directories. Set `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or
+`GOOGLE_APIKEY`, then run a catalog entry from the repo root:
+
+```sh
+npm run example -- python src/examples/python/generation/google-gemini-decisions.py
+npm run example -- go src/examples/go/generation/google_gemini_decisions_native.go
+```
+
+The default is `gemini-decision-1`. Signature examples retain probability and
+confidence evidence; native examples use named yes/no, choice, and score
+questions. See each language’s generation gallery for the runnable files.

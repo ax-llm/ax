@@ -1,0 +1,63 @@
+{
+  "expected_error_contains": "text only",
+  "expected_transport_request_count": 0,
+  "kind": "ai_google_decisions_native",
+  "name": "google-decisions-native-non-text-instructions",
+  "provider": "google-gemini-decisions",
+  "request": {
+    "input": "Checkout is broken.",
+    "questions": {
+      "urgent": {
+        "type": "noul",
+        "instructions": [
+          {
+            "type": "image",
+            "data": "YQ=="
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "answers": {
+      "severity": {
+        "confidence": 0.8,
+        "legend": {
+          "0": "Minor",
+          "1": "Blocked"
+        },
+        "probabilities": {
+          "0": 0.2,
+          "1": 0.8
+        },
+        "score": 0.8,
+        "type": "score"
+      },
+      "team": {
+        "choice": "billing",
+        "confidence": 0.8,
+        "probabilities": {
+          "billing": 0.8,
+          "support": 0.2
+        },
+        "type": "choice"
+      },
+      "urgent": {
+        "confidence": 0.9,
+        "noul": 0.9,
+        "type": "noul"
+      }
+    },
+    "usage": {
+      "input_tokens_by_modality": [
+        {
+          "modality": "text",
+          "tokens": 20
+        }
+      ],
+      "total_input_tokens": 20,
+      "total_output_tokens": 0,
+      "total_tokens": 20
+    }
+  }
+}

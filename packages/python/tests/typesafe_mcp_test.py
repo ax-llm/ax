@@ -81,6 +81,45 @@ class ParityTests(unittest.TestCase):
             self.assertEqual(len(calls),2)
             self.assertEqual(len(credentials),2)
 
+    def test_google_decisions_credentials_retry_snapshot_and_cancellation(self):
+        from axllm import google_gemini_decisions
+        response = {'answers': {'flag': {'type': 'noul', 'noul': 0.8, 'confidence': 0.8}}, 'usage': {'total_input_tokens': 1, 'total_output_tokens': 0, 'total_tokens': 1}}
+        native_request = {'input': 'red', 'questions': {'flag': {'type': 'noul', 'instructions': 'Is this red?'}}}
+        chat_request = {'chatPrompt':[{'role':'user','content':'A red package.'}],
+                        'responseFormat':{'type':'json_schema','schema':{'name':'output','schema':{'type':'object','properties':{'flag':{'type':'boolean'}},'required':['flag']}}}}
+        for native in (True,False):
+            calls, credentials = [], []
+            inherited, per_call = AxCancellationToken(), AxCancellationToken()
+            def credential(request):
+                credentials.append(request)
+                self.assertEqual((request['profile'],request['operation']),('google-gemini-decisions','chat'))
+                return {'x-goog-api-key':f'Bearer fresh-{len(credentials)}'}
+            def transport(request):
+                calls.append(request)
+                auth = [(key,value) for key,value in request['headers'].items() if key.lower()=='x-goog-api-key']
+                self.assertEqual(auth,[('x-goog-api-key',f'Bearer fresh-{len(calls)}')])
+                self.assertEqual(request['headers']['x-trace'],'kept')
+                self.assertEqual(request['url'],'https://generativelanguage.googleapis.com/v1beta/decisions')
+                if native:
+                    self.assertEqual(request['json']['questions']['flag']['instructions'],'Is this red?')
+                    native_request['questions']['flag']['instructions']='caller-mutated'
+                return {'status':429,'json':{'error':'retry'}} if len(calls)==1 else response
+            options = dict(api_key='static',headers={'X-GOOG-API-KEY':'Bearer custom','x-trace':'kept'},
+                           credential_provider=credential,transport=transport,cancellation=inherited,
+                           retry={'maxRetries':1,'initialDelayMs':1})
+            client = google_gemini_decisions(**options) if native else ai('google-gemini-decisions',**options)
+            call = lambda opts: client.create(native_request,opts) if native else client.chat(chat_request,opts)
+            native_request['questions']['flag']['instructions']='Is this red?'
+            result = call({'cancellation':per_call})
+            self.assertEqual(len(calls),2)
+            self.assertEqual((inherited.subscription_count,per_call.subscription_count),(0,0))
+            if native: self.assertEqual(result,response)
+            else: self.assertEqual(json.loads(result['results'][0]['content']),{'flag':True})
+            inherited.cancel('stop Decisions')
+            with self.assertRaisesRegex(Exception,'stop Decisions'):call({'cancellation':per_call})
+            self.assertEqual(len(calls),2)
+            self.assertEqual(len(credentials),2)
+
     def test_native_noul_accepts_null_criteria_type(self):
         from typing import get_args, get_type_hints
         from axllm import TypesafeQuestion

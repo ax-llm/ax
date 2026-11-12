@@ -5140,6 +5140,14 @@ def _evidence_decode_one_impl(typ: FieldType, raw: Any, context: Any, path: str)
             out["value"] = value
             out["probability"] = p
             out["threshold"] = threshold
+            confidence = _core_get(answer, "confidence", None)
+            has_confidence = _core_is_not_none(confidence)
+            copy_confidence = _core_and(native_state, has_confidence)
+            if copy_confidence:
+                confidence = _evidence_probability_impl(confidence, path)
+                out["confidence"] = confidence
+            else:
+                pass
         else:
             labels = _core_get(typ, "options", None)
             ps = _core_get(raw, "probabilities", None)
@@ -6534,6 +6542,28 @@ def _regex_character_class(s: Any) -> Any:
     return t43
 
 
+def chat_session_observe_output(gen: Any, state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_observe_output")
+    empty_map = {}
+    empty_list = []
+    texts = _core_get(state, "texts", empty_map)
+    id = _core_get(event, "response_id", None)
+    text = _core_get(texts, id, "")
+    response = _core_get(event, "response", None)
+    results = _core_get(response, "results", empty_list)
+    for result in results:
+        delta = _core_get(result, "content", "")
+        text = _core_string_format("{}{}", text, delta)
+    texts[id] = text
+    state["texts"] = texts
+    version = _core_get(state, "version", 0)
+    output = {}
+    output["response_id"] = id
+    output["text"] = text
+    output["version"] = version
+    return output
+
+
 def _evidence_decode_values_impl(fields: list[Any], values: Any, context: Any, prefix: str) -> Any:
     _core_coverage_mark("_evidence_decode_values_impl")
     for field in fields:
@@ -6583,28 +6613,6 @@ def _evidence_decode_values_impl(fields: list[Any], values: Any, context: Any, p
         else:
             pass
     return values
-
-
-def chat_session_observe_output(gen: Any, state: Any, event: Any) -> Any:
-    _core_coverage_mark("chat_session_observe_output")
-    empty_map = {}
-    empty_list = []
-    texts = _core_get(state, "texts", empty_map)
-    id = _core_get(event, "response_id", None)
-    text = _core_get(texts, id, "")
-    response = _core_get(event, "response", None)
-    results = _core_get(response, "results", empty_list)
-    for result in results:
-        delta = _core_get(result, "content", "")
-        text = _core_string_format("{}{}", text, delta)
-    texts[id] = text
-    state["texts"] = texts
-    version = _core_get(state, "version", 0)
-    output = {}
-    output["response_id"] = id
-    output["text"] = text
-    output["version"] = version
-    return output
 
 
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:

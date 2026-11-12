@@ -5107,6 +5107,9 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
   // provider's sampling defaults (as its TS class starts from) under them,
   // after dropping the explicit ones the model rejects.
   model_config_ = Core::map_merge(Value::object(), Core::get(options, "model_config", Value::object()));
+  if (profile_ == "google-gemini-decisions") {
+    Core::google_decisions_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
+  }
   if (profile_ == "openai-decisions") {
     Core::decisions_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
   }
@@ -5415,7 +5418,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
   if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
-  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options, request) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options, request) : response_context);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "google-gemini-decisions" ? Core::google_decisions_response_context(payload, options, request) : profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options, request) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options, request) : response_context);
 }
 
 void OpenAICompatibleClient::validate_chat_request(Value request) const {
@@ -9801,6 +9804,37 @@ AxAIOpenAIDecisionsClient openai_decisions(Value options, Transport* transport, 
   return AxAIOpenAIDecisionsClient(std::move(options), transport, std::move(credential_provider));
 }
 
+AxAIGoogleGeminiDecisionsClient::AxAIGoogleGeminiDecisionsClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
+    : options_(parse_json(stringify(options))), transport_(transport), credential_provider_(std::move(credential_provider)) {
+  OpenAICompatibleClient client("google-gemini-decisions", "Google Gemini Decisions", options_, transport_, "gemini-decision-1", "", credential_provider_);
+}
+Value AxAIGoogleGeminiDecisionsClient::create(Value request, Value options, const AxCancellationToken* cancellation) {
+  Value payload = parse_json(stringify(request));
+  if (Core::get(payload, "model").is_null()) Core::set(payload, "model", Core::get(options_, "model", "gemini-decision-1"));
+  Core::google_decisions_validate_request(payload);
+  Value resolved = Core::provider_normalize_call_options(options);
+  for (const auto& entry : object_ref(options_)) if (Core::get(resolved, entry.first).is_null()) Core::set(resolved, entry.first, entry.second);
+  OpenAICompatibleClient client("google-gemini-decisions", "Google Gemini Decisions", resolved, transport_, "gemini-decision-1", "", credential_provider_);
+  const AxCancellationToken* parent = current_cancellation_token();
+  AxCancellationToken combined;
+  std::vector<AxCancellationToken::Subscription> subscriptions;
+  const AxCancellationToken* active = cancellation ? cancellation : parent;
+  if (parent && cancellation && parent != cancellation) {
+    auto inherited = *parent;
+    auto per_call = *cancellation;
+    subscriptions.push_back(parent->subscribe([combined, inherited]() mutable { combined.cancel(inherited.reason()); }));
+    subscriptions.push_back(cancellation->subscribe([combined, per_call]() mutable { combined.cancel(per_call.reason()); }));
+    active = &combined;
+  }
+  AxCancellationScope call_scope(active);
+  if (active) active->throw_if_cancelled();
+  Value raw = client.request_json_retried("/decisions", payload, "POST", resolved);
+  return Core::google_decisions_decode_response(raw, Core::get(payload, "questions"));
+}
+AxAIGoogleGeminiDecisionsClient google_gemini_decisions(Value options, Transport* transport, AxCredentialProvider credential_provider) {
+  return AxAIGoogleGeminiDecisionsClient(std::move(options), transport, std::move(credential_provider));
+}
+
 AxAITypesafeClient::AxAITypesafeClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
     : options_(std::move(options)), transport_(transport), credential_provider_(std::move(credential_provider)) {
   if (Core::get(options_, "api_key").is_null() && Core::get(options_, "apiKey").is_null()) Core::set(options_, "api_key", env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")));
@@ -9848,7 +9882,7 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   if (transport == "anthropic-messages") {
     return std::make_shared<AnthropicClient>(canonical, std::move(options));
   }
-  if (transport == "openai-chat" || transport == "typesafe-system-one" || transport == "openai-decisions") {
+  if (transport == "openai-chat" || transport == "typesafe-system-one" || transport == "openai-decisions" || transport == "google-gemini-decisions") {
     return std::make_shared<OpenAICompatibleClient>(canonical,
         canonical, std::move(options), nullptr,
         display(Core::get(descriptor, "defaultModel", "")),

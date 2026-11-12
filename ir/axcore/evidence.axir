@@ -553,6 +553,13 @@ module @ax.evidence version "0.1" {
         core.set %out["value"] = %value
         core.set %out["probability"] = %p
         core.set %out["threshold"] = %threshold
+        %confidence = core.get %answer["confidence"]
+        %has_confidence = core.call intrinsic.is_not_none(%confidence)
+        %copy_confidence = core.call intrinsic.and(%native_state, %has_confidence)
+        core.if %copy_confidence {
+          %confidence = core.call @evidence_probability_impl(%confidence, %path)
+          core.set %out["confidence"] = %confidence
+        }
       } else {
         %labels = core.get %typ["options"]
         %ps = core.get %raw["probabilities"]
@@ -883,8 +890,7 @@ module @ax.evidence version "0.1" {
         core.set %schema["required"] = %required
         core.set %schema["properties"] = %props
         core.set %schema["additionalProperties"] = false
-        %non_boolean = core.call intrinsic.not(%is_boolean)
-        core.if %non_boolean { core.set %props["confidence"] = %p }
+        core.set %props["confidence"] = %p
         %policy = core.get %evidence["onRefusal"] default "throw"
         %return_policy = core.call intrinsic.eq(%policy, "return")
         core.if %return_policy {
