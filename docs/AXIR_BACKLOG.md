@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-12-preserve-cumulative-assistant-text-around-streamed-tool-calls` [axgen] Preserve cumulative assistant text around streamed tool calls
+  - Status: open
+  - Source PR: #887
+  - Source commit: `26b2e15db1077d5a9e9eb10a61003fbbde55ae71`
+  - TS paths: `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/generate.streamParity.test.ts`
+  - Impact: Generated AxGen streaming implementations must accumulate text accompanying tool-call deltas and store the full assistant text in history before the next model request, matching handwritten TypeScript.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

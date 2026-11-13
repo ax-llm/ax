@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
-import type { AxChatResponse } from '../ai/types.js';
+import type { AxChatRequest, AxChatResponse } from '../ai/types.js';
 import { fn } from './sig.js';
 import { ax } from './template.js';
 import type { AxGenDeltaOut } from './types.js';
@@ -12,12 +12,16 @@ type Chunk = AxChatResponse['results'][number];
 
 // Each script is one chat call: its chunks stream in order, or fold into one
 // response when the call is not streamed.
-const scriptedAI = (scripts: Chunk[][]) => {
+const scriptedAI = (
+  scripts: Chunk[][],
+  prompts?: AxChatRequest['chatPrompt'][]
+) => {
   let call = 0;
   return new AxMockAIService<string>({
     name: 'mock',
     features: { functions: true, streaming: true },
     chatResponse: async (_req, options) => {
+      prompts?.push(structuredClone(_req.chatPrompt));
       const script = scripts[call++];
       if (!script) throw new Error('scripted client exhausted');
       const chunks = [...script];
@@ -69,6 +73,54 @@ const collect = async <T>(stream: AsyncIterable<AxGenDeltaOut<T>>) => {
 };
 
 describe('AxGen stream and non-stream parity', () => {
+  it.each(['', ' now.'])(
+    'keeps text accompanying tool calls in the next request (suffix: %j)',
+    async (suffix) => {
+      for (const stream of [false, true]) {
+        const prompts: AxChatRequest['chatPrompt'][] = [];
+        const gen = ax('question:string -> answer:string', {
+          functions: [tool('lookup', 'data')],
+        });
+        const ai = scriptedAI(
+          [
+            [
+              content('Answer: Looking '),
+              { ...call('c1', 'lookup'), content: 'up data' },
+              ...(suffix ? [content(suffix)] : []),
+            ],
+            [content('Answer: done')],
+          ],
+          prompts
+        );
+
+        const out = await gen.forward(ai, { question: 'q' }, { stream });
+
+        expect(out).toEqual({ answer: 'done' });
+        expect(prompts).toHaveLength(2);
+        expect(prompts[1]).toContainEqual(
+          expect.objectContaining({
+            role: 'assistant',
+            content: `Answer: Looking up data${suffix}`,
+            functionCalls: [
+              {
+                id: 'c1',
+                type: 'function',
+                function: { name: 'lookup', params: '{}' },
+              },
+            ],
+          })
+        );
+        expect(prompts[1]).toContainEqual(
+          expect.objectContaining({
+            role: 'function',
+            functionId: 'c1',
+            result: 'data',
+          })
+        );
+      }
+    }
+  );
+
   it('runs asserts and field processors only on the answering step', async () => {
     for (const stream of [false, true]) {
       const gen = ax('question:string -> answer:string', {
