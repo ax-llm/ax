@@ -16528,10 +16528,6 @@ def _stream_chunk_content_impl(gen: AxGen, config: Any, state: Any, result: Any)
     calls = _core_get(result, "functionCalls", calls_snake)
     call_count = _core_len(calls)
     has_calls = _core_gt(call_count, 0)
-    if has_calls:
-        return deltas
-    else:
-        pass
     chunk_text = _core_get(result, "content", "")
     is_text = _core_type_is(chunk_text, "string")
     not_text = _core_not(is_text)
@@ -16547,6 +16543,10 @@ def _stream_chunk_content_impl(gen: AxGen, config: Any, state: Any, result: Any)
     old_content = _core_get(state, "content", "")
     content = _core_string_concat_stream_text(old_content, chunk_text)
     state["content"] = content
+    if has_calls:
+        return deltas
+    else:
+        pass
     empty_fields = []
     fields = _core_get(config, "fields", empty_fields)
     decisions = _evidence_has_fields_impl(fields)

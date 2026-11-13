@@ -23,3 +23,10 @@ repairing commas, numbers, dangling keys, or primitive literals. Its structural
 comma scan tracks quotes and escapes. Public `streaming_forward` regressions
 assert intermediate deltas as well as the final output, preventing temporary
 string corruption from being hidden by the completed JSON.
+
+Text accompanying tool-call deltas accumulates in the sample's content before
+the tool branch returns. It does not trigger extraction on that chunk, but a
+later text-only chunk sees the complete text. Conversation history uses the
+same cumulative text through `fold_chat_response_stream`. The mixed-tool-text
+fixtures pin incremental deltas and the next request's assistant/tool messages
+for streaming and non-streaming calls, including fragmented tool arguments.
