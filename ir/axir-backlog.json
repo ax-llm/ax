@@ -3718,7 +3718,7 @@
     },
     {
       "id": "axir-2026-11-12-preserve-cumulative-assistant-text-around-streamed-tool-calls",
-      "status": "open",
+      "status": "done",
       "title": "Preserve cumulative assistant text around streamed tool calls",
       "createdAt": "2026-11-12",
       "sourcePR": 887,
@@ -3734,17 +3734,17 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-11-13",
+      "completedByCommit": "010f9922486e6f90f33a239e529da461aeb5ca9c",
+      "verification": "Seven TS-derived mixed-tool-text fixtures pass in Python, Java, C++, Go, and Rust. AxIR dev verification passed all five targets (2127 conformance fixtures each); the initial parallel Rust run failed an unchanged two-second session timing assertion, then all 78 Rust unit tests and full Rust dev verification passed on rerun. Conformance sync, strict Core checks, package freshness, generated examples and public MCP compilation, website checks, and skill mirrors passed."
     },
     {
       "id": "axir-2026-11-13-add-gemini-4-hydrogen-model-support",
       "status": "done",
       "title": "Add Gemini 4 Hydrogen model support",
       "createdAt": "2026-11-13",
-      "sourcePR": null,
-      "sourceCommit": "6af66c2608129a5720d07322fdaa94e4d3aaed49",
+      "sourcePR": 892,
+      "sourceCommit": "dcbe2fb57eb6b40c6e287031fa43ca7a41829eef",
       "tsPaths": [
         "src/ax/ai/google-gemini/api.ts",
         "src/ax/ai/google-gemini/info.ts",

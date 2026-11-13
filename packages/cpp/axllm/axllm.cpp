@@ -36960,9 +36960,6 @@ Value Core::_stream_chunk_content_impl(Value gen, Value config, Value state, Val
   Value calls = Core::get(result, Value("functionCalls"), calls_snake);
   Value call_count = Core::len(calls);
   Value has_calls = Core::gt(call_count, Value(0));
-  if (Core::truthy(has_calls)) {
-    return deltas;
-  }
   Value chunk_text = Core::get(result, Value("content"), Value(""));
   Value is_text = Core::type_is(chunk_text, Value("string"));
   Value not_text = Core::not_(is_text);
@@ -36976,6 +36973,9 @@ Value Core::_stream_chunk_content_impl(Value gen, Value config, Value state, Val
   Value old_content = Core::get(state, Value("content"), Value(""));
   Value content = Core::string_concat_stream_text(old_content, chunk_text);
   Core::set(state, Value("content"), content);
+  if (Core::truthy(has_calls)) {
+    return deltas;
+  }
   Value empty_fields = Value::array();
   Value fields = Core::get(config, Value("fields"), empty_fields);
   Value decisions = Core::_evidence_has_fields_impl(fields);

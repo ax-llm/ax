@@ -73603,11 +73603,6 @@ func _stream_chunk_content_impl(args ...Value) (Value, error) {
 	v_calls = coreGet(v_result, "functionCalls", v_calls_snake)
 	v_call_count = _core_len(v_calls)
 	v_has_calls = _core_gt(v_call_count, 0)
-	if coreTruthy(v_has_calls) {
-		return v_deltas, nil
-	} else {
-	// empty
-	}
 	v_chunk_text = coreGet(v_result, "content", "")
 	v_is_text = coreTypeIs(v_chunk_text, "string")
 	v_not_text = _core_not(v_is_text)
@@ -73625,6 +73620,11 @@ func _stream_chunk_content_impl(args ...Value) (Value, error) {
 	v_old_content = coreGet(v_state, "content", "")
 	v_content = _core_string_concat_stream_text(v_old_content, v_chunk_text)
 	if err := coreSet(v_state, "content", v_content); err != nil { return nil, err }
+	if coreTruthy(v_has_calls) {
+		return v_deltas, nil
+	} else {
+	// empty
+	}
 	v_empty_fields = MutableArray()
 	v_fields = coreGet(v_config, "fields", v_empty_fields)
 	{ v, err := _evidence_has_fields_impl(v_fields); if err != nil { return nil, err }; v_decisions = v }

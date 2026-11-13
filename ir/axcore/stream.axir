@@ -3628,16 +3628,13 @@ module @ax.stream version "0.1" {
       // processStreamingResult after the thought: content appends to the
       // sample's text, which structured routes reparse as partial JSON and
       // the text contract extracts field by field. Function-call chunks
-      // yield nothing.
+      // accumulate their text too, but yield nothing until a text-only chunk.
       %deltas = core.list
       %empty_calls = core.list
       %calls_snake = core.get %result["function_calls"] default %empty_calls
       %calls = core.get %result["functionCalls"] default %calls_snake
       %call_count = core.call intrinsic.len(%calls)
       %has_calls = core.call intrinsic.gt(%call_count, 0)
-      core.if %has_calls {
-        core.return %deltas
-      }
       %chunk_text = core.get %result["content"] default ""
       %is_text = core.type_is %chunk_text type "string"
       %not_text = core.call intrinsic.not(%is_text)
@@ -3651,6 +3648,9 @@ module @ax.stream version "0.1" {
       %old_content = core.get %state["content"] default ""
       %content = core.call intrinsic.string.concat_stream_text(%old_content, %chunk_text)
       core.set %state["content"] = %content
+      core.if %has_calls {
+        core.return %deltas
+      }
       %empty_fields = core.list
       %fields = core.get %config["fields"] default %empty_fields
       %decisions = core.call @evidence_has_fields_impl(%fields)

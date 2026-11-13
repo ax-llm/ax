@@ -35178,9 +35178,6 @@ final class Core {
     Object calls = Core.get(result, "functionCalls", calls_snake);
     Object call_count = Core.len(calls);
     Object has_calls = Core.gt(call_count, 0);
-    if (Core.truthy(has_calls)) {
-      return deltas;
-    }
     Object chunk_text = Core.get(result, "content", "");
     Object is_text = Core.typeIs(chunk_text, "string");
     Object not_text = Core.not(is_text);
@@ -35194,6 +35191,9 @@ final class Core {
     Object old_content = Core.get(state, "content", "");
     Object content = Core.stringConcatStreamText(old_content, chunk_text);
     Core.set(state, "content", content);
+    if (Core.truthy(has_calls)) {
+      return deltas;
+    }
     Object empty_fields = new java.util.ArrayList<Object>();
     Object fields = Core.get(config, "fields", empty_fields);
     Object decisions = Core._evidence_has_fields_impl(fields);

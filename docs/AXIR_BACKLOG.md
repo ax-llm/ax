@@ -23,13 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-11-12-preserve-cumulative-assistant-text-around-streamed-tool-calls` [axgen] Preserve cumulative assistant text around streamed tool calls
-  - Status: open
-  - Source PR: #887
-  - Source commit: `26b2e15db1077d5a9e9eb10a61003fbbde55ae71`
-  - TS paths: `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/generate.streamParity.test.ts`
-  - Impact: Generated AxGen streaming implementations must accumulate text accompanying tool-call deltas and store the full assistant text in history before the next model request, matching handwritten TypeScript.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1545,9 +1539,20 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-11
   - Completed by: `acee6c4c9010c62f7a02589ce2405395e76e981f`
   - Verification: `Core-owned provider mapping and native clients in Python, Java, C++, Go, and Rust. All 60 TypeScript-derived Google Decisions fixtures, native credentials/retry/cancellation tests, and ten live provider examples passed across the generated languages. All 91 compiler tests passed across split runs; the monolithic npm run test:axir reached its 30-minute Go-test limit, and its remaining tests and Core check/lint/provenance/lower phases were completed separately. All five release verifications passed; Java was rerun sequentially after a parallel cancellation timing failure. Also passed axir:conformance:check, profiles:check, axir:check-packages, test:examples:generated, TypeScript provider/schema tests and build, doc:build:markdown, skills:check, website:check, formatting, lint, spelling, and git diff --check.`
+- `axir-2026-11-12-preserve-cumulative-assistant-text-around-streamed-tool-calls` [axgen] Preserve cumulative assistant text around streamed tool calls
+  - Status: done
+  - Source PR: #887
+  - Source commit: `26b2e15db1077d5a9e9eb10a61003fbbde55ae71`
+  - TS paths: `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/generate.streamParity.test.ts`
+  - Impact: Generated AxGen streaming implementations must accumulate text accompanying tool-call deltas and store the full assistant text in history before the next model request, matching handwritten TypeScript.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-13
+  - Completed by: `010f9922486e6f90f33a239e529da461aeb5ca9c`
+  - Verification: `Seven TS-derived mixed-tool-text fixtures pass in Python, Java, C++, Go, and Rust. AxIR dev verification passed all five targets (2127 conformance fixtures each); the initial parallel Rust run failed an unchanged two-second session timing assertion, then all 78 Rust unit tests and full Rust dev verification passed on rerun. Conformance sync, strict Core checks, package freshness, generated examples and public MCP compilation, website checks, and skill mirrors passed.`
 - `axir-2026-11-13-add-gemini-4-hydrogen-model-support` [axai] Add Gemini 4 Hydrogen model support
   - Status: done
-  - Source commit: `6af66c2608129a5720d07322fdaa94e4d3aaed49`
+  - Source PR: #892
+  - Source commit: `dcbe2fb57eb6b40c6e287031fa43ca7a41829eef`
   - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/info.ts`, `src/ax/ai/google-gemini/types.ts`
   - Impact: Port Hydrogen catalog pricing and limits, xhigh thinking mapping, numeric budget rejection, sampling restrictions, and the single-segment output cap to generated languages. Keep Gemini 3 highest mapped to high; Hydrogen has no explicit context caching.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
