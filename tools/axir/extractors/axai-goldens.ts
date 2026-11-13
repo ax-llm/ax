@@ -17403,3 +17403,293 @@ for (const [id, assistant] of [
     );
   }
 }
+// Hydrogen fixtures record the TypeScript request and cost oracle. Core owns
+// the behavior once, and each generated language executes the same fixtures.
+const normalizeHydrogenResponse = (response: any) => ({
+  results: response.results.map((entry: any) => ({
+    index: entry.index,
+    content: entry.content,
+    finish_reason: entry.finishReason,
+    function_calls: [],
+  })),
+  model_usage: response.modelUsage
+    ? {
+        ai: 'google-gemini',
+        model: response.modelUsage.model,
+        tokens: Object.fromEntries(
+          Object.entries(response.modelUsage.tokens).map(([key, value]) => [
+            key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+            value,
+          ])
+        ),
+      }
+    : null,
+});
+const hydrogenModel = AxAIGoogleGeminiModel.Gemini4Hydrogen;
+const hydrogenCases: {
+  name: string;
+  vertex?: boolean;
+  model?: AxAIGoogleGeminiModel;
+  preset?: boolean;
+  config?: Record<string, any>;
+  options?: Record<string, any>;
+  stream?: boolean;
+  error?: string;
+}[] = [
+  { name: 'default' },
+  {
+    name: 'model-key',
+    preset: true,
+    options: { thinkingTokenBudget: 'highest' },
+  },
+  {
+    name: 'gemini3-highest-regression',
+    model: AxAIGoogleGeminiModel.Gemini38Flash,
+    options: { thinkingTokenBudget: 'highest' },
+  },
+  {
+    name: 'gemini3-xhigh-clamped',
+    model: AxAIGoogleGeminiModel.Gemini38Flash,
+    config: { thinkingLevel: 'xhigh' },
+  },
+  ...[false, true].flatMap((vertex) =>
+    ['none', 'minimal', 'low', 'medium', 'high', 'highest'].map((level) => ({
+      name: `${vertex ? 'vertex-' : ''}thinking-${level}`,
+      vertex,
+      config: { maxTokens: 4096 },
+      options: { thinkingTokenBudget: level, showThoughts: true },
+    }))
+  ),
+  { name: 'native-xhigh', config: { thinkingLevel: 'xhigh' } },
+  { name: 'native-minimal', config: { thinkingLevel: 'minimal' } },
+  {
+    name: 'logical-overrides-native',
+    config: { thinkingLevel: 'xhigh' },
+    options: { thinkingTokenBudget: 'low' },
+  },
+  {
+    name: 'custom-highest-mapping',
+    config: { thinkingLevelMapping: { highest: 'medium' } },
+    options: { thinkingTokenBudget: 'highest' },
+  },
+  ...[false, true].map((vertex) => ({
+    name: `${vertex ? 'vertex-' : ''}sampling`,
+    vertex,
+    config: {
+      temperature: 0.2,
+      topP: 0.8,
+      topK: 20,
+      presencePenalty: 0.4,
+      frequencyPenalty: 0.2,
+      n: 3,
+    },
+  })),
+  {
+    name: 'stream-xhigh',
+    stream: true,
+    options: { thinkingTokenBudget: 'highest' },
+  },
+  {
+    name: 'max-output-boundary',
+    config: { maxTokens: 65_536 },
+    options: { thinkingTokenBudget: 'low' },
+  },
+  ...(['standard', 'flex', 'priority'] as const).map((serviceTier) => ({
+    name: `service-tier-${serviceTier}`,
+    options: { serviceTier },
+  })),
+  {
+    name: 'numeric-budget-error',
+    options: { thinkingTokenBudget: 1024 },
+    error: 'not support numeric thinkingTokenBudget',
+  },
+  {
+    name: 'max-output-error',
+    config: { maxTokens: 65_537 },
+    options: { thinkingTokenBudget: 'highest' },
+    error: 'long decodes require continuation support',
+  },
+  ...[{}, { name: 'cachedContents/unsupported' }].map(
+    (contextCache, index) => ({
+      name: `explicit-cache-error-${index}`,
+      options: { contextCache },
+      error: 'Context caching is not supported',
+    })
+  ),
+  {
+    name: 'vertex-explicit-cache-error',
+    vertex: true,
+    options: { contextCache: {} },
+    error: 'Context caching is not supported',
+  },
+  {
+    name: 'stream-explicit-cache-error',
+    stream: true,
+    options: { contextCache: {} },
+    error: 'Context caching is not supported',
+  },
+];
+for (const scenario of hydrogenCases) {
+  const selectedModel = scenario.model ?? hydrogenModel;
+  const defaultModel = scenario.preset
+    ? AxAIGoogleGeminiModel.Gemini38Flash
+    : selectedModel;
+  const models = scenario.preset
+    ? [{ key: 'hydrogen', model: selectedModel, description: 'Hydrogen' }]
+    : undefined;
+  const calls: { url: string; json: any }[] = [];
+  const { thinkingLevel, ...modelConfig } = scenario.config ?? {};
+  const response = {
+    candidates: [
+      {
+        content: { parts: [{ text: 'Hydrogen ready.' }] },
+        finishReason: 'STOP',
+      },
+    ],
+    usageMetadata: {
+      promptTokenCount: 100,
+      candidatesTokenCount: 10,
+      totalTokenCount: 110,
+      cachedContentTokenCount: 20,
+      ...(scenario.options?.serviceTier
+        ? { serviceTier: scenario.options.serviceTier }
+        : {}),
+    },
+  };
+  const body = `data: ${JSON.stringify(response)}\n\n`;
+  const vertexOptions = scenario.vertex
+    ? { projectId: 'demo-project', region: 'global' }
+    : {};
+  const client = ai({
+    name: 'google-gemini',
+    apiKey: scenario.vertex ? async () => 'test-key' : 'test-key',
+    ...vertexOptions,
+    models,
+    config: {
+      model: defaultModel,
+      ...modelConfig,
+      ...(thinkingLevel ? { thinking: { thinkingLevel } } : {}),
+    },
+    options: {
+      fetch: async (input, init) => {
+        calls.push({
+          url: String(input),
+          json: JSON.parse(String(init?.body)),
+        });
+        return new Response(scenario.stream ? body : JSON.stringify(response), {
+          status: 200,
+          headers: {
+            'Content-Type': scenario.stream
+              ? 'text/event-stream'
+              : 'application/json',
+          },
+        });
+      },
+    },
+  } as any);
+  let result: any;
+  let errorMessage = '';
+  try {
+    result = await client.chat(
+      {
+        ...(scenario.preset ? { model: 'hydrogen' } : {}),
+        chatPrompt: [{ role: 'user', content: 'Hello Hydrogen.' }],
+      },
+      { ...scenario.options, stream: scenario.stream ?? false }
+    );
+    if (result instanceof ReadableStream) {
+      const chunks: any[] = [];
+      for await (const chunk of result) chunks.push(chunk);
+      result = chunks;
+    }
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+  if (scenario.error) {
+    if (!errorMessage.includes(scenario.error) || calls.length !== 0) {
+      throw new Error(
+        `Hydrogen ${scenario.name}: expected a local error, got ${errorMessage} and ${calls.length} requests`
+      );
+    }
+  } else if (errorMessage || calls.length !== 1) {
+    throw new Error(
+      `Hydrogen ${scenario.name}: ${errorMessage || 'missing request'}`
+    );
+  }
+  const wire = calls[0];
+  const fixture: Fixture = {
+    kind: scenario.stream ? 'ai_stream' : 'ai_chat',
+    provider: 'google-gemini',
+    model: defaultModel,
+    service_options: { ...vertexOptions, ...(models ? { models } : {}) },
+    request: {
+      ...(scenario.preset ? { model: 'hydrogen' } : {}),
+      chat_prompt: [{ role: 'user', content: 'Hello Hydrogen.' }],
+      model_config: { ...scenario.config, stream: scenario.stream ?? false },
+    },
+    options: scenario.options ?? {},
+    expected_transport_request_count: calls.length,
+    ...(scenario.error
+      ? { expected_error_contains: scenario.error }
+      : {
+          transport_responses: [
+            {
+              status: 200,
+              ...(scenario.stream ? { body } : { json: response }),
+            },
+          ],
+          expected_transport_request: {
+            url: wire!.url,
+            // Safety settings are provider defaults, outside the portable contract.
+            json: Object.fromEntries(
+              Object.entries(wire!.json).filter(
+                ([key]) => key !== 'safetySettings'
+              )
+            ) as Json,
+          },
+          expected_transport_json_absent: [
+            'generationConfig.temperature',
+            'generationConfig.topP',
+            'generationConfig.topK',
+            'generationConfig.frequencyPenalty',
+            'generationConfig.presencePenalty',
+            ...(selectedModel === hydrogenModel
+              ? ['generationConfig.candidateCount']
+              : []),
+            'generationConfig.thinkingConfig.thinkingBudget',
+            ...(wire!.json.generationConfig.thinkingConfig
+              ? []
+              : ['generationConfig.thinkingConfig']),
+            'cachedContent',
+          ],
+          expected_output: scenario.stream
+            ? result.map(normalizeHydrogenResponse)
+            : normalizeHydrogenResponse(result),
+          ...(!scenario.stream
+            ? {
+                expected_estimated_cost: client.getEstimatedCost(
+                  result.modelUsage
+                ),
+              }
+            : {}),
+        }),
+  };
+  writeFixture(`gemini-hydrogen-${scenario.name}`, fixture);
+}
+const hydrogenFeatures = ai({
+  name: 'google-gemini',
+  apiKey: 'test-key',
+  config: { model: hydrogenModel },
+}).getFeatures();
+writeFixture('gemini-hydrogen-features', {
+  kind: 'ai_provider_features',
+  provider: 'google-gemini',
+  model: hydrogenModel,
+  expected_output: {
+    functions: hydrogenFeatures.functions,
+    streaming: hydrogenFeatures.streaming,
+    thinking: hydrogenFeatures.thinking,
+    structured_outputs: hydrogenFeatures.structuredOutputs,
+    caching: hydrogenFeatures.caching as Json,
+  },
+});

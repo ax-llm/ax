@@ -1,0 +1,16 @@
+{
+  "expected_output": {
+    "caching": {
+      "supported": false,
+      "types": ["persistent"]
+    },
+    "functions": true,
+    "streaming": true,
+    "structured_outputs": true,
+    "thinking": true
+  },
+  "kind": "ai_provider_features",
+  "model": "gemini-4-hydrogen",
+  "name": "gemini-hydrogen-features",
+  "provider": "google-gemini"
+}

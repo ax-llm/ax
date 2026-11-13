@@ -1549,3 +1549,13 @@ No entries.
   - Completed at: 2026-11-13
   - Completed by: `010f9922486e6f90f33a239e529da461aeb5ca9c`
   - Verification: `Seven TS-derived mixed-tool-text fixtures pass in Python, Java, C++, Go, and Rust. AxIR dev verification passed all five targets (2127 conformance fixtures each); the initial parallel Rust run failed an unchanged two-second session timing assertion, then all 78 Rust unit tests and full Rust dev verification passed on rerun. Conformance sync, strict Core checks, package freshness, generated examples and public MCP compilation, website checks, and skill mirrors passed.`
+- `axir-2026-11-13-add-gemini-4-hydrogen-model-support` [axai] Add Gemini 4 Hydrogen model support
+  - Status: done
+  - Source PR: #892
+  - Source commit: `dcbe2fb57eb6b40c6e287031fa43ca7a41829eef`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/info.ts`, `src/ax/ai/google-gemini/types.ts`
+  - Impact: Port Hydrogen catalog pricing and limits, xhigh thinking mapping, numeric budget rejection, sampling restrictions, and the single-segment output cap to generated languages. Keep Gemini 3 highest mapped to high; Hydrogen has no explicit context caching.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-13
+  - Completed by: `dcbe2fb57eb6b40c6e287031fa43ca7a41829eef`
+  - Verification: `34 TypeScript-derived Hydrogen fixtures pass in all five generated languages. Full release verification passes for Python, Java, C++, Go, and Rust, each executing all 2,154 conformance fixtures; Java and Go were rerun after fixing per-call streaming options. Live Hydrogen calls pass in all five generated languages. The TypeScript workspace suite passes (4,123 tests, one existing skip), as do build, conformance sync, strict Core checking, lint, provenance, lowering, generated package consistency, generated examples, skills, and website checks.`
