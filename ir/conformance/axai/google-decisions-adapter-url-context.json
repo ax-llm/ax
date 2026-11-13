@@ -1,0 +1,92 @@
+{
+  "name": "google-decisions-adapter-url-context",
+  "kind": "ai_chat",
+  "provider": "google-gemini-decisions",
+  "model": "gemini-decision-1",
+  "request": {
+    "chatPrompt": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "url",
+            "url": "https://example.com"
+          }
+        ]
+      }
+    ],
+    "responseFormat": {
+      "type": "json_schema",
+      "schema": {
+        "name": "output",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "urgent": {
+              "type": "boolean",
+              "description": "Is this urgent?"
+            },
+            "team": {
+              "type": "string",
+              "enum": ["support", "billing"],
+              "description": "Which team?"
+            }
+          },
+          "required": ["urgent", "team"]
+        }
+      },
+      "fieldDescriptions": {
+        "urgent": {
+          "description": "Is this urgent?",
+          "valueDescriptions": {
+            "true": "Core task blocked",
+            "false": "Routine request"
+          }
+        },
+        "team": {
+          "description": "Which team?",
+          "valueDescriptions": {
+            "billing": "Invoice problems"
+          }
+        }
+      }
+    },
+    "modelConfig": {
+      "stream": false
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "answers": {
+        "urgent": {
+          "type": "noul",
+          "noul": 0.9,
+          "confidence": 0.9
+        },
+        "team": {
+          "type": "choice",
+          "choice": "billing",
+          "probabilities": {
+            "support": 0.2,
+            "billing": 0.8
+          },
+          "confidence": 0.8
+        }
+      },
+      "usage": {
+        "total_input_tokens": 20,
+        "total_output_tokens": 0,
+        "total_tokens": 20,
+        "input_tokens_by_modality": [
+          {
+            "modality": "text",
+            "tokens": 20
+          }
+        ]
+      }
+    }
+  ],
+  "expected_error_contains": "URL context",
+  "expected_transport_request_count": 0
+}

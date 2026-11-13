@@ -1,7 +1,7 @@
 ---
 name: "ax-python-agent-observability"
 description: "Use when writing Python code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging."
-version: "25.4.9"
+version: "25.4.10"
 ---
 # AxAgent Observability For Python
 
@@ -57,7 +57,7 @@ set_usage_observer(usage_queue.put_nowait)
 
 ## Relevant API Surface
 
-- AxAI: `ai`, `openai_decisions`, `AxAIOpenAIDecisionsClient`, `typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `dict[str, str]`, `Callable[[dict[str, str]], dict[str, str]]`, `AIClient.owned_worker_factory`, `AxChatSession`, `closable generator`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter.get_compatibility_report`, `ProviderRouter`
+- AxAI: `ai`, `google_gemini_decisions`, `AxAIGoogleGeminiDecisionsClient`, `openai_decisions`, `AxAIOpenAIDecisionsClient`, `typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `dict[str, str]`, `Callable[[dict[str, str]], dict[str, str]]`, `AIClient.owned_worker_factory`, `AxChatSession`, `closable generator`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter.get_compatibility_report`, `ProviderRouter`
 - Agents And RLM: `agent`, `AxAgent`, `AxAgent.add_child_agent`, `AxAgent.streaming_forward`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 

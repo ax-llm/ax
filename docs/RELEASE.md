@@ -214,6 +214,12 @@ root `axllm` package. For Rust, keep embedded runtime engines additive,
 feature-gated, and behind the existing `AxCodeRuntime` / `AxCodeSession`
 traits.
 
+Google Gemini Decisions parity includes native named questions and boolean/class/
+score signatures, text/image/audio/video/PDF input, native confidence, and zero
+output-token usage across Python, Java, C++, Go, and Rust. The release verifier
+runs TypeScript-derived fixtures plus native retry, credential-refresh, and
+cancellation tests for this provider.
+
 Typesafe/Jev parity includes native System One and model discovery, configurable
 boolean conversion, signature value descriptions, and schema-aware request eligibility
 in Python, Java, C++, Go, and Rust. Verification also exercises MCP WebSocket pending

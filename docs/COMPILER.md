@@ -334,6 +334,14 @@ array/nested decoding. AxGen decodes evidence before processors, assertions,
 traces, and caching, and emits complete evidence when streaming. Transport
 wrappers refresh credentials per retry and merge header names case-insensitively.
 
+Core owns Google Gemini Decisions in `ir/axcore/google_decisions.axir`: named
+Noul/Choice/Score questions, text/media/PDF input, request/response validation,
+signature conversion, native confidence (including booleans), zero-output usage,
+and requested-model provenance. All five generated languages expose native
+clients and the `google-gemini-decisions` provider. Target wrappers only handle
+transport, retries, request snapshots, renewable credentials, and cancellation.
+TypeScript-derived native, adapter, and AxGen fixtures cover these contracts.
+
 Core also owns Vertex routing for Gemini and Anthropic. Generated clients accept
 project, region, and optional endpoint identifiers; resolve `global`, `us`,
 `eu`, and regional hosts; preserve explicit base-URL precedence; and use the
@@ -446,6 +454,13 @@ npm run axir:backlog:validate
 `docs/AXIR_BACKLOG.md` is generated from it. CI checks this ledger before the
 full generated-backend verification so coding agents get a fast, command-first
 failure when portable TS changes need AxIR follow-up.
+
+Zod introspection is a TypeScript host bridge, not a generated-language API.
+The generated languages use native Ax field descriptors for arrays, classes,
+and optional fields. The `zod-v4-*` schema and validation fixtures compare
+those descriptors against the corrected TypeScript bridge from PR #886;
+Zod-specific validator callbacks and regex flags stay with the TypeScript host.
+See [`schema.axir` reference notes](../ir/axcore/schema.md).
 
 Some TypeScript integrations are intentionally host-specific rather than
 portable Ax semantics. Browser-only providers such as WebLLM should be tracked

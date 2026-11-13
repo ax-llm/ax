@@ -362,6 +362,35 @@ func TestDecisionsNativeAndAdapterCredentialRefresh(t *testing.T) {
  }
 }
 
+func TestGoogleDecisionsNativeAndAdapterCredentialRefresh(t *testing.T) {
+ for _,native:=range []bool{true,false} {
+  var calls,credentials atomic.Int32
+  server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+   count:=calls.Add(1)
+   if r.URL.Path!="/v1beta/decisions" || r.Method!="POST" { t.Error("wrong Decisions endpoint") }
+   if len(r.Header.Values("X-Goog-Api-Key"))!=1 || r.Header.Get("X-Goog-Api-Key")!=fmt.Sprintf("Bearer fresh-%d",count) {t.Error("credential precedence duplicated x-goog-api-key")}
+   if r.Header.Get("x-trace")!="kept" {t.Error("custom header lost")}
+   if count==1 {w.WriteHeader(429);_,_=w.Write([]byte(`{"error":"retry"}`));return}
+   _,_=w.Write([]byte(`{"answers":{"flag":{"type":"noul","noul":0.8,"confidence":0.8}},"usage":{"total_input_tokens":1,"total_output_tokens":0,"total_tokens":1}}`))
+  }))
+  provider:=AxCredentialProviderFunc(func(_ context.Context,request AxCredentialRequest)(map[string]string,error){
+   if request.Profile!="google-gemini-decisions" || request.Operation!="chat" {t.Error("wrong credential operation")}
+   return map[string]string{"x-goog-api-key":fmt.Sprintf("Bearer fresh-%d",credentials.Add(1))},nil
+  })
+  options:=map[string]Value{"api_key":"static","base_url":server.URL+"/v1beta","headers":Object("X-GOOG-API-KEY","Bearer custom","x-trace","kept"),"credential_provider":provider,"retry":Object("maxRetries",1,"initialDelayMs",1)}
+  nativeRequest:=asMap(parseJSON(`{"input":"red","questions":{"flag":{"type":"noul","instructions":"Is this red?"}}}`))
+  chatRequest:=asMap(parseJSON(`{"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}}`))
+  var call func(context.Context)(Value,error)
+  if native {client:=GoogleGeminiDecisions(options);call=func(ctx context.Context)(Value,error){return client.Create(ctx,nativeRequest,nil)}} else {client:=NewAI("google-gemini-decisions",options);call=func(ctx context.Context)(Value,error){return client.Chat(ctx,chatRequest,nil)}}
+  result,err:=call(context.Background());if err!=nil{server.Close();t.Fatal(err)}
+  if native {if coreGet(coreGet(coreGet(result,"answers",nil),"flag",nil),"noul",nil)!=0.8{t.Error("native probability changed")}} else {content:=coreGet(asSlice(coreGet(result,"results",nil))[0],"content",nil);if coreGet(parseJSON(display(content)),"flag",nil)!=true{t.Error("predicate threshold changed")}}
+  ctx,cancel:=context.WithCancel(context.Background());cancel()
+  if _,err=call(ctx);err==nil{t.Error("pre-aborted Decisions call accepted")}
+  if calls.Load()!=2 || credentials.Load()!=2 {t.Error("retry refresh or cancellation attempt count")}
+  server.Close()
+ }
+}
+
 func TestTypesafeImageBoxTypedAPI(t *testing.T) {
     box:=AxBox{Top:0.2,Bottom:0.8,Left:0.1,Right:0.7}
     server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){

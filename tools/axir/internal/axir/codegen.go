@@ -270,6 +270,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsHostCallable.java":     javaQuickJSHostCallable,
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsProtocolServer.java":   javaQuickJSProtocolServer,
 		"dev/axllm/ax/OpenAICompatibleClient.java":                    javaOpenAI,
+		"dev/axllm/ax/AxAIGoogleGeminiDecisionsClient.java":           javaGoogleDecisions,
 		"dev/axllm/ax/AxAIOpenAIDecisionsClient.java":                 javaDecisions,
 		"dev/axllm/ax/AxAITypesafeClient.java":                        javaTypesafe,
 		"dev/axllm/ax/OpenAIResponsesClient.java":                     javaOpenAIResponses,
@@ -801,6 +802,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"wire-field-extraction",
 			"typesafe-native-and-signatures",
 			"openai-decisions-native-and-signatures",
+			"google-gemini-decisions-native-and-signatures",
 			"mcp-websocket-pending-cleanup",
 			"schema",
 			"validation",
@@ -1161,6 +1163,8 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Summary: "Call supported providers through the shared provider descriptor registry, scripted transports, routers, and balancers.",
 			Symbols: []APIReferenceSymbol{
 				sym("ai", "function", "Create a provider client from a named deployment profile and options.", []string{"api key or credential provider", "model", "api URL", "headers", "transport"}, "AI client/service"),
+				sym("google_gemini_decisions", "function", "Create the native Google Gemini Decisions client for named yes/no, choice and score questions. Default model: gemini-decision-1.", []string{"API key or credential provider", "multimodal input", "timeout", "retry", "cancellation"}, "AxAIGoogleGeminiDecisionsClient"),
+				sym("AxAIGoogleGeminiDecisionsClient", "type", "Native create requests retain named answers, probability distributions, confidence, fractional scores and zero-output usage. Signature adapters accept required boolean/class/score fields.", []string{"create / Create", "named questions", "text/image/audio/video/PDF"}, "native Gemini Decisions response JSON"),
 				sym("openai_decisions", "function", "Create the native OpenAI Decisions client for ordered predicate, choice and score questions. Default model: gpt-6-luna.", []string{"API key or credential provider", "inline images", "timeout", "retry", "cancellation"}, "AxAIOpenAIDecisionsClient"),
 				sym("AxAIOpenAIDecisionsClient", "type", "Native create requests preserve ordered answers, refusals, distributions, fractional scores and full usage. Signature adapters accept required boolean/class fields.", []string{"create / Create", "question names", "boolean or string choices", "safety_identifier"}, "native Decisions response JSON"),
 				sym("typesafe", "function", "Create the native Typesafe/Jev client separately from ordinary AI services. Default model: jev-latest.", []string{"api key or credential provider", "endpoint", "transport", "timeout", "retry"}, "AxAITypesafeClient"),
@@ -1341,6 +1345,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "set_caching_function", "AxGlobals.setCachingFunction", "axllm::set_caching_function", "axllm.SetCachingFunction", "set_caching_function")
 	case "ax":
 		return mapTarget(target, "ax", "Ax.ax", "axllm::ax", "axllm.NewAx", "ax")
+	case "google_gemini_decisions":
+		return mapTarget(target, "google_gemini_decisions", "Ax.googleGeminiDecisions", "axllm::google_gemini_decisions", "axllm.GoogleGeminiDecisions", "google_gemini_decisions")
 	case "openai_decisions":
 		return mapTarget(target, "openai_decisions", "Ax.openaiDecisions", "axllm::openai_decisions", "axllm.OpenAIDecisions", "openai_decisions")
 	case "typesafe":
@@ -2005,6 +2011,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axai", "ai_responses_validation", "", "semantic"},
 		{"axai", "ai_typesafe_native", "", "transport-boundary"},
 		{"axai", "ai_decisions_native", "", "transport-boundary"},
+		{"axai", "ai_google_decisions_native", "", "transport-boundary"},
 		{"axai", "ai_session_events", "", "semantic"},
 		{"axai", "ai_session_state", "", "semantic"},
 		{"axai", "ai_stream", "", "transport-boundary"},
@@ -2394,7 +2401,7 @@ func packageREADME(model AxRuntimeModel, target string) string {
 		"- AxAI: select named deployment profiles independently from model IDs, resolve model-aware structured-output modes, and attach renewable request credentials through one provider boundary.",
 		"- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).",
 		"- Meta Muse: `meta` (Responses), `meta-chat` (Chat Completions), and `meta-messages` (Messages) default to `muse-spark-1.3` with `MODEL_API_KEY`. Muse Image uses chat and `results[].images`; Muse Voice uses batch transcription or realtime streaming chat. Contributor models expose provider-training data-use metadata and are never defaults. Glimmer uses the existing self-hosted profiles; Ax does not manage weights.",
-		"- Jev and OpenAI Decisions: use required boolean/class/rubric score signatures with (evidence) to retain probabilities, native values, optional confidence, and trusted provenance through AxGen. Generative models use the same contract with elicited evidence. Rerank query/document pairs by the continuous rubric score while preserving candidate IDs.",
+		"- Jev, OpenAI Decisions, and Google Gemini Decisions: use required boolean/class/rubric score signatures with (evidence) to retain probabilities, native values, optional confidence, and trusted provenance through AxGen. Generative models use the same contract with elicited evidence. Rerank query/document pairs by the continuous rubric score while preserving candidate IDs.",
 		"- Native decision clients: use explicit provider request shapes for advanced criteria, structured state, ordered questions, and provider-specific media. Normal evidence-bearing signatures support scores and answered/refused outcomes without calling these clients directly.",
 		"- AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.",
 		"- AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.",

@@ -15,6 +15,7 @@ export type AxDecisionProvenance = {
 export type AxBooleanEvidence = {
   readonly value: boolean;
   readonly probability: number;
+  readonly confidence?: number;
   readonly threshold: number;
   readonly provenance: AxDecisionProvenance;
 };
@@ -274,6 +275,11 @@ export function decodeDecisionValues(
           threshold,
           provenance: context.provenance,
         };
+        if (
+          context.provenance.source === 'native' &&
+          native?.confidence !== undefined
+        )
+          out.confidence = probability(native.confidence, path);
       } else {
         const labels =
           t.name === 'score' ? t.options!.map((_, i) => String(i)) : t.options!;

@@ -5,6 +5,7 @@ public final class Ax {
   public static double novelF1Score(String history, String prediction, String groundTruth) { return novelF1Score(history, prediction, groundTruth, false); }
   public static double novelF1Score(String history, String prediction, String groundTruth, boolean returnRecall) { return Core.asDouble(Core.eval_novel_f1(history, prediction, groundTruth, returnRecall)); }
 
+  public static AxAIGoogleGeminiDecisionsClient googleGeminiDecisions(java.util.Map<String,Object> options) { return new AxAIGoogleGeminiDecisionsClient(options); }
   public static AxAIOpenAIDecisionsClient openaiDecisions(java.util.Map<String,Object> options) { return new AxAIOpenAIDecisionsClient(options); }
   public static AxAITypesafeClient typesafe(java.util.Map<String, Object> options) { return new AxAITypesafeClient(options); }
   public static AxRunControl runControl() { return new AxRunControl(); }
@@ -96,7 +97,7 @@ public final class Ax {
     if (transport.equals("anthropic-messages")) {
       return new AnthropicClient(canonical, resolvedOptions);
     }
-    if (transport.equals("openai-chat") || transport.equals("typesafe-system-one") || transport.equals("openai-decisions")) {
+    if (transport.equals("openai-chat") || transport.equals("typesafe-system-one") || transport.equals("openai-decisions") || transport.equals("google-gemini-decisions")) {
       return new OpenAICompatibleClient(
         canonical,
         canonical,

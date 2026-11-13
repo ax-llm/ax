@@ -1,5 +1,19 @@
 # Changelog
 
+## [25.4.10](https://github.com/ax-llm/ax/compare/25.4.9...25.4.10) (2026-11-12)
+
+### Features
+
+* **ai:** add Google Gemini Decisions in TypeScript, Python, Java, C++, Go, and Rust, including native questions, multimodal inputs, decision evidence, and runnable examples ([#890](https://github.com/ax-llm/ax/pull/890)).
+
+### Bug Fixes
+
+* **ax:** preserve Zod 4 array element types and enum options while retaining validation flags and transforms ([#886](https://github.com/ax-llm/ax/pull/886)).
+
+### Generated-language parity
+
+* **axir:** verify the corresponding native array and enum behavior with seven conformance cases across Python, Java, C++, Go, and Rust, and document the TypeScript-only Zod bridge ([#888](https://github.com/ax-llm/ax/pull/888)).
+
 ## [25.4.9](https://github.com/ax-llm/ax/compare/25.4.8...25.4.9) (2026-11-06)
 
 ### Features

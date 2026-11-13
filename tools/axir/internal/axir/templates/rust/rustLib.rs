@@ -2595,7 +2595,9 @@ impl OpenAICompatibleClient {
             None => self.retried_transport_request(call, Some(("chat", &payload, &model)))?,
         };
         let profile = self.profile.clone();
-        let response_context = if profile == "openai-decisions" {
+        let response_context = if profile == "google-gemini-decisions" {
+            core_value_to_json(&google_decisions_response_context(&[core_value_from_json(&payload),core_value_from_json(&self.options),core_value_from_json(&req)])?)
+        } else if profile == "openai-decisions" {
             core_value_to_json(&decisions_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options), core_value_from_json(&req)])?)
         } else if profile == "typesafe" {
             core_value_to_json(&typesafe_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options), core_value_from_json(&req)])?)
@@ -2780,7 +2782,7 @@ impl OpenAICompatibleClient {
     }
 
     fn provider_transport_request(&self, operation: &str, payload: &Value, model: &str, stream: bool) -> AxResult<Value> {
-        if self.profile == "openai-decisions" {
+        if matches!(self.profile.as_str(), "openai-decisions" | "google-gemini-decisions") {
             if let Some(token) = current_cancellation_token() { token.throw_if_cancelled()?; }
         }
         let operation_descriptor = if self.profile == "typesafe" && operation == "models" { json!({"path":"/v1/models","method":"GET"}) } else { core_value_to_json(&provider_resolve_operation_descriptor(&[
@@ -4416,6 +4418,44 @@ impl AxAIOpenAIDecisionsClient {
     }
 }
 
+/// Native Gemini Decisions named questions, probability distributions and full usage.
+pub struct AxAIGoogleGeminiDecisionsClient { client: OpenAICompatibleClient }
+pub fn google_gemini_decisions(options: Value) -> AxResult<AxAIGoogleGeminiDecisionsClient> { Ok(AxAIGoogleGeminiDecisionsClient { client: ai("google-gemini-decisions", options)? }) }
+impl AxAIGoogleGeminiDecisionsClient {
+    pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self { self.client = self.client.with_transport(transport); self }
+    pub fn with_credential_provider(mut self, provider: impl AxCredentialProvider + 'static) -> Self { self.client = self.client.with_credential_provider(provider); self }
+    pub fn create(&mut self, request: Value) -> AxResult<Value> { self.create_with_options(request, json!({}), None) }
+    pub fn create_with_cancellation(&mut self, request: Value, cancellation: Option<&AxCancellationToken>) -> AxResult<Value> { self.create_with_options(request, json!({}), cancellation) }
+    pub fn create_with_options(&mut self, mut payload: Value, options: Value, cancellation: Option<&AxCancellationToken>) -> AxResult<Value> {
+        let parent = current_cancellation_token();
+        let combined = AxCancellationToken::default();
+        let mut subscriptions = Vec::new();
+        let active = if let (Some(parent), Some(per_call)) = (parent.as_ref(), cancellation) {
+            for token in [parent, per_call] {
+                let source = token.clone(); let target = combined.clone();
+                subscriptions.push(token.subscribe(move || { target.cancel(source.reason().unwrap_or_else(|| "cancelled".to_string())); }));
+            }
+            Some(&combined)
+        } else { cancellation.or(parent.as_ref()) };
+        let _scope = match active { Some(token) => Some(AxCancellationScope::enter(token)?), None => None };
+        google_decisions_require_object(&[core_value_from_json(&payload),CoreValue::from("request")])?;
+        if payload.get("model").is_none_or(Value::is_null) { payload["model"] = json!(self.client.model); }
+        google_decisions_validate_request(&[core_value_from_json(&payload)])?;
+        let inherited = self.client.options.clone();
+        let options = core_value_to_json(&provider_normalize_call_options(&[core_value_from_json(&options)])?);
+        self.client.options = merge_ai_options(&inherited, &options)?;
+        let result = (|| {
+            let model = payload["model"].as_str().unwrap_or("gemini-decision-1").to_string();
+            let call = self.client.provider_transport_request("chat", &payload, &model, false)?;
+            let raw = self.client.retried_transport_request(call, Some(("chat", &payload, &model)))?;
+            let decoded = google_decisions_decode_response(&[core_value_from_json(&raw),core_value_from_json(&payload["questions"])])?;
+            Ok(core_value_to_json(&decoded))
+        })();
+        self.client.options = inherited;
+        result
+    }
+}
+
 pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     let defaults = provider_defaults(provider)
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
@@ -4431,6 +4471,10 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .or_else(|| if vertex && matches!(profile.as_str(), "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
         .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else if reads_openai_env { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() } else { None })
         .unwrap_or_default();
+    if profile == "google-gemini-decisions" {
+        let threshold = options.get("trueThreshold").or_else(|| options.get("true_threshold")).cloned().unwrap_or(json!(0.5));
+        google_decisions_require_number(&[core_value_from_json(&threshold), CoreValue::from("trueThreshold"), CoreValue::Num(0.0), CoreValue::Num(1.0)])?;
+    }
     if profile == "openai-decisions" {
         let threshold = options.get("trueThreshold").or_else(|| options.get("true_threshold")).cloned().unwrap_or(json!(0.5));
         decisions_require_number(&[core_value_from_json(&threshold), CoreValue::from("trueThreshold"), CoreValue::Num(0.0), CoreValue::Num(1.0)])?;
@@ -11682,6 +11726,15 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
             let requests=Arc::new(Mutex::new(Vec::new()));
             let transport=RecordingTransport::new(vec![fixture["response"].clone()],requests.clone());
             let mut client=openai_decisions(json!({"api_key":"test-key"}))?.with_transport(transport);
+            let result=client.create(fixture["request"].clone());
+            if fixture.get("expected_error_contains").is_some(){expect_validation_result(result.map(|_|()),&fixture)?;}
+            else{expect_json_equal("native Decisions output",&result?,&fixture["expected_output"])?;}
+            expect_transport_request_subset(&fixture,&requests,&Arc::new(Mutex::new(Vec::new())))?;
+        },
+        "ai_google_decisions_native" => {
+            let requests=Arc::new(Mutex::new(Vec::new()));
+            let transport=RecordingTransport::new(vec![fixture["response"].clone()],requests.clone());
+            let mut client=google_gemini_decisions(json!({"api_key":"test-key"}))?.with_transport(transport);
             let result=client.create(fixture["request"].clone());
             if fixture.get("expected_error_contains").is_some(){expect_validation_result(result.map(|_|()),&fixture)?;}
             else{expect_json_equal("native Decisions output",&result?,&fixture["expected_output"])?;}
@@ -28293,6 +28346,47 @@ mod typesafe_native_tests {
                 assert_eq!(fresh.subscription_count(),0);
             } else {
                 let mut client=ai("openai-decisions",options)?.with_credential_provider(provider).with_transport(transport);
+                let input=json!({"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}});
+                let result=client.chat(input.clone())?;assert_eq!(serde_json::from_str::<Value>(result["results"][0]["content"].as_str().unwrap())?["flag"],true);
+                let _scope=AxCancellationScope::enter(&token)?;token.cancel("stop Decisions");
+                assert!(client.chat(input).unwrap_err().message.contains("stop Decisions"));
+            }
+            assert_eq!(*calls.lock().unwrap(),2);assert_eq!(*credentials.lock().unwrap(),2);assert_eq!(token.subscription_count(),0);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn google_decisions_native_and_adapter_credentials_retry_cancellation()->AxResult<()> {
+        for native in [true,false] {
+            let calls=Arc::new(Mutex::new(0));let captured=calls.clone();
+            let credentials=Arc::new(Mutex::new(0));let seen=credentials.clone();
+            let provider=move|request:&AxCredentialRequest|{
+                assert_eq!((&*request.profile,&*request.operation),("google-gemini-decisions","chat"));
+                let mut count=seen.lock().unwrap();*count+=1;
+                Ok(BTreeMap::from([("x-goog-api-key".into(),format!("Bearer fresh-{}",*count))]))
+            };
+            let transport=TestTransport(move|request:Value|{
+                let mut count=captured.lock().unwrap();*count+=1;
+                let headers=request["headers"].as_object().unwrap();
+                assert_eq!(headers.keys().filter(|key|key.eq_ignore_ascii_case("x-goog-api-key")).count(),1);
+                assert_eq!(headers["x-goog-api-key"],format!("Bearer fresh-{}",*count));assert_eq!(headers["x-trace"],"kept");
+                assert_eq!(request["url"],"https://generativelanguage.googleapis.com/v1beta/decisions");
+                if *count==1{return Ok(json!({"status":429,"json":{"error":"retry"}}))}
+                Ok(json!({"answers":{"flag":{"type":"noul","noul":0.8,"confidence":0.8}},"usage":{"total_input_tokens":1,"total_output_tokens":0,"total_tokens":1}}))
+            });
+            let options=json!({"api_key":"static","headers":{"X-GOOG-API-KEY":"Bearer custom","x-trace":"kept"},"retry":{"maxRetries":1,"initialDelayMs":1}});
+            let token=AxCancellationToken::default();
+            if native {
+                let mut client=google_gemini_decisions(options)?.with_credential_provider(provider).with_transport(transport);
+                let input=json!({"input":"red","questions":{"flag":{"type":"noul","instructions":"Is this red?"}}});
+                assert_eq!(client.create(input.clone())?["answers"]["flag"]["noul"],0.8);
+                let _parent_scope=AxCancellationScope::enter(&token)?;
+                token.cancel("stop Decisions");let fresh=AxCancellationToken::default();
+                assert!(client.create_with_cancellation(input,Some(&fresh)).unwrap_err().message.contains("stop Decisions"));
+                assert_eq!(fresh.subscription_count(),0);
+            } else {
+                let mut client=ai("google-gemini-decisions",options)?.with_credential_provider(provider).with_transport(transport);
                 let input=json!({"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}});
                 let result=client.chat(input.clone())?;assert_eq!(serde_json::from_str::<Value>(result["results"][0]["content"].as_str().unwrap())?["flag"],true);
                 let _scope=AxCancellationScope::enter(&token)?;token.cancel("stop Decisions");

@@ -154,6 +154,26 @@ Create a provider client from a named deployment profile and options.
 AxAIService client = Ax.ai("openai", Map.of("apiKey", System.getenv("OPENAI_API_KEY")));
 ```
 
+### `Ax.googleGeminiDecisions`
+
+Create the native Google Gemini Decisions client for named yes/no, choice and score questions. Default model: gemini-decision-1.
+
+- Canonical Ax concept: `google_gemini_decisions`
+- Kind: `function`
+- Form: `Ax.googleGeminiDecisions`
+- Returns: `AxAIGoogleGeminiDecisionsClient`
+- Important options: API key or credential provider, multimodal input, timeout, retry, cancellation
+
+### `AxAIGoogleGeminiDecisionsClient`
+
+Native create requests retain named answers, probability distributions, confidence, fractional scores and zero-output usage. Signature adapters accept required boolean/class/score fields.
+
+- Canonical Ax concept: `AxAIGoogleGeminiDecisionsClient`
+- Kind: `type`
+- Form: `AxAIGoogleGeminiDecisionsClient`
+- Returns: `native Gemini Decisions response JSON`
+- Important options: create / Create, named questions, text/image/audio/video/PDF
+
 ### `Ax.openaiDecisions`
 
 Create the native OpenAI Decisions client for ordered predicate, choice and score questions. Default model: gpt-6-luna.

@@ -295,12 +295,11 @@ function fieldToSchema(
           required: Object.keys(props),
           additionalProperties: false,
         };
-        if (type.name !== 'boolean')
-          schema.properties.confidence = {
-            type: 'number',
-            minimum: 0,
-            maximum: 1,
-          };
+        schema.properties.confidence = {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+        };
         if (type.evidence.onRefusal === 'return')
           schema = {
             anyOf: [

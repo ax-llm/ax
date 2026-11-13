@@ -115,6 +115,7 @@ function hasValidPrefix(name: string): boolean {
       name === 'ai' ||
       name === 'typesafe' ||
       name === 'openaiDecisions' ||
+      name === 'googleGeminiDecisions' ||
       name === 'agent' ||
       name === 'flow' ||
       name === 'eventRuntime' ||

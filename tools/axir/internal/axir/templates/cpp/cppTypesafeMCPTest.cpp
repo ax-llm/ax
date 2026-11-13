@@ -101,6 +101,37 @@ static void decisions_client(){
   }
 }
 
+struct GoogleDecisionsTransport:Transport {
+  int calls=0;
+  Value call(Value request)override {
+    calls++;auto headers=Core::get(request,"headers");int count=0;
+    for(auto key:Core::iter(Core::map_keys(headers)))if(display(key)=="X-Goog-Api-Key"||display(key)=="x-goog-api-key"||display(key)=="X-GOOG-API-KEY")count++;
+    check(count==1,"duplicate x-goog-api-key headers");
+    check(display(Core::get(headers,"x-goog-api-key"))=="Bearer fresh-"+std::to_string(calls),"credential precedence");
+    check(display(Core::get(headers,"x-trace"))=="kept","custom header lost");
+    check(display(Core::get(request,"url"))=="https://generativelanguage.googleapis.com/v1beta/decisions","wrong Decisions endpoint");
+    if(calls==1)return parse_json(R"({"status":429,"json":{"error":"retry"}})");
+    return parse_json(R"({"answers":{"flag":{"type":"noul","noul":0.8,"confidence":0.8}},"usage":{"total_input_tokens":1,"total_output_tokens":0,"total_tokens":1}})");
+  }
+};
+static void google_decisions_client(){
+  for(bool native:{true,false}){
+    GoogleDecisionsTransport transport;int credentials=0;
+    auto provider=[&](const AxCredentialRequest& request){check(request.profile=="google-gemini-decisions"&&request.operation=="chat","wrong credential operation");return std::map<std::string,std::string>{{"x-goog-api-key","Bearer fresh-"+std::to_string(++credentials)}};};
+    auto options=parse_json(R"({"api_key":"static","headers":{"X-GOOG-API-KEY":"Bearer custom","x-trace":"kept"},"retry":{"maxRetries":1,"initialDelayMs":1}})");
+    auto native_api=google_gemini_decisions(options,&transport,provider);
+    OpenAICompatibleClient adapter("google-gemini-decisions","Google Gemini Decisions",options,&transport,"gemini-decision-1","",provider);
+    auto input=parse_json(R"({"input":"red","questions":{"flag":{"type":"noul","instructions":"Is this red?"}}})");
+    auto chat=parse_json(R"({"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}})");
+    auto result=native?native_api.create(input):adapter.chat(chat);
+    check(!Core::get(result,native?"answers":"results").is_null(),"Decisions response missing");
+    AxCancellationToken token;AxCancellationScope parent_scope(&token);token.cancel("stop Decisions");AxCancellationToken fresh;
+    bool aborted=false;try{if(native)native_api.create(input,Value::object(),&fresh);else{AxCancellationScope scope(&token);adapter.chat(chat);}}catch(const AxError&){aborted=true;}
+    check(aborted&&transport.calls==2&&credentials==2,"Decisions retry refresh/cancellation count");
+    check(token.subscription_count()==0&&fresh.subscription_count()==0,"Decisions cancellation subscriptions leaked");
+  }
+}
+
 struct BoxTransport:Transport {
   Value call(Value request)override {
     check(display(Core::get(Core::get(request,"headers"),"TypeSafe-Danger-Zone-Images"))=="true","experimental image header");
@@ -115,4 +146,4 @@ static void image_box(){
   auto answer=std::get<TypesafeBox>(client.system_one(request).answers.at("target"));
   check(answer.box.top==0.2&&answer.confidence==0,"typed Box changed");
 }
-int main(){image_box();decisions_client();decisions_nested_validation();websocket();native_client();nested_validation();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}
+int main(){google_decisions_client();image_box();decisions_client();decisions_nested_validation();websocket();native_client();nested_validation();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}

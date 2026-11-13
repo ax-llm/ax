@@ -34,7 +34,7 @@ let llm = ai("openai", options)?;
 
 ## Decision evidence
 
-Add (evidence) to boolean/class/score/box signature outputs to retain probabilities, values, provenance, and native class/score confidence through AxGen. Boolean threshold 0.7 is local to that field; scalar fields still use provider trueThreshold. A plain score returns a continuous zero-based rubric index.
+Add (evidence) to boolean/class/score/box signature outputs to retain probabilities, values, provenance, and native boolean/class/score confidence through AxGen. Boolean threshold 0.7 is local to that field; scalar fields still use provider trueThreshold. A plain score returns a continuous zero-based rubric index.
 
 Native selected classes and continuous scores are preserved, even when they differ from argmax or a weighted mean. Generative providers elicit probabilities, derive values locally, omit confidence, and use provenance.source=elicited. Ax attaches actual provider/model provenance. The result shape does not make confidence or calibration comparable across models.
 
@@ -75,6 +75,18 @@ Use `openai_decisions` for explicit provider request shapes and native JSON inpu
 Core validates response names, kinds, rubric membership, finite bounds, and distributions summing to one within an inclusive 0.01 tolerance. Probabilities are never normalized. Native input is text or user messages containing input_text and inline input_image data URLs (up to 128 images). Hosted image URLs, audio, non-user roles, and tool items are rejected. Signature prompt/history becomes role-labelled text evidence in one user message. Numeric bounds never define a score rubric; optional, numeric, nested, array, freeform, tool, and sampling requests are rejected before transport.
 
 Use api_key/apiKey or renewable credential providers with shared timeout, retry, and cancellation. Fresh credential headers override static/custom headers case-insensitively on every attempt. Inherited and per-call cancellation both apply. The endpoint returns a completed result without token streaming. Public signature and native examples are under src/examples/rust/generation/.
+
+## Google Gemini Decisions
+
+Use the google-gemini-decisions provider for required boolean, class and rubric score signatures. Its default model is gemini-decision-1. Add (evidence) to retain native probabilities, confidence (including booleans), requested-model provenance, and the continuous score. Scalar booleans use trueThreshold/true_threshold (default 0.5); evidence fields use their own local threshold.
+
+Use `google_gemini_decisions` for named native questions. create/Create accepts input and a questions map. Noul requires instructions and optional criteria.true_description/false_description. Choice uses 2–255 named criteria mapped to strings (an empty description is allowed). Score uses 2–255 nonempty ordered descriptions; signature rubrics retain the shared 2–10-level limit. Instructions accept strings or text blocks. Question keys match [A-Za-z0-9_-]{1,64}; option keys are 1–128 characters and reject leading/trailing/control/non-ASCII whitespace.
+
+Input accepts strings or Interactions-style text, image, audio, video and PDF blocks. Media uses mime_type plus exactly one of base64 data or HTTPS uri; image/video resolution is optional. Serialize JSON objects to text. The signature adapter serializes conversation roles with separators and supports image/audio inputs and media/PDF file parts. PCM format conversion preserves sample rate. Generic URL context, YouTube, gs:// URIs, tools, prose, optional/nested/array/Box outputs, context caching, and Flex/Priority inference are unsupported.
+
+The Developer API uses POST /v1beta/decisions with x-goog-api-key. Renewable credentials override static/custom header names case-insensitively on each retry. Shared timeout, inherited/per-call cancellation and native request snapshots are preserved. There is no token streaming. Input and per-modality usage remain native, output tokens are always zero, and safety blocks surface as HTTP errors rather than per-question refusals. Noul stays in [0.01,0.99]; probabilities are validated without normalization. The provider does not echo a model, so provenance records the requested model.
+
+Runnable signature and native examples are under src/examples/rust/generation/. See https://aistudio.google.com/docs/decisions-api for the upstream contract.
 
 ## Named Deployment Profiles
 
@@ -177,7 +189,7 @@ Use the provider-backed Astra examples under `src/examples/rust/generation/`, `s
 
 ## Relevant API Surface
 
-- AxAI: `ai`, `openai_decisions`, `AxAIOpenAIDecisionsClient`, `typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `AxCredentialRequest`, `AxCredentialProvider`, `AxAIClient::owned_worker_factory`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter::get_compatibility_report`, `ProviderRouter`
+- AxAI: `ai`, `google_gemini_decisions`, `AxAIGoogleGeminiDecisionsClient`, `openai_decisions`, `AxAIOpenAIDecisionsClient`, `typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `AxCredentialRequest`, `AxCredentialProvider`, `AxAIClient::owned_worker_factory`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter::get_compatibility_report`, `ProviderRouter`
 
 ## Guardrails
 

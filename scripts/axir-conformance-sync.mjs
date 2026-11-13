@@ -483,6 +483,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'google-decisions-goldens.ts',
+      'Google Gemini Decisions'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'signature-goldens.ts',
       'AxSignature'
     );

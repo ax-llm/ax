@@ -25,6 +25,9 @@ import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
 from .signature import _core_string_utf8_length
+from .schema import _core_url_valid, _core_string_utf16_units
+
+def _core_string_codepoint_length(value): return len(value)
 
 def _core_string_index_of(value, needle, start=0):
     return str(value).find(str(needle), max(0, int(start)))
@@ -774,7 +777,7 @@ def ai(provider: str = "openai", **options):
         return GoogleGeminiClient(_profile=canonical, **options)
     if transport == "anthropic-messages":
         return AnthropicClient(_profile=canonical, **options)
-    if transport == "openai-decisions":
+    if transport in ("openai-decisions", "google-gemini-decisions"):
         options.setdefault("model", descriptor["defaultModel"])
         options.setdefault("base_url", descriptor["baseUrl"])
         return ProviderOperationClient(canonical, descriptor["name"], **options)
@@ -1314,6 +1317,8 @@ class ProviderOperationClient(AxBaseAI):
         # provider's sampling defaults (as its TS class starts from) under them,
         # after dropping the explicit ones the model rejects.
         self.model_config = copy.deepcopy(model_config or {})
+        if profile == "google-gemini-decisions":
+            google_decisions_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         if profile == "openai-decisions":
             decisions_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         if profile == "typesafe":
@@ -1361,7 +1366,7 @@ class ProviderOperationClient(AxBaseAI):
         )
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        if self.profile != "openai-decisions":
+        if self.profile not in ("openai-decisions", "google-gemini-decisions"):
             return super().chat(request, options)
         inherited = _check_cancelled(self.options)
         per_call = _check_cancelled(options)
@@ -1410,7 +1415,7 @@ class ProviderOperationClient(AxBaseAI):
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
             raw = self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, retry_options=options, timeout_ms=self._call_timeout_ms(options))
-        return provider_normalize_chat_response(self.profile, raw, self.name, model, decisions_response_context(payload, options, request) if self.profile == "openai-decisions" else typesafe_response_context(payload, options, request) if self.profile == "typesafe" else provider_response_context(payload, request.get("model_config") or {}, options))
+        return provider_normalize_chat_response(self.profile, raw, self.name, model, google_decisions_response_context(payload, options, request) if self.profile == "google-gemini-decisions" else decisions_response_context(payload, options, request) if self.profile == "openai-decisions" else typesafe_response_context(payload, options, request) if self.profile == "typesafe" else provider_response_context(payload, request.get("model_config") or {}, options))
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
         cancellation = _check_cancelled(options)
@@ -2290,6 +2295,47 @@ class AxAIOpenAIDecisionsClient:
 def openai_decisions(**options) -> AxAIOpenAIDecisionsClient:
     """Create a native Decisions client; predicate policies belong to the caller."""
     return AxAIOpenAIDecisionsClient(**options)
+
+
+class AxAIGoogleGeminiDecisionsClient:
+    """Native named yes/no, choice and rubric score questions with complete raw answers."""
+    def __init__(self, **options):
+        model = options.pop("model", "gemini-decision-1")
+        self._client = ai("google-gemini-decisions", model=model, **options)
+
+    def create(self, request: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = json.loads(json.dumps(request, allow_nan=False))
+        google_decisions_require_object(payload, "request")
+        if payload.get("model") is None:
+            payload["model"] = self._client.model
+        google_decisions_validate_request(payload)
+        raw = self._request("POST", "/decisions", payload, "chat", options)
+        return google_decisions_decode_response(raw, payload["questions"])
+
+    def _request(self, method, path, payload, operation, options):
+        opts = {**self._client.options, **provider_normalize_call_options(options)}
+        inherited = _check_cancelled(self._client.options)
+        per_call = _check_cancelled(options)
+        cancellation = inherited or per_call
+        subscriptions = []
+        try:
+            if inherited is not None and per_call is not None and inherited is not per_call:
+                cancellation = AxCancellationToken()
+                subscriptions.append(inherited.subscribe(lambda: cancellation.cancel(inherited.reason or "cancelled")))
+                subscriptions.append(per_call.subscribe(lambda: cancellation.cancel(per_call.reason or "cancelled")))
+            return self._request_with_cancellation(method, path, payload, operation, opts, cancellation)
+        finally:
+            for unsubscribe in subscriptions:
+                unsubscribe()
+
+    def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
+        client = copy.copy(self._client)
+        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts, timeout_ms=provider_call_timeout_ms(opts))
+
+
+def google_gemini_decisions(**options) -> AxAIGoogleGeminiDecisionsClient:
+    """Create a native Gemini Decisions client; decision thresholds belong to the caller."""
+    return AxAIGoogleGeminiDecisionsClient(**options)
 
 
 class OpenAICompatibleClient(ProviderOperationClient):

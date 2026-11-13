@@ -4,11 +4,7 @@
     "catalog": [
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -29,11 +25,7 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": [
-                "standard",
-                "flex",
-                "priority"
-              ],
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -56,18 +48,12 @@
             "type": "image"
           },
           {
-            "aliases": [
-              "gemini-3.1-flash-image-preview"
-            ],
+            "aliases": ["gemini-3.1-flash-image-preview"],
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": [
-                "standard",
-                "flex",
-                "priority"
-              ],
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -90,18 +76,12 @@
             "type": "image"
           },
           {
-            "aliases": [
-              "gemini-3-pro-image-preview"
-            ],
+            "aliases": ["gemini-3-pro-image-preview"],
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": [
-                "standard",
-                "flex",
-                "priority"
-              ],
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -137,11 +117,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -172,11 +148,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -227,10 +199,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -288,13 +257,7 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API",
@@ -323,13 +286,8 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": [
-                "text",
-                "image"
-              ],
-              "output": [
-                "image"
-              ]
+              "input": ["text", "image"],
+              "output": ["image"]
             },
             "name": "muse-image-1.0",
             "notSupported": {
@@ -339,9 +297,7 @@
             "provider": "meta",
             "supported": {
               "imageOutput": true,
-              "operations": [
-                "chat"
-              ]
+              "operations": ["chat"]
             },
             "type": "image"
           }
@@ -352,13 +308,7 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Chat Completions",
@@ -370,13 +320,7 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Messages",
@@ -386,10 +330,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -413,18 +354,9 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": true,
-          "thinkingLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
         },
         "defaultModel": "grok-4.6",
         "displayName": "xAI Grok",
@@ -457,11 +389,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -483,10 +411,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -508,11 +433,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -523,10 +444,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -548,10 +466,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -573,11 +488,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -588,11 +499,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "flex",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "flex", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -603,10 +510,7 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [
-            "standard",
-            "priority"
-          ],
+          "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -857,12 +761,24 @@
         "isDynamic": false,
         "models": [],
         "name": "openai-decisions"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "defaultModel": "gemini-decision-1",
+        "displayName": "Google Gemini Decisions",
+        "isDynamic": false,
+        "models": [],
+        "name": "google-gemini-decisions"
       }
     ],
     "modelCount": 4,
     "openaiFirstModel": null,
     "openaiModelTypes": [],
-    "providerCount": 51,
+    "providerCount": 52,
     "providerNames": [
       "google-gemini",
       "openai",
@@ -914,7 +830,8 @@
       "localai",
       "baseten-engine",
       "typesafe",
-      "openai-decisions"
+      "openai-decisions",
+      "google-gemini-decisions"
     ]
   },
   "kind": "ai_model_catalog_runtime",

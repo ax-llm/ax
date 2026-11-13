@@ -3669,6 +3669,54 @@
       "verification": "All 22 new TS-derived fixtures pass in Python, Java, C++, Go, and Rust. npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run test:examples:generated; npm run skills:check; npm run website:check."
     },
     {
+      "id": "axir-2026-11-10-keep-zod-v4-array-element-types-enum-values-and-checks-in-standa",
+      "status": "done",
+      "title": "Keep Zod 4 array element types and enum options in standard-schema conversion",
+      "createdAt": "2026-11-10",
+      "sourcePR": 886,
+      "sourceCommit": "e8888f89221ea14357547dfa63c85515926369f0",
+      "tsPaths": [
+        "src/ax/dsp/standardSchema.ts",
+        "src/ax/dsp/standardSchema.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript standard-schema conversion now retains Zod 4 array element types, including optional wrappers, and enum options in Ax fields and tool JSON schemas. Audit equivalent portable schema conversion for parity. Zod 4 constraints remain delegated to the original validator so regex flags and transformation order are preserved.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-11-12",
+      "completedByCommit": "f6959bcacf768f5cc98e703f10fbfce8cfe2da29",
+      "verification": "Audited the TypeScript-only Zod host boundary. All seven new TS-derived schema/validation fixtures pass directly in Python, Java, C++, Go, and Rust using existing native descriptors and Core helpers; no generated runtime change is required. Conformance synchronization, generated-package freshness, documentation website and skill checks pass; 78 backlog/conformance tooling and skill tests pass."
+    },
+    {
+      "id": "axir-2026-11-11-google-gemini-decisions",
+      "status": "done",
+      "title": "Port Google Gemini Decisions provider, native client and boolean confidence",
+      "createdAt": "2026-11-11",
+      "sourcePR": 890,
+      "sourceCommit": "acee6c4c9010c62f7a02589ce2405395e76e981f",
+      "tsPaths": [
+        "src/ax/ai/google-gemini-decisions",
+        "src/ax/ai/wrap.ts",
+        "src/ax/ai/catalog.ts",
+        "src/ax/ai/provider_profiles.ts",
+        "src/ax/dsp/decision.ts",
+        "src/ax/dsp/jsonSchema.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Add the google-gemini-decisions dedicated v1beta endpoint and typed native client, named noul/choice/score questions, multimodal input validation, decision evidence including boolean confidence, zero-output usage and catalog capabilities to generated languages.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-11-11",
+      "completedByCommit": "acee6c4c9010c62f7a02589ce2405395e76e981f",
+      "verification": "Core-owned provider mapping and native clients in Python, Java, C++, Go, and Rust. All 60 TypeScript-derived Google Decisions fixtures, native credentials/retry/cancellation tests, and ten live provider examples passed across the generated languages. All 91 compiler tests passed across split runs; the monolithic npm run test:axir reached its 30-minute Go-test limit, and its remaining tests and Core check/lint/provenance/lower phases were completed separately. All five release verifications passed; Java was rerun sequentially after a parallel cancellation timing failure. Also passed axir:conformance:check, profiles:check, axir:check-packages, test:examples:generated, TypeScript provider/schema tests and build, doc:build:markdown, skills:check, website:check, formatting, lint, spelling, and git diff --check."
+    },
+    {
       "id": "axir-2026-11-12-preserve-cumulative-assistant-text-around-streamed-tool-calls",
       "status": "open",
       "title": "Preserve cumulative assistant text around streamed tool calls",

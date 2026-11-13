@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.
-version: "25.4.9"
+version: "25.4.10"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -1267,3 +1267,16 @@ Anthropic `message_delta` counts are cumulative. Present input and cache counts
 replace earlier counts, including explicit zero; omitted or null fields retain
 previous values. Successive deltas retain the latest input, cache, and speed
 metadata while updating output tokens.
+
+
+### Google Gemini Decisions
+
+TypeScript, Python, Java, C++, Go, and Rust support the
+`google-gemini-decisions` provider (TypeScript: `ai({ name: 'google-gemini-decisions', apiKey })`) for
+required boolean, class, and rubric score signatures with `gemini-decision-1`.
+Use `(evidence)` for native probabilities/confidence or
+`googleGeminiDecisions({ apiKey }).create({ input, questions })` for native
+named questions and multimodal blocks. This dedicated Developer API endpoint
+uses `/v1beta/decisions`, bills input tokens, and returns zero output tokens.
+It does not support Vertex AI, tools, text generation, caching, or inference
+tiers. See `ax-typesafe.md` for criteria, media, validation, and examples.
