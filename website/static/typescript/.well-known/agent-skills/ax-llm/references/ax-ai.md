@@ -647,6 +647,32 @@ console.log(res.results[0]?.thought);
 console.log(res.results[0]?.content);
 ```
 
+### Gemini 4 Hydrogen
+
+Select `AxAIGoogleGeminiModel.Gemini4Hydrogen` (`gemini-4-hydrogen`) with
+`name: 'google-gemini'`. Hydrogen supports native structured output, tools,
+streaming, and multimodal input. Logical `thinkingTokenBudget` values `low`,
+`medium`, `high`, and `highest` map to `low`, `medium`, `high`, and `xhigh`.
+`none` and `minimal` map to `low`; `none` also hides returned thoughts.
+Omitting the level preserves Google's `high` default. Numeric thinking budgets
+are rejected. Native `config.thinking.thinkingLevel: 'xhigh'` is also supported;
+Gemini 3 models clamp `xhigh` to `high`.
+
+Hydrogen accepts `maxTokens` alongside a thinking level. Ax supports a single
+response segment of up to 65,536 output tokens and rejects larger output caps;
+automatic continuation for longer decodes is not implemented. The 1,048,576-token
+context limit includes both input and output. Sampling parameters are omitted,
+penalties and multiple candidates are not sent, and explicit `contextCache`
+is unsupported. Google's implicit caching still applies automatically.
+
+Run `npm run tsx src/examples/typescript/generation/gemini-hydrogen.ts` with
+`GOOGLE_APIKEY`. Python, Java, C++, Go, and Rust also support Hydrogen through
+the shared Core implementation and include runnable generation examples. Use
+`model: "gemini-4-hydrogen"` and the native package
+`thinkingTokenBudget` / `thinking_token_budget` option.
+See Google's [Hydrogen guide](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-hydrogen)
+and [pricing](https://aistudio.google.com/docs/pricing#gemini-4-hydrogen).
+
 ### Budget Levels
 
 | Level | Anthropic (tokens) | Gemini 2.5 (tokens) | Gemini 3 level |

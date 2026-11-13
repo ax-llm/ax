@@ -1,0 +1,24 @@
+{
+  "expected_error_contains": "long decodes require continuation support",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "gemini-4-hydrogen",
+  "name": "gemini-hydrogen-max-output-error",
+  "options": {
+    "thinkingTokenBudget": "highest"
+  },
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hello Hydrogen.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "maxTokens": 65537,
+      "stream": false
+    }
+  },
+  "service_options": {}
+}

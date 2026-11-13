@@ -7,6 +7,36 @@ import { AxAIGoogleGeminiEmbedModel, AxAIGoogleGeminiModel } from './types.js';
  */
 export const axModelInfoGoogleGemini: AxModelInfo[] = [
   {
+    // https://aistudio.google.com/docs/pricing#gemini-4-hydrogen
+    name: AxAIGoogleGeminiModel.Gemini4Hydrogen,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 1.5,
+    completionTokenCostPer1M: 7.5,
+    cacheReadTokenCostPer1M: 0.075,
+    serviceTierPricing: {
+      flex: {
+        promptTokenCostPer1M: 0.75,
+        completionTokenCostPer1M: 3.75,
+        cacheReadTokenCostPer1M: 0.0375,
+      },
+      priority: {
+        promptTokenCostPer1M: 2.7,
+        completionTokenCostPer1M: 13.5,
+        cacheReadTokenCostPer1M: 0.135,
+      },
+    },
+    // Unified input + output limit. Ax currently supports one output segment.
+    contextWindow: 1_048_576,
+    maxTokens: 65_536,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+    notSupported: { temperature: true, topP: true, topK: true },
+  },
+  {
     name: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
     currency: 'usd',
     characterIsToken: false,

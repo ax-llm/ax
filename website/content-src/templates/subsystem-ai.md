@@ -71,6 +71,24 @@ remains the compatibility alias for native JSON Schema support, not for every
 JSON response format. The selected rung is recorded with the chat log so runs
 remain comparable and debuggable.
 
+### Gemini 4 Hydrogen {#gemini-hydrogen}
+
+All six languages support `gemini-4-hydrogen` with the `google-gemini` profile.
+TypeScript also exposes `AxAIGoogleGeminiModel.Gemini4Hydrogen`. Set `thinkingTokenBudget` to `low`, `medium`, `high`,
+or `highest` (Google's `xhigh`). `none` and `minimal` use `low`; `none` also
+hides thoughts. Omitting the level preserves Google's default. Numeric budgets
+are rejected. `maxTokens` may be combined with a thinking level, up to 65,536
+output tokens per response; automatic continuation for longer decodes is not
+implemented. The model's 1,048,576-token context includes input and output.
+
+Hydrogen supports structured output and tools, ignores sampling controls, and
+uses implicit caching only. Explicit `contextCache` is unsupported.
+See the [runnable TypeScript example](https://github.com/ax-llm/ax/blob/main/src/examples/typescript/generation/gemini-hydrogen.ts).
+Python, Java, C++, Go, and Rust have equivalent runnable Hydrogen examples in
+their generation directories. Their request options accept `thinking_token_budget`
+and `model_config.max_tokens`; the native model config can also select
+`thinking_level: "xhigh"`.
+
 ### OpenAI Decisions {#openai-decisions}
 
 TypeScript supports `ai({ name: 'openai-decisions', apiKey })` with ordinary

@@ -1545,3 +1545,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-11
   - Completed by: `acee6c4c9010c62f7a02589ce2405395e76e981f`
   - Verification: `Core-owned provider mapping and native clients in Python, Java, C++, Go, and Rust. All 60 TypeScript-derived Google Decisions fixtures, native credentials/retry/cancellation tests, and ten live provider examples passed across the generated languages. All 91 compiler tests passed across split runs; the monolithic npm run test:axir reached its 30-minute Go-test limit, and its remaining tests and Core check/lint/provenance/lower phases were completed separately. All five release verifications passed; Java was rerun sequentially after a parallel cancellation timing failure. Also passed axir:conformance:check, profiles:check, axir:check-packages, test:examples:generated, TypeScript provider/schema tests and build, doc:build:markdown, skills:check, website:check, formatting, lint, spelling, and git diff --check.`
+- `axir-2026-11-13-add-gemini-4-hydrogen-model-support` [axai] Add Gemini 4 Hydrogen model support
+  - Status: done
+  - Source commit: `6af66c2608129a5720d07322fdaa94e4d3aaed49`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/info.ts`, `src/ax/ai/google-gemini/types.ts`
+  - Impact: Port Hydrogen catalog pricing and limits, xhigh thinking mapping, numeric budget rejection, sampling restrictions, and the single-segment output cap to generated languages. Keep Gemini 3 highest mapped to high; Hydrogen has no explicit context caching.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-13
+  - Completed by: `working-tree`
+  - Verification: `34 TypeScript-derived Hydrogen fixtures pass in Python, Java, C++, Go, and Rust. Live Hydrogen calls pass in all five generated languages. Java and Go streaming now preserve per-call thinking options. Conformance sync, strict Core checking, lint, provenance, lowering, generated package consistency, generated examples, skills, and website checks pass.`

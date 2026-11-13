@@ -18,20 +18,25 @@ import { resolveVertexAIHost } from '../vertex.js';
  */
 const isGemini3Model = (model: string): boolean => model.includes('gemini-3');
 
+const isGeminiHydrogen = (model: string): boolean =>
+  model.toLowerCase() === 'gemini-4-hydrogen';
+
 /**
- * Gemini 3.8 Flash, 3.7 Flash, 3.6 Flash, and 3.5 Flash-Lite use
+ * Hydrogen, Gemini 3.8 Flash, 3.7 Flash, 3.6 Flash, and 3.5 Flash-Lite use
  * server-managed sampling and ignore temperature, topP, and topK.
  */
 const usesServerManagedSampling = (model: string): boolean =>
+  isGeminiHydrogen(model) ||
   model === 'gemini-3.8-flash' ||
   model === 'gemini-3.7-flash' ||
   model === 'gemini-3.6-flash' ||
   model === 'gemini-3.5-flash-lite';
 
 /**
- * Current Gemini Flash models reject candidateCount and token penalties.
+ * Hydrogen and current Gemini Flash models reject multiple candidates and penalties.
  */
 const usesStrictFlashParameters = (model: string): boolean =>
+  isGeminiHydrogen(model) ||
   model === 'gemini-3.8-flash' ||
   model === 'gemini-3.7-flash' ||
   model === 'gemini-3.6-flash';
@@ -213,7 +218,8 @@ type AxGeminiLogicalThinkingLevel =
   | 'high'
   | 'highest';
 
-type AxGemini3ThinkingFamily =
+type AxGeminiThinkingFamily =
+  | 'hydrogen'
   | 'full'
   | 'no-minimal'
   | 'image'
@@ -229,10 +235,11 @@ const axGeminiLogicalThinkingLevels = new Set<AxGeminiLogicalThinkingLevel>([
   'highest',
 ]);
 
-const getGemini3ThinkingFamily = (
+const getGeminiThinkingFamily = (
   model: string
-): AxGemini3ThinkingFamily | undefined => {
+): AxGeminiThinkingFamily | undefined => {
   const normalized = model.toLowerCase();
+  if (isGeminiHydrogen(normalized)) return 'hydrogen';
   if (!isGemini3Model(normalized)) return undefined;
   // 3.8 Live rejects every thinking setting, including a thinking level.
   if (normalized === 'gemini-3.8-live') return 'unsupported';
@@ -249,11 +256,18 @@ const getGemini3ThinkingFamily = (
   return 'full';
 };
 
-const clampGemini3ThinkingLevel = (
+const clampGeminiThinkingLevel = (
   model: string,
-  level: AxAIGoogleGeminiThinkingLevel
+  requestedLevel: AxAIGoogleGeminiThinkingLevel
 ): AxAIGoogleGeminiThinkingLevel => {
-  switch (getGemini3ThinkingFamily(model)) {
+  const family = getGeminiThinkingFamily(model);
+  const level =
+    requestedLevel === 'xhigh' && family !== 'hydrogen'
+      ? 'high'
+      : requestedLevel;
+  switch (family) {
+    case 'hydrogen':
+      return level === 'minimal' ? 'low' : level;
     case 'image':
       return level === 'minimal' || level === 'low' ? 'minimal' : 'high';
     case 'legacy-pro':
@@ -292,13 +306,13 @@ const resolveGeminiThinkingConfig = ({
   const thinkingConfig: NonNullable<
     AxAIGoogleGeminiGenerationConfig['thinkingConfig']
   > = {};
-  const gemini3Family = getGemini3ThinkingFamily(model);
-  if (gemini3Family === 'unsupported') return thinkingConfig;
+  const thinkingFamily = getGeminiThinkingFamily(model);
+  if (thinkingFamily === 'unsupported') return thinkingConfig;
 
   if (direct?.thinkingTokenBudget !== undefined) {
-    if (gemini3Family) {
+    if (thinkingFamily) {
       throw new Error(
-        `Gemini 3 models (${model}) do not support numeric thinkingTokenBudget. ` +
+        `Gemini models (${model}) do not support numeric thinkingTokenBudget. ` +
           `Use a logical thinkingTokenBudget level or thinkingLevel instead.`
       );
     }
@@ -308,8 +322,8 @@ const resolveGeminiThinkingConfig = ({
         : direct.thinkingTokenBudget;
   }
 
-  if (direct?.thinkingLevel !== undefined && gemini3Family) {
-    thinkingConfig.thinkingLevel = clampGemini3ThinkingLevel(
+  if (direct?.thinkingLevel !== undefined && thinkingFamily) {
+    thinkingConfig.thinkingLevel = clampGeminiThinkingLevel(
       model,
       direct.thinkingLevel
     );
@@ -321,9 +335,9 @@ const resolveGeminiThinkingConfig = ({
 
   if (logicalLevel !== undefined) {
     if (typeof logicalLevel === 'number') {
-      if (gemini3Family) {
+      if (thinkingFamily) {
         throw new Error(
-          `Gemini 3 models (${model}) do not support numeric thinkingTokenBudget. ` +
+          `Gemini models (${model}) do not support numeric thinkingTokenBudget. ` +
             `Use a logical thinkingTokenBudget level instead.`
         );
       }
@@ -339,14 +353,14 @@ const resolveGeminiThinkingConfig = ({
         );
       }
 
-      if (gemini3Family) {
+      if (thinkingFamily) {
         const mappingKey = logicalLevel === 'none' ? 'minimal' : logicalLevel;
         const defaultLevel =
           mappingKey === 'highest'
-            ? 'high'
+            ? 'xhigh'
             : (mappingKey as AxAIGoogleGeminiThinkingLevel);
         const mappedLevel = thinkingLevelMapping?.[mappingKey] ?? defaultLevel;
-        thinkingConfig.thinkingLevel = clampGemini3ThinkingLevel(
+        thinkingConfig.thinkingLevel = clampGeminiThinkingLevel(
           model,
           mappedLevel
         );
@@ -586,7 +600,7 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
       low: 'low',
       medium: 'medium',
       high: 'high',
-      highest: 'high', // Gemini caps at 'high'
+      highest: 'xhigh', // Clamped to high on Gemini 3 models
     },
     ...axBaseAIDefaultConfig(),
   });
@@ -611,7 +625,7 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
         low: 'low',
         medium: 'medium',
         high: 'high',
-        highest: 'high', // Gemini caps at 'high'
+        highest: 'xhigh', // Clamped to high on Gemini 3 models
       },
       ...axBaseAIDefaultCreativeConfig(),
     });
@@ -1401,10 +1415,24 @@ class AxAIGoogleGeminiImpl
       ...effectiveMappings,
     });
 
-    // Validate: maxTokens cannot be set when thinkingLevel is used (Gemini limitation)
+    // Keep the existing Gemini 3 restriction; Hydrogen accepts an output cap.
+    // Long decodes need a continuation loop, which this adapter does not implement.
     const effectiveMaxTokens =
       req.modelConfig?.maxTokens ?? this.config.maxTokens;
-    if (thinkingConfig.thinkingLevel && effectiveMaxTokens !== undefined) {
+    if (
+      isGeminiHydrogen(model) &&
+      effectiveMaxTokens !== undefined &&
+      effectiveMaxTokens > 65_536
+    ) {
+      throw new Error(
+        'Gemini 4 Hydrogen maxTokens cannot exceed 65536: long decodes require continuation support.'
+      );
+    }
+    if (
+      !isGeminiHydrogen(model) &&
+      thinkingConfig.thinkingLevel &&
+      effectiveMaxTokens !== undefined
+    ) {
       throw new Error(
         `Cannot set maxTokens when using thinkingLevel with Gemini models. ` +
           `When thinking is enabled, the model manages output tokens automatically. ` +
@@ -2697,9 +2725,9 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       const numericBudget = cfg.thinking?.thinkingTokenBudget;
       if (typeof numericBudget === 'number') {
         const presetModel = String(anyItem.model ?? Config.model);
-        if (isGemini3Model(presetModel)) {
+        if (getGeminiThinkingFamily(presetModel)) {
           throw new Error(
-            `Gemini 3 models (${presetModel}) do not support numeric thinkingTokenBudget. ` +
+            `Gemini models (${presetModel}) do not support numeric thinkingTokenBudget. ` +
               `Use a logical thinkingTokenBudget level instead.`
           );
         }

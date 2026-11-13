@@ -725,6 +725,60 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.075,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 7.5,
+            "contextWindow": 1048576,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-4-hydrogen",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.5,
+            "provider": "google-gemini",
+            "serviceTierPricing": {
+              "flex": {
+                "cacheReadTokenCostPer1M": 0.0375,
+                "completionTokenCostPer1M": 3.75,
+                "promptTokenCostPer1M": 0.75
+              },
+              "priority": {
+                "cacheReadTokenCostPer1M": 0.135,
+                "completionTokenCostPer1M": 13.5,
+                "promptTokenCostPer1M": 2.7
+              }
+            },
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.15,
             "cacheWriteTokenCostPer1M": 1.5,
             "capabilities": {
@@ -8050,7 +8104,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 218,
+    "modelCount": 219,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
     "providerCount": 52,

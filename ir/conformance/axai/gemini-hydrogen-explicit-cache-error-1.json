@@ -1,0 +1,25 @@
+{
+  "expected_error_contains": "Context caching is not supported",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "gemini-4-hydrogen",
+  "name": "gemini-hydrogen-explicit-cache-error-1",
+  "options": {
+    "contextCache": {
+      "name": "cachedContents/unsupported"
+    }
+  },
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hello Hydrogen.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {}
+}

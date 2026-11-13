@@ -1,0 +1,100 @@
+{
+  "expected_estimated_cost": 0.00009825,
+  "expected_output": {
+    "model_usage": {
+      "ai": "google-gemini",
+      "model": "gemini-4-hydrogen",
+      "tokens": {
+        "cache_read_tokens": 20,
+        "completion_tokens": 10,
+        "prompt_tokens": 80,
+        "service_tier": "flex",
+        "total_tokens": 110
+      }
+    },
+    "results": [
+      {
+        "content": "Hydrogen ready.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_json_absent": [
+    "generationConfig.temperature",
+    "generationConfig.topP",
+    "generationConfig.topK",
+    "generationConfig.frequencyPenalty",
+    "generationConfig.presencePenalty",
+    "generationConfig.candidateCount",
+    "generationConfig.thinkingConfig.thinkingBudget",
+    "generationConfig.thinkingConfig",
+    "cachedContent"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "Hello Hydrogen."
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "generationConfig": {
+        "responseMimeType": "text/plain"
+      },
+      "service_tier": "flex"
+    },
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "model": "gemini-4-hydrogen",
+  "name": "gemini-hydrogen-service-tier-flex",
+  "options": {
+    "serviceTier": "flex"
+  },
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hello Hydrogen.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "Hydrogen ready."
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "usageMetadata": {
+          "cachedContentTokenCount": 20,
+          "candidatesTokenCount": 10,
+          "promptTokenCount": 100,
+          "serviceTier": "flex",
+          "totalTokenCount": 110
+        }
+      },
+      "status": 200
+    }
+  ]
+}

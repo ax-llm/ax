@@ -6,14 +6,14 @@
       "type": "archive",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/skill.tar.gz",
-      "digest": "sha256:8f446df8f482534a706827b3fd508b3d811de9e9da452f025e6ec4840e4a8b80"
+      "digest": "sha256:b1781c616857e5827310d57f49cb80a2a6733ae46148e33b01a91018d500b9e9"
     },
     {
       "name": "ax-cpp-ai",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:829cb4c68f3cbaff4c3249d08a210981231b1c0fec60a1df1b1f8fb954ffaefc"
+      "digest": "sha256:d2aab965dbc6505ef73a54a0008a083f3dc6c08997cc554e52de9c0b42b7db11"
     },
     {
       "name": "ax-cpp-typesafe",

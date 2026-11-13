@@ -521,7 +521,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Core.validate_chat_request(req);
     callOptions.put("stream",true);if(cancellation!=null)callOptions.put("cancellation",cancellation);
     AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
-    Map<String, Object> modelConfig = Core.asMap(Core.merge_model_config(modelConfig(), req.get("model_config"), Map.of("stream", true)));
+    Map<String, Object> streamOptions = mergedOptions(callOptions);
+    Map<String, Object> modelConfig = Core.asMap(Core.merge_model_config(modelConfig(), req.get("model_config"), streamOptions));
     modelConfig.put("stream", true);
     // A request without a model, or with a null one (AxGen sends one when the
     // forward names no model), uses the client's model, as chat() does.
@@ -531,7 +532,6 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     // Streamed requests skip chat(), so gate them here the same way: only the
     // stream call's options (or a model-key entry) confirm an expensive model.
     Core.provider_require_expensive_model_confirmation(modelCatalogProvider(), String.valueOf(req.get("model") == null ? model : req.get("model")), this.options, AxRuntimeHooks.strip(callOptions));
-    Map<String, Object> streamOptions = mergedOptions(callOptions);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req, streamOptions));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
     String selectedModel = String.valueOf(modelName);

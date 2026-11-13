@@ -4180,6 +4180,18 @@ module @ax.provider version "0.1" {
         core.set %cache_features["types"] = %cache_types
         core.set %features["caching"] = %cache_features
       }
+      %transport = core.get %descriptor["transport"] default ""
+      %native_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
+      %hydrogen_model = core.call intrinsic.eq(%model, "gemini-4-hydrogen")
+      %hydrogen = core.call intrinsic.and(%native_gemini, %hydrogen_model)
+      core.if %hydrogen {
+        %cache_features = core.map
+        %cache_types = core.list
+        core.append %cache_types, "persistent"
+        core.set %cache_features["supported"] = false
+        core.set %cache_features["types"] = %cache_types
+        core.set %features["caching"] = %cache_features
+      }
       core.return %features
     }
   }
@@ -8311,12 +8323,25 @@ module @ax.provider version "0.1" {
       }
       core.set %payload["contents"] = %contents
       %model = core.get %request["model"] default "gemini-3.6-flash"
+      %is_hydrogen = core.call intrinsic.eq(%model, "gemini-4-hydrogen")
+      core.if %is_hydrogen {
+        %cache_snake = core.get %options["context_cache"]
+        %cache = core.get %options["contextCache"] default %cache_snake
+        %cache_object = core.type_is %cache type "object"
+        %cache_truthy = core.call intrinsic.truthy(%cache)
+        %cache_requested = core.call intrinsic.or(%cache_object, %cache_truthy)
+        core.if %cache_requested {
+          %error = core.call intrinsic.ai.error.unsupported("Context caching is not supported by this provider/model (Google Gemini/gemini-4-hydrogen). Remove the contextCache option.")
+          core.raise %error
+        }
+      }
       %is_gemini38_flash = core.call intrinsic.eq(%model, "gemini-3.8-flash")
       %is_gemini37_flash = core.call intrinsic.eq(%model, "gemini-3.7-flash")
       %is_gemini36_flash = core.call intrinsic.eq(%model, "gemini-3.6-flash")
       %is_gemini35_flash_lite = core.call intrinsic.eq(%model, "gemini-3.5-flash-lite")
       %server_managed_sampling_37 = core.call intrinsic.or(%is_gemini38_flash, %is_gemini37_flash)
       %strict_flash_parameters = core.call intrinsic.or(%server_managed_sampling_37, %is_gemini36_flash)
+      %strict_flash_parameters = core.call intrinsic.or(%strict_flash_parameters, %is_hydrogen)
       %server_managed_sampling = core.call intrinsic.or(%strict_flash_parameters, %is_gemini35_flash_lite)
       %generation_config = core.map
       core.set %generation_config["responseMimeType"] = "text/plain"
@@ -8368,6 +8393,14 @@ module @ax.provider version "0.1" {
     tag "gemini-thinking-level-model-clamp"
     type signature = "(string, string) -> string throws"
     body @entry(%model: string, %level: string) {
+      %is_hydrogen = core.call intrinsic.eq(%model, "gemini-4-hydrogen")
+      %is_xhigh = core.call intrinsic.eq(%level, "xhigh")
+      core.if %is_xhigh {
+        core.if %is_hydrogen {
+          core.return "xhigh"
+        }
+        core.return "high"
+      }
       %is_minimal = core.call intrinsic.eq(%level, "minimal")
       %is_low = core.call intrinsic.eq(%level, "low")
       %is_medium = core.call intrinsic.eq(%level, "medium")
@@ -8382,6 +8415,12 @@ module @ax.provider version "0.1" {
         core.raise %error
       }
 
+      core.if %is_hydrogen {
+        core.if %is_minimal {
+          core.return "low"
+        }
+        core.return %level
+      }
       %is_gemini3 = core.call intrinsic.contains(%model, "gemini-3")
       %is_image_name = core.call intrinsic.contains(%model, "-image")
       %is_image = core.call intrinsic.and(%is_gemini3, %is_image_name)
@@ -8433,6 +8472,8 @@ module @ax.provider version "0.1" {
       %has_thinking = core.let false
       %budget_is_none = core.let false
       %is_gemini3 = core.call intrinsic.contains(%model, "gemini-3")
+      %is_hydrogen = core.call intrinsic.eq(%model, "gemini-4-hydrogen")
+      %uses_thinking_level = core.call intrinsic.or(%is_gemini3, %is_hydrogen)
       %is_25_pro = core.call intrinsic.contains(%model, "gemini-2.5-pro")
       %empty_level_mapping = core.map
       %level_mapping_snake = core.get %model_config["thinking_level_mapping"] default %empty_level_mapping
@@ -8451,9 +8492,9 @@ module @ax.provider version "0.1" {
       core.if %has_budget {
         %budget_is_number = core.type_is %budget type "number"
         %budget_is_string = core.type_is %budget type "string"
-        core.if %is_gemini3 {
+        core.if %uses_thinking_level {
           core.if %budget_is_number {
-            %message = core.call intrinsic.string.format("Gemini 3 model {} does not support numeric thinkingTokenBudget", %model)
+            %message = core.call intrinsic.string.format("Gemini model {} does not support numeric thinkingTokenBudget", %model)
             %error = core.call intrinsic.ai.error.unsupported(%message)
             core.raise %error
           }
@@ -8486,7 +8527,7 @@ module @ax.provider version "0.1" {
           }
           %is_highest = core.call intrinsic.eq(%budget, "highest")
           core.if %is_highest {
-            %level = core.let "high"
+            %level = core.let "xhigh"
           }
           %unknown_level = core.call intrinsic.eq(%level, "")
           core.if %unknown_level {
@@ -8560,7 +8601,10 @@ module @ax.provider version "0.1" {
       %level_snake = core.get %model_config["thinking_level"]
       %explicit_level = core.get %model_config["thinkingLevel"] default %level_snake
       %has_explicit_level = core.call intrinsic.is_not_none(%explicit_level)
-      %use_explicit_level = core.call intrinsic.and(%is_gemini3, %has_explicit_level)
+      %use_explicit_level = core.call intrinsic.and(%uses_thinking_level, %has_explicit_level)
+      %hydrogen_budget = core.call intrinsic.and(%is_hydrogen, %has_budget)
+      %use_native_default = core.call intrinsic.not(%hydrogen_budget)
+      %use_explicit_level = core.call intrinsic.and(%use_explicit_level, %use_native_default)
       core.if %use_explicit_level {
         %level_is_string = core.type_is %explicit_level type "string"
         core.if %level_is_string {
@@ -8610,6 +8654,18 @@ module @ax.provider version "0.1" {
     body @entry(%payload: json, %model: string, %model_config: json, %server_managed_sampling: bool, %strict_flash_parameters: bool, %is_vertex: bool, %explicit_keys: json) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "maxOutputTokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "maxOutputTokens")
+      %is_hydrogen = core.call intrinsic.eq(%model, "gemini-4-hydrogen")
+      core.if %is_hydrogen {
+        %max_tokens = core.get %payload["maxOutputTokens"]
+        %has_max_tokens = core.call intrinsic.is_not_none(%max_tokens)
+        core.if %has_max_tokens {
+          %needs_continuation = core.call intrinsic.gt(%max_tokens, 65536)
+          core.if %needs_continuation {
+            %error = core.call intrinsic.ai.error.unsupported("Gemini 4 Hydrogen maxTokens cannot exceed 65536: long decodes require continuation support.")
+            core.raise %error
+          }
+        }
+      }
       %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
       core.if %client_managed_sampling {
         core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")

@@ -1,6 +1,7 @@
 import type { AxModelConfig, AxServiceTier } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
+  Gemini4Hydrogen = 'gemini-4-hydrogen',
   Gemini38Flash = 'gemini-3.8-flash',
   Gemini37Flash = 'gemini-3.7-flash',
   Gemini36Flash = 'gemini-3.6-flash',
@@ -177,7 +178,8 @@ export type AxAIGoogleGeminiThinkingLevel =
   | 'minimal'
   | 'low'
   | 'medium'
-  | 'high';
+  | 'high'
+  | 'xhigh';
 
 export type AxAIGoogleGeminiGenerationConfig = {
   temperature?: number;
@@ -297,7 +299,7 @@ export type AxAIGoogleGeminiThinkingTokenBudgetLevels = {
 };
 
 /**
- * Maps thinkingTokenBudget string levels to Gemini 3 thinkingLevel values.
+ * Maps thinkingTokenBudget string levels to Gemini 3+ thinkingLevel values.
  * The mapped result is clamped to the levels supported by the resolved model.
  */
 export type AxAIGoogleGeminiThinkingLevelMapping = {

@@ -5104,7 +5104,9 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 	if err := requireExpensiveModelConfirmation(c.Profile, request, coreGet(gateOptions, "model", nil), gateOptions, options); err != nil {
 		return nil, err
 	}
-	prepared, prepareErr := safeValue(func() Value { return c.prepareChatRequest(request, Object("stream", true)) })
+	streamConfigOptions := mergeAIOptions(gateOptions, stripRuntimeHooks(options))
+	streamConfigOptions["stream"] = true
+	prepared, prepareErr := safeValue(func() Value { return c.prepareChatRequest(request, streamConfigOptions) })
 	if prepareErr != nil { return nil, prepareErr }
 	realtimeRequest := asMap(prepared)
 	realtimeOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -5137,7 +5139,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, true, c.optionsSnapshot(), options)
 	open := func() (Value, error) {
 		return safeValue(func() Value {
-			req := c.prepareChatRequest(request, Object("stream", true))
+			req := c.prepareChatRequest(request, streamConfigOptions)
 			mustCore(validate_chat_request(req))
 			opts := c.optionsSnapshot()
 			model := coreGet(req, "model", coreGet(opts, "model", nil))
