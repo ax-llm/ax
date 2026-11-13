@@ -164,6 +164,7 @@ for await (const chunk of stream) {
 - A new version starts on a validation or refusal retry, and when a later step replaces output an earlier step already emitted (for example after a field processor's feedback); the thought so far is re-emitted in the new version. Versions never decrease.
 - In TypeScript, partial JSON repair preserves string text such as `, t`, `, n`, trailing punctuation, and commas before brackets inside strings. Structural repair applies outside strings so these fragments do not change into literals or repeat in merged deltas.
 - A streamed `code` field drops its fences wherever the chunks split: a fence that may still be incomplete is held back, as a partial label is, so the merged deltas equal the non-streaming value.
+- Text accompanying streamed tool calls is retained in the complete assistant history and in the content parsed by later text chunks.
 
 ## Stopping And Cancellation
 

@@ -106859,9 +106859,6 @@ fn _stream_chunk_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     );
     v_call_count = core_len(&[v_calls.clone()])?;
     v_has_calls = core_gt(&[v_call_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_calls) {
-        return Ok(v_deltas.clone());
-    }
     v_chunk_text = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
     v_is_text = core_type_is(&v_chunk_text, CoreValue::from("string"));
     v_not_text = core_not(&[v_is_text.clone()])?;
@@ -106875,6 +106872,9 @@ fn _stream_chunk_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     v_old_content = core_get(&v_state, &CoreValue::from("content"), CoreValue::from(""));
     v_content = core_string_concat_stream_text(&[v_old_content.clone(), v_chunk_text.clone()])?;
     core_set(&v_state, CoreValue::from("content"), v_content.clone())?;
+    if core_truthy(&v_has_calls) {
+        return Ok(v_deltas.clone());
+    }
     v_empty_fields = CoreValue::new_list();
     v_fields = core_get(
         &v_config,

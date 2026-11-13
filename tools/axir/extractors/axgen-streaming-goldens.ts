@@ -505,6 +505,8 @@ type Case = {
   // literal, which every runner's JSON text of the request must contain.
   pin_function_results?: boolean;
   pin_function_result_messages?: boolean;
+  // Pin the complete assistant tool-call turn and its result in the next request.
+  pin_tool_turn?: boolean;
   pin_thought_replay?: boolean;
   call_function_result_formatter?: { text?: string; throws?: string };
 };
@@ -790,6 +792,30 @@ async function record(name: string, spec: Case): Promise<void> {
       throw new Error(`${name}: no text user message to pin`);
     }
     fixture.expected_chat_prompt_contains = [JSON.stringify(user.content)];
+  }
+  if (spec.pin_tool_turn) {
+    const tail = ((prompts().at(-1) ?? []) as JsonMap[]).slice(-2);
+    const [assistant, result] = tail;
+    if (
+      assistant?.role !== 'assistant' ||
+      !Array.isArray(assistant.functionCalls) ||
+      result?.role !== 'function'
+    ) {
+      throw new Error(`${name}: no assistant/tool turn to pin`);
+    }
+    fixture.expected_last_request_tail = [
+      {
+        role: assistant.role,
+        content: assistant.content,
+        function_calls: clone(assistant.functionCalls),
+      },
+      {
+        role: result.role,
+        function_id: result.functionId,
+        result: result.result,
+        is_error: result.isError === true,
+      },
+    ];
   }
   if (error !== undefined) {
     // Without an explicit substring, pin TypeScript's first line, or its
@@ -3006,6 +3032,67 @@ for (const kind of ['forward', 'streaming_forward'] as const) {
     ],
   });
 }
+
+// PR #887: text on a tool-call delta belongs to the cumulative assistant
+// turn. A later text-only delta must also see it during incremental parsing.
+for (const suffix of ['', ' now.']) {
+  for (const mode of ['forward', 'stream-forward', 'streaming-forward']) {
+    const toolCall = call('lookup_1', 'lookup', '{"key":"a"}');
+    const first: ResponseSpec =
+      mode === 'forward'
+        ? {
+            results: [
+              {
+                index: 0,
+                content: `Answer: Looking up data${suffix}`,
+                function_calls: [toolCall],
+                finish_reason: 'function_call',
+              },
+            ],
+          }
+        : streamed(
+            text('Answer: Looking '),
+            chunk({ content: 'up data', function_calls: [toolCall] }),
+            ...(suffix ? [text(suffix)] : []),
+            chunk({ finish_reason: 'function_call' })
+          );
+    await record(`${mode}-mixed-tool-text-${suffix ? 'suffix' : 'terminal'}`, {
+      kind: mode === 'streaming-forward' ? 'streaming_forward' : 'forward',
+      signature: 'question:string -> answer:string',
+      tools: [lookupTool],
+      forward_options: { stream: mode !== 'forward' },
+      pin_tool_turn: true,
+      responses: [
+        first,
+        mode === 'forward'
+          ? { results: [{ index: 0, content: 'Answer: done' }] }
+          : streamed(done('Answer: done')),
+      ],
+    });
+  }
+}
+await record('streaming-forward-mixed-tool-text-fragments', {
+  signature: 'question:string -> answer:string',
+  tools: [lookupTool],
+  pin_tool_turn: true,
+  responses: [
+    streamed(
+      text('Answer: Looking '),
+      chunk({
+        content: 'up',
+        function_calls: [call('lookup_1', 'lookup', '{"key":')],
+      }),
+      chunk({
+        content: ' data',
+        function_calls: [call('lookup_1', '', '"a"')],
+      }),
+      chunk({ function_calls: [call('lookup_1', '', '}')] }),
+      text(' now.'),
+      chunk({ finish_reason: 'function_call' })
+    ),
+    streamed(done('Answer: done')),
+  ],
+});
 
 for (const [name, spec] of Object.entries(cases)) {
   await record(name, spec);
