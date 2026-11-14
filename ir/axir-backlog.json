@@ -3770,6 +3770,7 @@
       "sourceCommit": "cb4d34eba5b2a0c661126ee0fd31d61846715ec4",
       "tsPaths": [
         "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/anthropic/api.citations.test.ts",
         "src/ax/ai/types.ts"
       ],
       "portableSurface": "axai",
