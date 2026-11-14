@@ -3865,7 +3865,9 @@
         "src/ax/dsp/sig.ts",
         "src/ax/dsp/sigtypes.ts",
         "src/ax/dsp/types.ts",
-        "src/ax/dsp/util.ts"
+        "src/ax/dsp/util.ts",
+        "src/ax/dsp/sigtypes.test-d.ts",
+        "src/ax/dsp/usage.citations.test.ts"
       ],
       "portableSurface": "axgen",
       "impact": "Accept native document sources in file signature fields, retain cited response text blocks by result and block index in per-round chat logs, and preserve document citation locations in usage without merging request-local document identities across rounds.",

@@ -53,7 +53,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 - `axir-2026-11-14-port-native-document-values-and-citation-associations-through-ge` [axgen] Port native document values and citation associations through generation
   - Status: open
   - Source commit: `144d17e620d7a8b809e71114a986064618ff49ee`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/response/usage.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/util.ts`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/response/usage.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/util.ts`, `src/ax/dsp/sigtypes.test-d.ts`, `src/ax/dsp/usage.citations.test.ts`
   - Impact: Accept native document sources in file signature fields, retain cited response text blocks by result and block index in per-round chat logs, and preserve document citation locations in usage without merging request-local document identities across rounds.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
