@@ -256,7 +256,7 @@ export const axCreateDefaultColorLogger = (
       case 'ChatResponseCitations': {
         formattedMessage = `${cl.blueBright('\n[ CHAT RESPONSE CITATIONS ]')}\n`;
         typedData.value.forEach((citation) => {
-          formattedMessage += `${cl.white('- ')}${cl.cyan(citation.title || citation.url)}\n`;
+          formattedMessage += `${cl.white('- ')}${cl.cyan(citation.title || citation.documentTitle || citation.url || 'Document citation')}\n`;
           if (citation.description) {
             formattedMessage += `  ${cl.gray(citation.description)}\n`;
           }
@@ -431,7 +431,7 @@ export const axCreateDefaultTextLogger = (
       case 'ChatResponseCitations': {
         formattedMessage = '\n[ CHAT RESPONSE CITATIONS ]\n';
         typedData.value.forEach((citation) => {
-          formattedMessage += `- ${citation.title || citation.url}\n`;
+          formattedMessage += `- ${citation.title || citation.documentTitle || citation.url || 'Document citation'}\n`;
           if (citation.description) {
             formattedMessage += `  ${citation.description}\n`;
           }
