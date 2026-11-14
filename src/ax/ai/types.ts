@@ -532,7 +532,12 @@ export type AxChatResponseResult = {
 
 // Normalized citation shape used across providers
 export type AxCitation = {
-  url: string;
+  /**
+   * Source URL. Present for URL citations (Gemini grounding, Anthropic web
+   * search). Absent for Anthropic document citations, which point into a
+   * document supplied with the request instead of at a web page.
+   */
+  url?: string;
   title?: string;
   description?: string;
   license?: string;
@@ -542,6 +547,28 @@ export type AxCitation = {
   mediaId?: string;
   /** File Search multimodal (Gemini, May 2026): page numbers cited within the source. */
   pageNumbers?: number[];
+  /**
+   * Location kind, as reported by the provider. Anthropic document citations
+   * use `char_location`, `page_location`, or `content_block_location`; URL
+   * citations leave this unset.
+   */
+  type?: 'char_location' | 'page_location' | 'content_block_location';
+  /** Position of the cited document in the request's document list. */
+  documentIndex?: number;
+  /** Title of the cited document, when the request supplied one. */
+  documentTitle?: string;
+  /** `char_location`: first character of the cited span. */
+  startCharIndex?: number;
+  /** `char_location`: one past the last character of the cited span. */
+  endCharIndex?: number;
+  /** `page_location`: first page of the cited span (1-based). */
+  startPageNumber?: number;
+  /** `page_location`: one past the last page of the cited span. */
+  endPageNumber?: number;
+  /** `content_block_location`: first block of the cited span (0-based). */
+  startBlockIndex?: number;
+  /** `content_block_location`: one past the last block of the cited span. */
+  endBlockIndex?: number;
 };
 
 export type AxModelUsage = {

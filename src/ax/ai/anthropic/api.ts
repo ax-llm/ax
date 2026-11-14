@@ -19,6 +19,7 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
+  AxCitation,
   AxInternalChatRequest,
   AxModelConfig,
   AxModelInfo,
@@ -100,6 +101,69 @@ function mapAnthropicErrorEvent(error: {
     return new AxAIServiceStatusError(status, error.type, '', undefined, error);
   }
   return new AxAIRefusalError(error.message);
+}
+
+/**
+ * Anthropic reports two families of citations. URL citations (web search) carry a
+ * `url`. Document citations (a PDF or plain-text document sent with the request)
+ * carry a `type` plus offsets into that document instead of a URL. Only the first
+ * family used to survive the response mapper, so `char_location`, `page_location`,
+ * and `content_block_location` citations never reached callers — even though the
+ * cited span is the whole point of enabling citations on a document.
+ */
+function mapAnthropicCitation(
+  c: Record<string, unknown>
+): AxCitation | undefined {
+  const citation: AxCitation = {};
+
+  if (typeof c.url === 'string' && c.url.length > 0) {
+    citation.url = c.url;
+  }
+  if (typeof c.title === 'string') {
+    citation.title = c.title;
+  }
+  if (typeof c.cited_text === 'string') {
+    citation.snippet = c.cited_text;
+  }
+
+  const type = c.type;
+  if (
+    type === 'char_location' ||
+    type === 'page_location' ||
+    type === 'content_block_location'
+  ) {
+    citation.type = type;
+    if (typeof c.document_index === 'number') {
+      citation.documentIndex = c.document_index;
+    }
+    if (typeof c.document_title === 'string') {
+      citation.documentTitle = c.document_title;
+    }
+    if (type === 'char_location') {
+      if (typeof c.start_char_index === 'number') {
+        citation.startCharIndex = c.start_char_index;
+      }
+      if (typeof c.end_char_index === 'number') {
+        citation.endCharIndex = c.end_char_index;
+      }
+    } else if (type === 'page_location') {
+      if (typeof c.start_page_number === 'number') {
+        citation.startPageNumber = c.start_page_number;
+      }
+      if (typeof c.end_page_number === 'number') {
+        citation.endPageNumber = c.end_page_number;
+      }
+    } else {
+      if (typeof c.start_block_index === 'number') {
+        citation.startBlockIndex = c.start_block_index;
+      }
+      if (typeof c.end_block_index === 'number') {
+        citation.endBlockIndex = c.end_block_index;
+      }
+    }
+  }
+
+  return Object.keys(citation).length > 0 ? citation : undefined;
 }
 
 const isClaudeOpus47OrLater = (model: string): boolean =>
@@ -1041,13 +1105,11 @@ class AxAIAnthropicImpl
           // Map citations if present on the text block
           if (Array.isArray((block as any).citations)) {
             for (const c of (block as any).citations) {
-              if (c?.url) {
-                citations.push({
-                  url: String(c.url),
-                  title: typeof c.title === 'string' ? c.title : undefined,
-                  snippet:
-                    typeof c.cited_text === 'string' ? c.cited_text : undefined,
-                });
+              const citation = mapAnthropicCitation(
+                c as Record<string, unknown>
+              );
+              if (citation) {
+                citations.push(citation);
               }
             }
           }
@@ -1194,13 +1256,9 @@ class AxAIAnthropicImpl
         const annos: NonNullable<AxChatResponseResult['citations']> = [];
         if (Array.isArray((contentBlock as any).citations)) {
           for (const c of (contentBlock as any).citations) {
-            if (c?.url) {
-              annos.push({
-                url: String(c.url),
-                title: typeof c.title === 'string' ? c.title : undefined,
-                snippet:
-                  typeof c.cited_text === 'string' ? c.cited_text : undefined,
-              });
+            const citation = mapAnthropicCitation(c as Record<string, unknown>);
+            if (citation) {
+              annos.push(citation);
             }
           }
         }
@@ -1282,14 +1340,12 @@ class AxAIAnthropicImpl
       // Emit standalone annotations when Anthropic streams citations separately
       if ((delta as any).type === 'citations_delta') {
         const c = (delta as any).citation;
-        if (c && typeof c.url === 'string' && c.url.length > 0) {
+        const citation = c
+          ? mapAnthropicCitation(c as Record<string, unknown>)
+          : undefined;
+        if (citation) {
           const annos: NonNullable<AxChatResponseResult['citations']> = [
-            {
-              url: String(c.url),
-              title: typeof c.title === 'string' ? c.title : undefined,
-              snippet:
-                typeof c.cited_text === 'string' ? c.cited_text : undefined,
-            },
+            citation,
           ];
           return {
             results: [

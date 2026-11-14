@@ -23,6 +23,20 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-11-14-keep-anthropic-document-citations-instead-of-dropping-them` [axai] Keep Anthropic document citations instead of dropping them
+  - Status: open
+  - Source PR: #894
+  - Source commit: `cb4d34eba5b2a0c661126ee0fd31d61846715ec4`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.citations.test.ts`, `src/ax/ai/types.ts`
+  - Impact: Anthropic document citations (char_location, page_location, content_block_location) carry a cited span instead of a url; normalization must keep that span and its document index/title for both streaming and non-streaming responses.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-11-14-render-document-citations-without-urls-in-default-loggers` [axgen] Render document citations without URLs in default loggers
+  - Status: open
+  - Source PR: #894
+  - Source commit: `51dfd05ab98357e5b876b5a84bd6107cc05a49ae`
+  - TS paths: `src/ax/dsp/loggers.ts`
+  - Impact: Default loggers render a document title or fallback label when a citation has no URL.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-11-14-keep-a-shared-value-in-truncated-runtime-output-instead-of-repor` [axagent] Keep a shared value in truncated runtime output instead of reporting a cycle
   - Status: open
   - Source PR: #893
