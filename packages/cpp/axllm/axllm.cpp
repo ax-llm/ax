@@ -20791,9 +20791,21 @@ Value Core::_anthropic_normalize_chat_response(Value raw, Value ai_name, Value m
   Value thought_blocks = Value::array();
   Value citations = Value::array();
   Value empty_content = Value::array();
+  Value text_blocks = Value::array();
+  Value block_index = Value(0);
   Value content = Core::get(raw, Value("content"), empty_content);
   for (auto block : Core::iter(content)) {
     Core::_anthropic_merge_response_block_impl(text_parts, function_calls, thought_parts, thought_blocks, citations, block);
+    Value block_type = Core::get(block, Value("type"), Value(""));
+    Value is_text_block = Core::eq(block_type, Value("text"));
+    if (Core::truthy(is_text_block)) {
+      Value block_text = Core::get(block, Value("text"), Value(""));
+      Value block_citations = Value::array();
+      Core::_anthropic_append_citations_impl(block_citations, block);
+      Value text_block = Core::_anthropic_text_block_impl(block_index, block_text, block_citations);
+      Core::append(text_blocks, text_block);
+    }
+    block_index = Core::add(block_index, Value(1));
   }
   Value result = Value::object();
   Core::set(result, Value("index"), Value(0));
@@ -20806,6 +20818,10 @@ Value Core::_anthropic_normalize_chat_response(Value raw, Value ai_name, Value m
   }
   Value text = Core::string_join(Value(""), text_parts);
   Core::set(result, Value("content"), text);
+  Value has_text_blocks = Core::truthy_value(text_blocks);
+  if (Core::truthy(has_text_blocks)) {
+    Core::set(result, Value("text_blocks"), text_blocks);
+  }
   Core::set(result, Value("function_calls"), function_calls);
   Value has_calls = Core::truthy_value(function_calls);
   if (Core::truthy(has_calls)) {
@@ -20892,30 +20908,141 @@ Value Core::_anthropic_merge_response_block_impl(Value text_parts, Value functio
   return Value();
 }
 
+Value Core::_anthropic_map_citation_impl(Value citation) {
+  axir_coverage_mark("_anthropic_map_citation_impl");
+  Value item = Value::object();
+  Value url = Core::get(citation, Value("url"), Value(""));
+  Value url_is_string = Core::type_is(url, Value("string"));
+  Value url_nonempty = Core::ne(url, Value(""));
+  Value has_url = Core::and_(url_is_string, url_nonempty);
+  if (Core::truthy(has_url)) {
+    Core::set(item, Value("url"), url);
+  }
+  Value title = Core::get(citation, Value("title"), Value());
+  Value title_is_string = Core::type_is(title, Value("string"));
+  if (Core::truthy(title_is_string)) {
+    Core::set(item, Value("title"), title);
+  }
+  Value snippet = Core::get(citation, Value("cited_text"), Value());
+  Value snippet_is_string = Core::type_is(snippet, Value("string"));
+  if (Core::truthy(snippet_is_string)) {
+    Core::set(item, Value("snippet"), snippet);
+  }
+  Value type = Core::get(citation, Value("type"), Value(""));
+  Value is_char = Core::eq(type, Value("char_location"));
+  Value is_page = Core::eq(type, Value("page_location"));
+  Value is_block = Core::eq(type, Value("content_block_location"));
+  Value is_range = Core::or_(is_char, is_page);
+  Value is_document = Core::or_(is_range, is_block);
+  if (Core::truthy(is_document)) {
+    Core::set(item, Value("type"), type);
+    Value document_index = Core::get(citation, Value("document_index"), Value());
+    Value index_is_number = Core::type_is(document_index, Value("number"));
+    if (Core::truthy(index_is_number)) {
+      Core::set(item, Value("documentIndex"), document_index);
+    }
+    Value document_title = Core::get(citation, Value("document_title"), Value());
+    title_is_string = Core::type_is(document_title, Value("string"));
+    if (Core::truthy(title_is_string)) {
+      Core::set(item, Value("documentTitle"), document_title);
+    }
+    Value file_id = Core::get(citation, Value("file_id"), Value());
+    Value file_is_string = Core::type_is(file_id, Value("string"));
+    if (Core::truthy(file_is_string)) {
+      Core::set(item, Value("fileId"), file_id);
+    }
+    Value fields = Value::object();
+    if (Core::truthy(is_char)) {
+      Core::set(fields, Value("start_char_index"), Value("startCharIndex"));
+      Core::set(fields, Value("end_char_index"), Value("endCharIndex"));
+    }
+    if (Core::truthy(is_page)) {
+      Core::set(fields, Value("start_page_number"), Value("startPageNumber"));
+      Core::set(fields, Value("end_page_number"), Value("endPageNumber"));
+    }
+    if (Core::truthy(is_block)) {
+      Core::set(fields, Value("start_block_index"), Value("startBlockIndex"));
+      Core::set(fields, Value("end_block_index"), Value("endBlockIndex"));
+    }
+    Value keys = Core::map_keys(fields);
+    for (auto key : Core::iter(keys)) {
+      Value value = Core::get(citation, key, Value());
+      Value is_number = Core::type_is(value, Value("number"));
+      if (Core::truthy(is_number)) {
+        Value target = Core::get(fields, key, Value());
+        Core::set(item, target, value);
+      }
+    }
+  }
+  Value keep = Core::or_(has_url, is_document);
+  if (Core::truthy(keep)) {
+    return item;
+  }
+  return Value();
+}
+
 Value Core::_anthropic_append_citations_impl(Value out, Value block) {
   axir_coverage_mark("_anthropic_append_citations_impl");
   Value empty = Value::array();
   Value citations = Core::get(block, Value("citations"), empty);
-  for (auto citation : Core::iter(citations)) {
-    Value url = Core::get(citation, Value("url"), Value());
-    Value has_url = Core::truthy_value(url);
-    if (Core::truthy(has_url)) {
-      Value item = Value::object();
-      Core::set(item, Value("url"), url);
-      Value title = Core::get(citation, Value("title"), Value());
-      Value has_title = Core::is_not_none(title);
-      if (Core::truthy(has_title)) {
-        Core::set(item, Value("title"), title);
+  Value is_list = Core::type_is(citations, Value("list"));
+  if (Core::truthy(is_list)) {
+    for (auto citation : Core::iter(citations)) {
+      Value item = Core::_anthropic_map_citation_impl(citation);
+      Value keep = Core::is_not_none(item);
+      if (Core::truthy(keep)) {
+        Core::append(out, item);
       }
-      Value snippet = Core::get(citation, Value("cited_text"), Value());
-      Value has_snippet = Core::is_not_none(snippet);
-      if (Core::truthy(has_snippet)) {
-        Core::set(item, Value("snippet"), snippet);
-      }
-      Core::append(out, item);
     }
   }
   return Value();
+}
+
+Value Core::_anthropic_text_block_impl(Value index, Value text, Value citations) {
+  axir_coverage_mark("_anthropic_text_block_impl");
+  Value block = Value::object();
+  Core::set(block, Value("index"), index);
+  Core::set(block, Value("text"), text);
+  Value has_citations = Core::truthy_value(citations);
+  if (Core::truthy(has_citations)) {
+    Value copies = Value::array();
+    Value empty = Value::object();
+    for (auto citation : Core::iter(citations)) {
+      Value copy = Core::map_merge(citation, empty);
+      Core::append(copies, copy);
+    }
+    Core::set(block, Value("citations"), copies);
+  }
+  return block;
+}
+
+Value Core::_anthropic_stream_text_block_impl(Value state, Value index, Value text, Value citations, Value start) {
+  axir_coverage_mark("_anthropic_stream_text_block_impl");
+  Value key = Core::string_format(Value("text_block_{}"), index);
+  Value previous = Value::object();
+  if (Core::truthy(start)) {
+    // empty
+  }
+  if (!Core::truthy(start)) {
+    previous = Core::get(state, key, previous);
+  }
+  Value previous_text = Core::get(previous, Value("text"), Value(""));
+  text = Core::string_format(Value("{}{}"), previous_text, text);
+  Value all = Value::array();
+  Value empty = Value::array();
+  Value old_citations = Core::get(previous, Value("citations"), empty);
+  for (auto citation : Core::iter(old_citations)) {
+    Core::append(all, citation);
+  }
+  for (auto citation : Core::iter(citations)) {
+    Core::append(all, citation);
+  }
+  Value saved = Core::_anthropic_text_block_impl(index, text, all);
+  Core::set(state, key, saved);
+  Value snapshot = Core::_anthropic_text_block_impl(index, text, all);
+  Value out = Value::array();
+  Core::append(out, snapshot);
+  return out;
 }
 
 Value Core::_anthropic_finish_reason_impl(Value reason) {
@@ -21023,6 +21150,9 @@ Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai
       Core::set(result, Value("content"), text);
       Value citations = Value::array();
       Core::_anthropic_append_citations_impl(citations, block);
+      Value event_index = Core::get(event, Value("index"), Value(0));
+      Value text_blocks = Core::_anthropic_stream_text_block_impl(state, event_index, text, citations, Value(true));
+      Core::set(result, Value("text_blocks"), text_blocks);
       Value has_citations = Core::truthy_value(citations);
       if (Core::truthy(has_citations)) {
         Core::set(result, Value("citations"), citations);
@@ -21105,11 +21235,35 @@ Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai
     Value delta = Core::get(event, Value("delta"), Value());
     Value delta_type = Core::get(delta, Value("type"), Value(""));
     Value is_text_delta = Core::eq(delta_type, Value("text_delta"));
-    if (Core::truthy(is_text_delta)) {
+    Value is_citations_delta = Core::eq(delta_type, Value("citations_delta"));
+    Value is_text_update = Core::or_(is_text_delta, is_citations_delta);
+    if (Core::truthy(is_text_update)) {
       Value result = Value::object();
       Core::set(result, Value("index"), index);
       Value text = Core::get(delta, Value("text"), Value(""));
       Core::set(result, Value("content"), text);
+      Value citations = Value::array();
+      if (Core::truthy(is_citations_delta)) {
+        Value raw_citation = Core::get(delta, Value("citation"), Value());
+        Value citation = Core::_anthropic_map_citation_impl(raw_citation);
+        Value keep = Core::is_not_none(citation);
+        if (Core::truthy(keep)) {
+          Core::append(citations, citation);
+        }
+      }
+      if (!Core::truthy(is_citations_delta)) {
+        Core::_anthropic_append_citations_impl(citations, delta);
+      }
+      Value has_citations = Core::truthy_value(citations);
+      if (Core::truthy(has_citations)) {
+        Core::set(result, Value("citations"), citations);
+      }
+      Value valid_update = Core::or_(is_text_delta, has_citations);
+      if (Core::truthy(valid_update)) {
+        Value event_index = Core::get(event, Value("index"), Value(0));
+        Value text_blocks = Core::_anthropic_stream_text_block_impl(state, event_index, text, citations, Value(false));
+        Core::set(result, Value("text_blocks"), text_blocks);
+      }
       Value results = Value::array();
       Core::append(results, result);
       Value out = Value::object();

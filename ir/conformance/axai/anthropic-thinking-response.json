@@ -18,6 +18,12 @@
         "function_calls": [],
         "id": "msg_think",
         "index": 0,
+        "text_blocks": [
+          {
+            "index": 2,
+            "text": "Done."
+          }
+        ],
         "thought": "plansecret",
         "thought_blocks": [
           {

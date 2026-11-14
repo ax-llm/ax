@@ -17,6 +17,12 @@
         "function_calls": [],
         "id": "msg_sonnet55",
         "index": 0,
+        "text_blocks": [
+          {
+            "index": 3,
+            "text": "Done."
+          }
+        ],
         "thought": "Plan.opaque-oneopaque-two",
         "thought_blocks": [
           {
@@ -145,9 +151,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "query"
-          ],
+          "required": ["query"],
           "type": "object"
         }
       }

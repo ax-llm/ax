@@ -17,6 +17,12 @@
         "function_calls": [],
         "id": "msg_sonnet55",
         "index": 0,
+        "text_blocks": [
+          {
+            "index": 3,
+            "text": "Done."
+          }
+        ],
         "thought": "Plan.opaque-oneopaque-two",
         "thought_blocks": [
           {
@@ -36,10 +42,7 @@
       }
     ]
   },
-  "expected_transport_json_absent": [
-    "thinking",
-    "tool_choice"
-  ],
+  "expected_transport_json_absent": ["thinking", "tool_choice"],
   "expected_transport_request": {
     "json": {
       "messages": [
@@ -87,9 +90,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "answer"
-            ],
+            "required": ["answer"],
             "type": "object"
           },
           "type": "json_schema"
@@ -153,9 +154,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "answer"
-        ],
+        "required": ["answer"],
         "type": "object"
       },
       "type": "json_schema"

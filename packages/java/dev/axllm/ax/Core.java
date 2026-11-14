@@ -19017,9 +19017,21 @@ final class Core {
     Object thought_blocks = new java.util.ArrayList<Object>();
     Object citations = new java.util.ArrayList<Object>();
     Object empty_content = new java.util.ArrayList<Object>();
+    Object text_blocks = new java.util.ArrayList<Object>();
+    Object block_index = 0;
     Object content = Core.get(raw, "content", empty_content);
     for (Object block : Core.iter(content)) {
       Core._anthropic_merge_response_block_impl(text_parts, function_calls, thought_parts, thought_blocks, citations, block);
+      Object block_type = Core.get(block, "type", "");
+      Object is_text_block = Core.eq(block_type, "text");
+      if (Core.truthy(is_text_block)) {
+        Object block_text = Core.get(block, "text", "");
+        Object block_citations = new java.util.ArrayList<Object>();
+        Core._anthropic_append_citations_impl(block_citations, block);
+        Object text_block = Core._anthropic_text_block_impl(block_index, block_text, block_citations);
+        Core.append(text_blocks, text_block);
+      }
+      block_index = Core.add(block_index, 1);
     }
     Object result = new java.util.LinkedHashMap<String, Object>();
     Core.set(result, "index", 0);
@@ -19032,6 +19044,10 @@ final class Core {
     }
     Object text = Core.stringJoin("", text_parts);
     Core.set(result, "content", text);
+    Object has_text_blocks = Core.truthyValue(text_blocks);
+    if (Core.truthy(has_text_blocks)) {
+      Core.set(result, "text_blocks", text_blocks);
+    }
     Core.set(result, "function_calls", function_calls);
     Object has_calls = Core.truthyValue(function_calls);
     if (Core.truthy(has_calls)) {
@@ -19118,30 +19134,141 @@ final class Core {
     return null;
   }
 
+  static Object _anthropic_map_citation_impl(Object citation) {
+    axirCoverageMark("_anthropic_map_citation_impl");
+    Object item = new java.util.LinkedHashMap<String, Object>();
+    Object url = Core.get(citation, "url", "");
+    Object url_is_string = Core.typeIs(url, "string");
+    Object url_nonempty = Core.ne(url, "");
+    Object has_url = Core.and(url_is_string, url_nonempty);
+    if (Core.truthy(has_url)) {
+      Core.set(item, "url", url);
+    }
+    Object title = Core.get(citation, "title", null);
+    Object title_is_string = Core.typeIs(title, "string");
+    if (Core.truthy(title_is_string)) {
+      Core.set(item, "title", title);
+    }
+    Object snippet = Core.get(citation, "cited_text", null);
+    Object snippet_is_string = Core.typeIs(snippet, "string");
+    if (Core.truthy(snippet_is_string)) {
+      Core.set(item, "snippet", snippet);
+    }
+    Object type = Core.get(citation, "type", "");
+    Object is_char = Core.eq(type, "char_location");
+    Object is_page = Core.eq(type, "page_location");
+    Object is_block = Core.eq(type, "content_block_location");
+    Object is_range = Core.or(is_char, is_page);
+    Object is_document = Core.or(is_range, is_block);
+    if (Core.truthy(is_document)) {
+      Core.set(item, "type", type);
+      Object document_index = Core.get(citation, "document_index", null);
+      Object index_is_number = Core.typeIs(document_index, "number");
+      if (Core.truthy(index_is_number)) {
+        Core.set(item, "documentIndex", document_index);
+      }
+      Object document_title = Core.get(citation, "document_title", null);
+      title_is_string = Core.typeIs(document_title, "string");
+      if (Core.truthy(title_is_string)) {
+        Core.set(item, "documentTitle", document_title);
+      }
+      Object file_id = Core.get(citation, "file_id", null);
+      Object file_is_string = Core.typeIs(file_id, "string");
+      if (Core.truthy(file_is_string)) {
+        Core.set(item, "fileId", file_id);
+      }
+      Object fields = new java.util.LinkedHashMap<String, Object>();
+      if (Core.truthy(is_char)) {
+        Core.set(fields, "start_char_index", "startCharIndex");
+        Core.set(fields, "end_char_index", "endCharIndex");
+      }
+      if (Core.truthy(is_page)) {
+        Core.set(fields, "start_page_number", "startPageNumber");
+        Core.set(fields, "end_page_number", "endPageNumber");
+      }
+      if (Core.truthy(is_block)) {
+        Core.set(fields, "start_block_index", "startBlockIndex");
+        Core.set(fields, "end_block_index", "endBlockIndex");
+      }
+      Object keys = Core.mapKeys(fields);
+      for (Object key : Core.iter(keys)) {
+        Object value = Core.get(citation, key, null);
+        Object is_number = Core.typeIs(value, "number");
+        if (Core.truthy(is_number)) {
+          Object target = Core.get(fields, key, null);
+          Core.set(item, target, value);
+        }
+      }
+    }
+    Object keep = Core.or(has_url, is_document);
+    if (Core.truthy(keep)) {
+      return item;
+    }
+    return null;
+  }
+
   static Object _anthropic_append_citations_impl(Object out, Object block) {
     axirCoverageMark("_anthropic_append_citations_impl");
     Object empty = new java.util.ArrayList<Object>();
     Object citations = Core.get(block, "citations", empty);
-    for (Object citation : Core.iter(citations)) {
-      Object url = Core.get(citation, "url", null);
-      Object has_url = Core.truthyValue(url);
-      if (Core.truthy(has_url)) {
-        Object item = new java.util.LinkedHashMap<String, Object>();
-        Core.set(item, "url", url);
-        Object title = Core.get(citation, "title", null);
-        Object has_title = Core.isNotNone(title);
-        if (Core.truthy(has_title)) {
-          Core.set(item, "title", title);
+    Object is_list = Core.typeIs(citations, "list");
+    if (Core.truthy(is_list)) {
+      for (Object citation : Core.iter(citations)) {
+        Object item = Core._anthropic_map_citation_impl(citation);
+        Object keep = Core.isNotNone(item);
+        if (Core.truthy(keep)) {
+          Core.append(out, item);
         }
-        Object snippet = Core.get(citation, "cited_text", null);
-        Object has_snippet = Core.isNotNone(snippet);
-        if (Core.truthy(has_snippet)) {
-          Core.set(item, "snippet", snippet);
-        }
-        Core.append(out, item);
       }
     }
     return null;
+  }
+
+  static Object _anthropic_text_block_impl(Object index, Object text, Object citations) {
+    axirCoverageMark("_anthropic_text_block_impl");
+    Object block = new java.util.LinkedHashMap<String, Object>();
+    Core.set(block, "index", index);
+    Core.set(block, "text", text);
+    Object has_citations = Core.truthyValue(citations);
+    if (Core.truthy(has_citations)) {
+      Object copies = new java.util.ArrayList<Object>();
+      Object empty = new java.util.LinkedHashMap<String, Object>();
+      for (Object citation : Core.iter(citations)) {
+        Object copy = Core.mapMerge(citation, empty);
+        Core.append(copies, copy);
+      }
+      Core.set(block, "citations", copies);
+    }
+    return block;
+  }
+
+  static Object _anthropic_stream_text_block_impl(Object state, Object index, Object text, Object citations, Object start) {
+    axirCoverageMark("_anthropic_stream_text_block_impl");
+    Object key = Core.stringFormat("text_block_{}", index);
+    Object previous = new java.util.LinkedHashMap<String, Object>();
+    if (Core.truthy(start)) {
+      // empty
+    }
+    if (!Core.truthy(start)) {
+      previous = Core.get(state, key, previous);
+    }
+    Object previous_text = Core.get(previous, "text", "");
+    text = Core.stringFormat("{}{}", previous_text, text);
+    Object all = new java.util.ArrayList<Object>();
+    Object empty = new java.util.ArrayList<Object>();
+    Object old_citations = Core.get(previous, "citations", empty);
+    for (Object citation : Core.iter(old_citations)) {
+      Core.append(all, citation);
+    }
+    for (Object citation : Core.iter(citations)) {
+      Core.append(all, citation);
+    }
+    Object saved = Core._anthropic_text_block_impl(index, text, all);
+    Core.set(state, key, saved);
+    Object snapshot = Core._anthropic_text_block_impl(index, text, all);
+    Object out = new java.util.ArrayList<Object>();
+    Core.append(out, snapshot);
+    return out;
   }
 
   static Object _anthropic_finish_reason_impl(Object reason) {
@@ -19249,6 +19376,9 @@ final class Core {
         Core.set(result, "content", text);
         Object citations = new java.util.ArrayList<Object>();
         Core._anthropic_append_citations_impl(citations, block);
+        Object event_index = Core.get(event, "index", 0);
+        Object text_blocks = Core._anthropic_stream_text_block_impl(state, event_index, text, citations, Boolean.TRUE);
+        Core.set(result, "text_blocks", text_blocks);
         Object has_citations = Core.truthyValue(citations);
         if (Core.truthy(has_citations)) {
           Core.set(result, "citations", citations);
@@ -19331,11 +19461,35 @@ final class Core {
       Object delta = Core.get(event, "delta", null);
       Object delta_type = Core.get(delta, "type", "");
       Object is_text_delta = Core.eq(delta_type, "text_delta");
-      if (Core.truthy(is_text_delta)) {
+      Object is_citations_delta = Core.eq(delta_type, "citations_delta");
+      Object is_text_update = Core.or(is_text_delta, is_citations_delta);
+      if (Core.truthy(is_text_update)) {
         Object result = new java.util.LinkedHashMap<String, Object>();
         Core.set(result, "index", index);
         Object text = Core.get(delta, "text", "");
         Core.set(result, "content", text);
+        Object citations = new java.util.ArrayList<Object>();
+        if (Core.truthy(is_citations_delta)) {
+          Object raw_citation = Core.get(delta, "citation", null);
+          Object citation = Core._anthropic_map_citation_impl(raw_citation);
+          Object keep = Core.isNotNone(citation);
+          if (Core.truthy(keep)) {
+            Core.append(citations, citation);
+          }
+        }
+        if (!Core.truthy(is_citations_delta)) {
+          Core._anthropic_append_citations_impl(citations, delta);
+        }
+        Object has_citations = Core.truthyValue(citations);
+        if (Core.truthy(has_citations)) {
+          Core.set(result, "citations", citations);
+        }
+        Object valid_update = Core.or(is_text_delta, has_citations);
+        if (Core.truthy(valid_update)) {
+          Object event_index = Core.get(event, "index", 0);
+          Object text_blocks = Core._anthropic_stream_text_block_impl(state, event_index, text, citations, Boolean.FALSE);
+          Core.set(result, "text_blocks", text_blocks);
+        }
         Object results = new java.util.ArrayList<Object>();
         Core.append(results, result);
         Object out = new java.util.LinkedHashMap<String, Object>();
