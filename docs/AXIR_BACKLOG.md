@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-14-keep-a-shared-value-in-truncated-runtime-output-instead-of-repor` [axagent] Keep a shared value in truncated runtime output instead of reporting a cycle
+  - Status: open
+  - Source PR: #893
+  - Source commit: `82157fb38ddbc4877cd70c6c50c44f1b959f4d30`
+  - TS paths: `src/ax/agent/truncate.ts`, `src/ax/agent/truncate.test.ts`
+  - Impact: Runtime/tool output truncation must serialize an object once per occurrence; only an ancestor that contains itself is a cycle.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

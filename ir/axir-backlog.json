@@ -3760,6 +3760,28 @@
       "completedAt": "2026-11-13",
       "completedByCommit": "dcbe2fb57eb6b40c6e287031fa43ca7a41829eef",
       "verification": "34 TypeScript-derived Hydrogen fixtures pass in all five generated languages. Full release verification passes for Python, Java, C++, Go, and Rust, each executing all 2,154 conformance fixtures; Java and Go were rerun after fixing per-call streaming options. Live Hydrogen calls pass in all five generated languages. The TypeScript workspace suite passes (4,123 tests, one existing skip), as do build, conformance sync, strict Core checking, lint, provenance, lowering, generated package consistency, generated examples, skills, and website checks."
+    },
+    {
+      "id": "axir-2026-11-14-keep-a-shared-value-in-truncated-runtime-output-instead-of-repor",
+      "status": "open",
+      "title": "Keep a shared value in truncated runtime output instead of reporting a cycle",
+      "createdAt": "2026-11-14",
+      "sourcePR": 893,
+      "sourceCommit": "82157fb38ddbc4877cd70c6c50c44f1b959f4d30",
+      "tsPaths": [
+        "src/ax/agent/truncate.ts",
+        "src/ax/agent/truncate.test.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "Runtime/tool output truncation must serialize an object once per occurrence; only an ancestor that contains itself is a cycle.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

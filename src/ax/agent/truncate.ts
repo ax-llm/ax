@@ -157,7 +157,10 @@ function stringifyArray(arr: unknown[], maxChars: number): string {
 }
 
 function depthLimitedStringify(value: unknown, maxDepth: number): string {
-  const seen = new WeakSet<object>();
+  // Only the ancestors of the value being visited can form a cycle. Keeping
+  // every object ever seen would also collapse a value that is merely shared —
+  // the same object reached through two sibling keys is serialized twice.
+  const ancestors = new WeakSet<object>();
 
   const replacer = (depth: number) => {
     return (_key: string, val: unknown): unknown => {
@@ -166,10 +169,9 @@ function depthLimitedStringify(value: unknown, maxDepth: number): string {
       }
 
       // Circular reference guard
-      if (seen.has(val)) {
+      if (ancestors.has(val)) {
         return '[Circular]';
       }
-      seen.add(val);
 
       if (depth >= maxDepth) {
         if (Array.isArray(val)) {
@@ -178,19 +180,24 @@ function depthLimitedStringify(value: unknown, maxDepth: number): string {
         return '[Object]';
       }
 
-      // Recursively process with incremented depth
-      if (Array.isArray(val)) {
-        return val.map((item, i) => {
-          const inner = replacer(depth + 1)(String(i), item);
-          return inner;
-        });
-      }
+      ancestors.add(val);
+      try {
+        // Recursively process with incremented depth
+        if (Array.isArray(val)) {
+          return val.map((item, i) => {
+            const inner = replacer(depth + 1)(String(i), item);
+            return inner;
+          });
+        }
 
-      const result: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(val)) {
-        result[k] = replacer(depth + 1)(k, v);
+        const result: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(val)) {
+          result[k] = replacer(depth + 1)(k, v);
+        }
+        return result;
+      } finally {
+        ancestors.delete(val);
       }
-      return result;
     };
   };
 
