@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-14-keep-a-shared-value-in-truncated-runtime-output-instead-of-repor` [axagent] Keep a shared value in truncated runtime output instead of reporting a cycle
+  - Status: open
+  - Source PR: #893
+  - Source commit: `82157fb38ddbc4877cd70c6c50c44f1b959f4d30`
+  - TS paths: `src/ax/agent/truncate.ts`, `src/ax/agent/truncate.test.ts`
+  - Impact: Runtime/tool output truncation must serialize an object once per occurrence; only an ancestor that contains itself is a cycle.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -1519,43 +1525,3 @@ No entries.
   - Completed at: 2026-11-06
   - Completed by: `354bba5e968c4216afa9eb298af4022090c8e057`
   - Verification: `All 22 new TS-derived fixtures pass in Python, Java, C++, Go, and Rust. npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run test:examples:generated; npm run skills:check; npm run website:check.`
-- `axir-2026-11-10-keep-zod-v4-array-element-types-enum-values-and-checks-in-standa` [axgen] Keep Zod 4 array element types and enum options in standard-schema conversion
-  - Status: done
-  - Source PR: #886
-  - Source commit: `e8888f89221ea14357547dfa63c85515926369f0`
-  - TS paths: `src/ax/dsp/standardSchema.ts`, `src/ax/dsp/standardSchema.test.ts`
-  - Impact: TypeScript standard-schema conversion now retains Zod 4 array element types, including optional wrappers, and enum options in Ax fields and tool JSON schemas. Audit equivalent portable schema conversion for parity. Zod 4 constraints remain delegated to the original validator so regex flags and transformation order are preserved.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-12
-  - Completed by: `f6959bcacf768f5cc98e703f10fbfce8cfe2da29`
-  - Verification: `Audited the TypeScript-only Zod host boundary. All seven new TS-derived schema/validation fixtures pass directly in Python, Java, C++, Go, and Rust using existing native descriptors and Core helpers; no generated runtime change is required. Conformance synchronization, generated-package freshness, documentation website and skill checks pass; 78 backlog/conformance tooling and skill tests pass.`
-- `axir-2026-11-11-google-gemini-decisions` [axai] Port Google Gemini Decisions provider, native client and boolean confidence
-  - Status: done
-  - Source PR: #890
-  - Source commit: `acee6c4c9010c62f7a02589ce2405395e76e981f`
-  - TS paths: `src/ax/ai/google-gemini-decisions`, `src/ax/ai/wrap.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/dsp/decision.ts`, `src/ax/dsp/jsonSchema.ts`
-  - Impact: Add the google-gemini-decisions dedicated v1beta endpoint and typed native client, named noul/choice/score questions, multimodal input validation, decision evidence including boolean confidence, zero-output usage and catalog capabilities to generated languages.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-11
-  - Completed by: `acee6c4c9010c62f7a02589ce2405395e76e981f`
-  - Verification: `Core-owned provider mapping and native clients in Python, Java, C++, Go, and Rust. All 60 TypeScript-derived Google Decisions fixtures, native credentials/retry/cancellation tests, and ten live provider examples passed across the generated languages. All 91 compiler tests passed across split runs; the monolithic npm run test:axir reached its 30-minute Go-test limit, and its remaining tests and Core check/lint/provenance/lower phases were completed separately. All five release verifications passed; Java was rerun sequentially after a parallel cancellation timing failure. Also passed axir:conformance:check, profiles:check, axir:check-packages, test:examples:generated, TypeScript provider/schema tests and build, doc:build:markdown, skills:check, website:check, formatting, lint, spelling, and git diff --check.`
-- `axir-2026-11-12-preserve-cumulative-assistant-text-around-streamed-tool-calls` [axgen] Preserve cumulative assistant text around streamed tool calls
-  - Status: done
-  - Source PR: #887
-  - Source commit: `26b2e15db1077d5a9e9eb10a61003fbbde55ae71`
-  - TS paths: `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/generate.streamParity.test.ts`
-  - Impact: Generated AxGen streaming implementations must accumulate text accompanying tool-call deltas and store the full assistant text in history before the next model request, matching handwritten TypeScript.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-13
-  - Completed by: `010f9922486e6f90f33a239e529da461aeb5ca9c`
-  - Verification: `Seven TS-derived mixed-tool-text fixtures pass in Python, Java, C++, Go, and Rust. AxIR dev verification passed all five targets (2127 conformance fixtures each); the initial parallel Rust run failed an unchanged two-second session timing assertion, then all 78 Rust unit tests and full Rust dev verification passed on rerun. Conformance sync, strict Core checks, package freshness, generated examples and public MCP compilation, website checks, and skill mirrors passed.`
-- `axir-2026-11-13-add-gemini-4-hydrogen-model-support` [axai] Add Gemini 4 Hydrogen model support
-  - Status: done
-  - Source PR: #892
-  - Source commit: `dcbe2fb57eb6b40c6e287031fa43ca7a41829eef`
-  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/info.ts`, `src/ax/ai/google-gemini/types.ts`
-  - Impact: Port Hydrogen catalog pricing and limits, xhigh thinking mapping, numeric budget rejection, sampling restrictions, and the single-segment output cap to generated languages. Keep Gemini 3 highest mapped to high; Hydrogen has no explicit context caching.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-13
-  - Completed by: `dcbe2fb57eb6b40c6e287031fa43ca7a41829eef`
-  - Verification: `34 TypeScript-derived Hydrogen fixtures pass in all five generated languages. Full release verification passes for Python, Java, C++, Go, and Rust, each executing all 2,154 conformance fixtures; Java and Go were rerun after fixing per-call streaming options. Live Hydrogen calls pass in all five generated languages. The TypeScript workspace suite passes (4,123 tests, one existing skip), as do build, conformance sync, strict Core checking, lint, provenance, lowering, generated package consistency, generated examples, skills, and website checks.`
