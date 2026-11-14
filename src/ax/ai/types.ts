@@ -496,6 +496,8 @@ export type AxChatResponseResult = {
   decisionContext?: AxDecisionContext;
   index: number;
   content?: string;
+  /** Text blocks with their own citations. Streaming updates replace a block by index. */
+  textBlocks?: AxChatResponseTextBlock[];
   /** Responses-style output phase for commentary/final-answer ordering. */
   phase?: 'commentary' | 'final_answer';
   thought?: string;
@@ -530,6 +532,43 @@ export type AxChatResponseResult = {
   };
 };
 
+/** A provider response text block, preserving the text supported by its citations. */
+export type AxChatResponseTextBlock = {
+  index: number;
+  text: string;
+  citations?: AxCitation[];
+};
+
+/** Sources accepted by Anthropic document inputs. Text data is plain UTF-8 text. */
+export type AxDocumentSource =
+  | { type: 'text'; data: string }
+  | { type: 'base64'; mediaType: 'application/pdf'; data: string }
+  | { type: 'url'; url: string }
+  | { type: 'file'; fileId: string }
+  | { type: 'content'; content: { type: 'text'; text: string }[] };
+
+/** Metadata for a document supplied to the model, distinct from output citations. */
+export type AxDocumentOptions = {
+  title?: string;
+  context?: string;
+  citations?: { enabled: boolean };
+  cache?: boolean;
+};
+
+/** Native document input; usable as a file signature value or a document chat part. */
+export type AxDocumentInput = AxDocumentOptions & {
+  source: AxDocumentSource;
+};
+
+/** Existing file inputs also accept document metadata on Anthropic. */
+export type AxFileInput =
+  | AxDocumentInput
+  | (AxDocumentOptions & {
+      mimeType: string;
+      filename?: string;
+      extractedText?: string;
+    } & ({ data: string } | { fileUri: string }));
+
 // Normalized citation shape used across providers
 export type AxCitation = {
   /**
@@ -557,6 +596,8 @@ export type AxCitation = {
   documentIndex?: number;
   /** Title of the cited document, when the request supplied one. */
   documentTitle?: string;
+  /** Provider file identifier, when the cited document came from the Files API. */
+  fileId?: string;
   /** `char_location`: first character of the cited span. */
   startCharIndex?: number;
   /** `char_location`: one past the last character of the cited span. */
@@ -691,6 +732,9 @@ export type AxChatRequest<TModel = string> = {
                   cache?: boolean;
                   /** Pre-extracted text content for fallback */
                   extractedText?: string;
+                  title?: string;
+                  context?: string;
+                  citations?: { enabled: boolean };
                 }
               | {
                   /** File content type with cloud storage URI */
@@ -704,7 +748,11 @@ export type AxChatRequest<TModel = string> = {
                   cache?: boolean;
                   /** Pre-extracted text content for fallback */
                   extractedText?: string;
+                  title?: string;
+                  context?: string;
+                  citations?: { enabled: boolean };
                 }
+              | ({ type: 'document' } & AxDocumentInput)
               | {
                   /** URL/Link content type */
                   type: 'url';

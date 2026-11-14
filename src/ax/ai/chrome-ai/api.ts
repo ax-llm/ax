@@ -167,6 +167,11 @@ export class AxAIChromeAIImpl
                     .join('\n')
                 );
               }
+              if (part.type === 'document') {
+                throw new Error(
+                  'Chrome AI does not support native document inputs'
+                );
+              }
               return (
                 part.extractedText ??
                 `[File: ${part.filename ?? 'file'} (${part.mimeType})]`

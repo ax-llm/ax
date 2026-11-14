@@ -25,7 +25,20 @@
         "finish_reason": "stop",
         "function_calls": [],
         "id": "msg_anthropic_1",
-        "index": 0
+        "index": 0,
+        "text_blocks": [
+          {
+            "citations": [
+              {
+                "snippet": "Ax docs",
+                "title": "Ax",
+                "url": "https://axllm.dev"
+              }
+            ],
+            "index": 0,
+            "text": "Ax is portable."
+          }
+        ]
       }
     ]
   },

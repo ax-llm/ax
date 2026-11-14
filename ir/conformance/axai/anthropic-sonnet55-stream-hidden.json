@@ -95,7 +95,13 @@
       "results": [
         {
           "content": "Done.",
-          "index": 0
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 3,
+              "text": "Done."
+            }
+          ]
         }
       ]
     }

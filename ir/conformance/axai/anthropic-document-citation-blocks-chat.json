@@ -1,0 +1,220 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-haiku-5-5",
+      "tokens": {
+        "completion_tokens": 3,
+        "prompt_tokens": 2,
+        "total_tokens": 5
+      }
+    },
+    "remote_id": "msg_citation_blocks",
+    "results": [
+      {
+        "citations": [
+          {
+            "documentIndex": 0,
+            "documentTitle": "Notes",
+            "endCharIndex": 21,
+            "fileId": "file_notes",
+            "snippet": "A passage",
+            "startCharIndex": 12,
+            "type": "char_location"
+          },
+          {
+            "documentIndex": 1,
+            "documentTitle": "Report",
+            "endPageNumber": 3,
+            "snippet": "A PDF passage",
+            "startPageNumber": 2,
+            "type": "page_location"
+          },
+          {
+            "documentIndex": 2,
+            "endBlockIndex": 1,
+            "snippet": "A custom block",
+            "startBlockIndex": 0,
+            "type": "content_block_location"
+          },
+          {
+            "snippet": "Web passage",
+            "title": "Ax",
+            "url": "https://axllm.dev"
+          }
+        ],
+        "content": "Answer: Claim 0. Claim 1. Claim 2. Claim 3. Uncited.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_citation_blocks",
+        "index": 0,
+        "text_blocks": [
+          {
+            "index": 0,
+            "text": "Answer: "
+          },
+          {
+            "citations": [
+              {
+                "documentIndex": 0,
+                "documentTitle": "Notes",
+                "endCharIndex": 21,
+                "fileId": "file_notes",
+                "snippet": "A passage",
+                "startCharIndex": 12,
+                "type": "char_location"
+              }
+            ],
+            "index": 1,
+            "text": "Claim 0. "
+          },
+          {
+            "citations": [
+              {
+                "documentIndex": 1,
+                "documentTitle": "Report",
+                "endPageNumber": 3,
+                "snippet": "A PDF passage",
+                "startPageNumber": 2,
+                "type": "page_location"
+              }
+            ],
+            "index": 2,
+            "text": "Claim 1. "
+          },
+          {
+            "citations": [
+              {
+                "documentIndex": 2,
+                "endBlockIndex": 1,
+                "snippet": "A custom block",
+                "startBlockIndex": 0,
+                "type": "content_block_location"
+              }
+            ],
+            "index": 3,
+            "text": "Claim 2. "
+          },
+          {
+            "citations": [
+              {
+                "snippet": "Web passage",
+                "title": "Ax",
+                "url": "https://axllm.dev"
+              }
+            ],
+            "index": 4,
+            "text": "Claim 3. "
+          },
+          {
+            "index": 5,
+            "text": "Uncited."
+          }
+        ]
+      }
+    ]
+  },
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-document-citation-blocks-chat",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Cite the evidence.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "citations": [],
+            "text": "Answer: ",
+            "type": "text"
+          },
+          {
+            "citations": [
+              {
+                "cited_text": "A passage",
+                "document_index": 0,
+                "document_title": "Notes",
+                "end_char_index": 21,
+                "file_id": "file_notes",
+                "start_char_index": 12,
+                "type": "char_location"
+              }
+            ],
+            "text": "Claim 0. ",
+            "type": "text"
+          },
+          {
+            "citations": [
+              {
+                "cited_text": "A PDF passage",
+                "document_index": 1,
+                "document_title": "Report",
+                "end_page_number": 3,
+                "start_page_number": 2,
+                "type": "page_location"
+              }
+            ],
+            "text": "Claim 1. ",
+            "type": "text"
+          },
+          {
+            "citations": [
+              {
+                "cited_text": "A custom block",
+                "document_index": 2,
+                "end_block_index": 1,
+                "start_block_index": 0,
+                "type": "content_block_location"
+              }
+            ],
+            "text": "Claim 2. ",
+            "type": "text"
+          },
+          {
+            "citations": [
+              {
+                "cited_text": "Web passage",
+                "title": "Ax",
+                "type": "web_search_result_location",
+                "url": "https://axllm.dev"
+              }
+            ],
+            "text": "Claim 3. ",
+            "type": "text"
+          },
+          {
+            "citations": [
+              null,
+              {},
+              {
+                "cited_text": "unlocated"
+              }
+            ],
+            "text": "Uncited.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_citation_blocks",
+        "model": "claude-haiku-5-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

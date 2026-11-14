@@ -117,6 +117,11 @@ export function axAnalyzeRequestRequirements(
               // Estimate based on duration (rough: 1 token per second)
               estimatedTokens += part.duration || 60;
               break;
+            case 'document':
+              hasFiles = true;
+              if (part.cache) requiresCaching = true;
+              estimatedTokens += 250;
+              break;
             case 'file':
               hasFiles = true;
               if (part.cache) requiresCaching = true;

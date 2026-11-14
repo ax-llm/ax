@@ -24,15 +24,8 @@ export function collectResultCitations(
   for (const result of results) {
     if (!Array.isArray(result?.citations)) continue;
     for (const c of result.citations) {
-      if (c?.url) {
-        citations.push({
-          url: c.url,
-          title: c.title,
-          description: c.description,
-          license: c.license,
-          publicationDate: c.publicationDate,
-          snippet: c.snippet,
-        });
+      if (c?.url || c?.type) {
+        citations.push({ ...c });
       }
     }
   }
@@ -45,7 +38,26 @@ export function mergeUsageCitations(
 ): AxModelUsage {
   const dedup = Array.from(
     new Map(
-      citations.filter((c) => c.url).map((c) => [c.url as string, c])
+      citations
+        .filter((c) => c.url || c.type)
+        .map((c) => [
+          c.url
+            ? `url:${c.url}`
+            : JSON.stringify([
+                c.type,
+                c.documentIndex,
+                c.documentTitle,
+                c.fileId,
+                c.startCharIndex,
+                c.endCharIndex,
+                c.startPageNumber,
+                c.endPageNumber,
+                c.startBlockIndex,
+                c.endBlockIndex,
+                c.snippet,
+              ]),
+          c,
+        ])
     ).values()
   );
 

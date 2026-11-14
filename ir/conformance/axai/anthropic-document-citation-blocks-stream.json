@@ -1,0 +1,463 @@
+{
+  "expected_output": [
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-haiku-5-5",
+        "tokens": {
+          "completion_tokens": 0,
+          "prompt_tokens": 2,
+          "total_tokens": 2
+        }
+      },
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "id": "msg_citation_blocks",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 0,
+              "text": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "Answer: ",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 0,
+              "text": "Answer: "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "citations": [
+            {
+              "documentIndex": 0,
+              "documentTitle": "Notes",
+              "endCharIndex": 21,
+              "fileId": "file_notes",
+              "snippet": "A passage",
+              "startCharIndex": 12,
+              "type": "char_location"
+            }
+          ],
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "citations": [
+                {
+                  "documentIndex": 0,
+                  "documentTitle": "Notes",
+                  "endCharIndex": 21,
+                  "fileId": "file_notes",
+                  "snippet": "A passage",
+                  "startCharIndex": 12,
+                  "type": "char_location"
+                }
+              ],
+              "index": 1,
+              "text": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "Claim 0. ",
+          "index": 0,
+          "text_blocks": [
+            {
+              "citations": [
+                {
+                  "documentIndex": 0,
+                  "documentTitle": "Notes",
+                  "endCharIndex": 21,
+                  "fileId": "file_notes",
+                  "snippet": "A passage",
+                  "startCharIndex": 12,
+                  "type": "char_location"
+                }
+              ],
+              "index": 1,
+              "text": "Claim 0. "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 2,
+              "text": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "Claim 1. ",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 2,
+              "text": "Claim 1. "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "citations": [
+            {
+              "documentIndex": 1,
+              "documentTitle": "Report",
+              "endPageNumber": 3,
+              "snippet": "A PDF passage",
+              "startPageNumber": 2,
+              "type": "page_location"
+            }
+          ],
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "citations": [
+                {
+                  "documentIndex": 1,
+                  "documentTitle": "Report",
+                  "endPageNumber": 3,
+                  "snippet": "A PDF passage",
+                  "startPageNumber": 2,
+                  "type": "page_location"
+                }
+              ],
+              "index": 2,
+              "text": "Claim 1. "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 3,
+              "text": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "Claim 2. ",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 3,
+              "text": "Claim 2. "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "citations": [
+            {
+              "documentIndex": 2,
+              "endBlockIndex": 1,
+              "snippet": "A custom block",
+              "startBlockIndex": 0,
+              "type": "content_block_location"
+            }
+          ],
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "citations": [
+                {
+                  "documentIndex": 2,
+                  "endBlockIndex": 1,
+                  "snippet": "A custom block",
+                  "startBlockIndex": 0,
+                  "type": "content_block_location"
+                }
+              ],
+              "index": 3,
+              "text": "Claim 2. "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 4,
+              "text": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "Claim 3. ",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 4,
+              "text": "Claim 3. "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "citations": [
+            {
+              "snippet": "Web passage",
+              "title": "Ax",
+              "url": "https://axllm.dev"
+            }
+          ],
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "citations": [
+                {
+                  "snippet": "Web passage",
+                  "title": "Ax",
+                  "url": "https://axllm.dev"
+                }
+              ],
+              "index": 4,
+              "text": "Claim 3. "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 5,
+              "text": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "Uncited.",
+          "index": 0,
+          "text_blocks": [
+            {
+              "index": 5,
+              "text": "Uncited."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-haiku-5-5",
+        "tokens": {
+          "completion_tokens": 3,
+          "prompt_tokens": 2,
+          "total_tokens": 5
+        }
+      },
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_citation_blocks",
+      "results": [
+        {
+          "content": "",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-document-citation-blocks-stream",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Cite the evidence.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_citation_blocks\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-haiku-5-5\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\",\"citations\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Answer: \"}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\",\"citations\":[{\"type\":\"char_location\",\"cited_text\":\"A passage\",\"document_index\":0,\"document_title\":\"Notes\",\"start_char_index\":12,\"end_char_index\":21,\"file_id\":\"file_notes\"}]}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"Claim 0. \"}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"text\",\"text\":\"\",\"citations\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"text_delta\",\"text\":\"Claim 1. \"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"citations_delta\",\"citation\":{\"type\":\"page_location\",\"cited_text\":\"A PDF passage\",\"document_index\":1,\"document_title\":\"Report\",\"start_page_number\":2,\"end_page_number\":3}}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":2}\n\ndata: {\"type\":\"content_block_start\",\"index\":3,\"content_block\":{\"type\":\"text\",\"text\":\"\",\"citations\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":3,\"delta\":{\"type\":\"text_delta\",\"text\":\"Claim 2. \"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":3,\"delta\":{\"type\":\"citations_delta\",\"citation\":{\"type\":\"content_block_location\",\"cited_text\":\"A custom block\",\"document_index\":2,\"start_block_index\":0,\"end_block_index\":1}}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":3}\n\ndata: {\"type\":\"content_block_start\",\"index\":4,\"content_block\":{\"type\":\"text\",\"text\":\"\",\"citations\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":4,\"delta\":{\"type\":\"text_delta\",\"text\":\"Claim 3. \"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":4,\"delta\":{\"type\":\"citations_delta\",\"citation\":{\"type\":\"web_search_result_location\",\"url\":\"https://axllm.dev\",\"title\":\"Ax\",\"cited_text\":\"Web passage\"}}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":4}\n\ndata: {\"type\":\"content_block_start\",\"index\":5,\"content_block\":{\"type\":\"text\",\"text\":\"\",\"citations\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":5,\"delta\":{\"type\":\"text_delta\",\"text\":\"Uncited.\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":5,\"delta\":{\"type\":\"citations_delta\",\"citation\":null}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":5,\"delta\":{\"type\":\"citations_delta\",\"citation\":{}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":5,\"delta\":{\"type\":\"citations_delta\",\"citation\":{\"cited_text\":\"unlocated\"}}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":5}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":3}}\n\ndata: {\"type\":\"message_stop\"}\n\n",
+      "status": 200
+    }
+  ]
+}

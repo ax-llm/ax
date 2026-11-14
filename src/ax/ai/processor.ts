@@ -11,6 +11,7 @@ type AxUserMessage = Extract<
 type AxUserContentItem = Exclude<AxUserMessage['content'], string>[number];
 type AxUserImageContent = Extract<AxUserContentItem, { type: 'image' }>;
 type AxUserFileContent = Extract<AxUserContentItem, { type: 'file' }>;
+type AxUserDocumentContent = Extract<AxUserContentItem, { type: 'document' }>;
 
 /**
  * Configuration options for content processing and fallback behavior
@@ -35,7 +36,8 @@ export interface ProcessingOptions {
 export type ProcessedContent =
   | { type: 'text'; text: string }
   | AxUserImageContent
-  | AxUserFileContent;
+  | AxUserFileContent
+  | AxUserDocumentContent;
 
 /**
  * Indicates what types of media content are present in a request
@@ -198,7 +200,24 @@ export async function axProcessContentForProvider(
           }
           break;
 
+        case 'document':
+          if (!features.media.documents?.supported) {
+            throw new AxMediaNotSupportedError(
+              'Documents',
+              provider.getName(),
+              false
+            );
+          }
+          processedContent.push(item as AxUserDocumentContent);
+          break;
         case 'file':
+          if (item.citations?.enabled && !features.media.documents?.citations) {
+            throw new AxMediaNotSupportedError(
+              'Document citations',
+              provider.getName(),
+              false
+            );
+          }
           if (features.media.files.supported) {
             // Preserve native file content for providers that support it.
             processedContent.push(item as AxUserFileContent);
@@ -353,6 +372,7 @@ export function axAnalyzeChatPromptRequirements(
           case 'audio':
             hasAudio = true;
             break;
+          case 'document':
           case 'file':
             hasFiles = true;
             break;

@@ -2,12 +2,17 @@ import {
   renderPromptTemplate,
   renderTemplateContent,
 } from '../agent/templateEngine.js';
+import { validateDocumentInput } from '../ai/documents.js';
 import {
   type AxPromptMetrics,
   buildPromptMetrics,
   countChatPromptContentChars,
 } from '../ai/promptMetrics.js';
-import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
+import type {
+  AxChatRequest,
+  AxContextCacheOptions,
+  AxFileInput,
+} from '../ai/types.js';
 import {
   formatDateRange,
   formatDateTimeRange,
@@ -1156,16 +1161,16 @@ export class AxPromptTemplate {
     }
 
     if (field.type?.name === 'file') {
-      const validateFile = (
-        value: Readonly<AxFieldValue>
-      ):
-        | { mimeType: string; data: string }
-        | { mimeType: string; fileUri: string } => {
+      const validateFile = (value: Readonly<AxFieldValue>): AxFileInput => {
         if (!value) {
           throw new Error('File field value is required.');
         }
         if (typeof value !== 'object') {
           throw new Error('File field value must be an object.');
+        }
+        if ('source' in value) {
+          validateDocumentInput(value);
+          return value;
         }
         if (!('mimeType' in value)) {
           throw new Error('File field must have mimeType');
@@ -1182,21 +1187,30 @@ export class AxPromptTemplate {
           throw new Error('File field cannot have both data and fileUri');
         }
 
-        return value as
-          | { mimeType: string; data: string }
-          | { mimeType: string; fileUri: string };
+        return value as AxFileInput;
       };
       // The part keeps the file part's declared keys the value sets, such as
       // filename: OpenAI rejects inline file data without one.
-      const filePart = (
-        validated:
-          | { mimeType: string; data: string }
-          | { mimeType: string; fileUri: string }
-      ) => {
+      const filePart = (validated: AxFileInput) => {
+        if ('source' in validated) {
+          return {
+            type: 'document' as const,
+            source: validated.source,
+            ...declaredPartKeys(validated, [
+              'title',
+              'context',
+              'citations',
+              'cache',
+            ]),
+          };
+        }
         const keys = declaredPartKeys(validated, [
           'filename',
           'cache',
           'extractedText',
+          'title',
+          'context',
+          'citations',
         ]);
         return 'fileUri' in validated
           ? {

@@ -433,6 +433,27 @@ See [ai() API]({{langRoot}}/api/ai/).
 
 ## File routing
 
+### Anthropic document citations (TypeScript)
+
+TypeScript supports native Anthropic document citations for plain text, base64
+PDFs, PDF URLs, uploaded file IDs, and custom text blocks. A `document` chat part
+carries a `source`, optional `title` and `context`, and
+`citations: { enabled: true }`. An AxGen `file` input accepts the same value
+without the `type` property. Enable citations on all request documents or none.
+Native structured JSON output is incompatible with citations and fails locally;
+use a text signature and ask it to cite the document.
+
+Read `response.results[i].textBlocks` for output passages paired with their
+citations. Streaming blocks are snapshots keyed by `index`. AxGen retains these
+blocks at `program.getChatLog()[i].textBlocks`, with `resultIndex` identifying the
+sample. Source offsets locate the cited input; the block text identifies the
+supported output passage. `getUsage()` also retains the flat citation list.
+Generated-language parity remains tracked in the AxIR backlog.
+
+See the document citation example in [TypeScript generation examples](/typescript/examples/generation/).
+
+### Provider selection
+
 A provider router preserves files for providers that can read them directly. File
 names, media types, cache metadata, and content order survive routing and later
 conversation turns. For providers without native file support, supply extracted

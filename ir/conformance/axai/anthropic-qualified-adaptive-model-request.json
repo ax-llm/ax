@@ -16,15 +16,17 @@
         "finish_reason": "stop",
         "function_calls": [],
         "id": "msg_qualified_adaptive",
-        "index": 0
+        "index": 0,
+        "text_blocks": [
+          {
+            "index": 0,
+            "text": "Done."
+          }
+        ]
       }
     ]
   },
-  "expected_transport_json_absent": [
-    "temperature",
-    "top_p",
-    "top_k"
-  ],
+  "expected_transport_json_absent": ["temperature", "top_p", "top_k"],
   "expected_transport_request": {
     "json": {
       "model": "publishers/anthropic/models/claude-opus-4-7",

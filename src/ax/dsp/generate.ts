@@ -330,7 +330,8 @@ type AxChatResponseLogMetadata = Pick<
   | 'remoteRequestId'
   | 'remoteSessionId'
   | 'providerMetadata'
->;
+> &
+  Pick<AxChatLogEntry, 'textBlocks'>;
 
 // Merges a delta into values as a consumer does: text and arrays append, any
 // other value replaces.
@@ -975,6 +976,27 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     metadata: AxChatResponseLogMetadata,
     res: Readonly<AxChatResponse>
   ): void {
+    for (const result of res.results) {
+      for (const block of result.textBlocks ?? []) {
+        metadata.textBlocks ??= [];
+        const blocks = metadata.textBlocks;
+        const snapshot = {
+          ...block,
+          resultIndex: result.index,
+          ...(block.citations
+            ? {
+                citations: block.citations.map((citation) => ({ ...citation })),
+              }
+            : {}),
+        };
+        const index = blocks.findIndex(
+          (item) =>
+            item.resultIndex === result.index && item.index === block.index
+        );
+        if (index === -1) blocks.push(snapshot);
+        else blocks[index] = snapshot;
+      }
+    }
     metadata.sessionId = res.sessionId ?? metadata.sessionId;
     metadata.remoteId = res.remoteId ?? metadata.remoteId;
     metadata.remoteRequestId = res.remoteRequestId ?? metadata.remoteRequestId;
@@ -1009,6 +1031,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     if (metadata.providerMetadata) {
       entry.providerMetadata = metadata.providerMetadata;
     }
+    if (metadata.textBlocks) entry.textBlocks = metadata.textBlocks;
   }
 
   /**
@@ -1060,6 +1083,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                     return '[audio]';
                   case 'file':
                     return '[file]';
+                  case 'document':
+                    return '[document]';
                   case 'url':
                     return '[url]';
                   default:

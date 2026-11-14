@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxGen } from './generate.js';
+import { mergeProgramUsage } from './util.js';
 
 function createStreamingResponse(
   chunks: AxChatResponse['results'][],
@@ -29,6 +30,22 @@ function createStreamingResponse(
 }
 
 describe('getUsage citations aggregation', () => {
+  it('preserves request-local document citations across calls without mutating usage', () => {
+    const citation = {
+      type: 'char_location' as const,
+      documentIndex: 0,
+      startCharIndex: 0,
+      endCharIndex: 5,
+      snippet: 'hello',
+    };
+    const usages = [
+      { ai: 'test', model: 'test', citations: [citation] },
+      { ai: 'test', model: 'test', citations: [citation] },
+    ];
+    expect(mergeProgramUsage(usages)[0]?.citations).toHaveLength(2);
+    expect(mergeProgramUsage(usages)[0]?.citations).toHaveLength(2);
+    expect(usages[0]?.citations).toHaveLength(1);
+  });
   it('non-streaming: aggregates annotations into usage.citations and dedupes', async () => {
     const gen = new AxGen<{ userQuestion: string }, { responseText: string }>(
       'userQuestion:string -> responseText:string'

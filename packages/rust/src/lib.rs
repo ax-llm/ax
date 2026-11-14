@@ -75073,6 +75073,10 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_ai_name = core_arg(args, 1);
     let mut v_model = core_arg(args, 2);
     let mut v_block = CoreValue::Null;
+    let mut v_block_citations = CoreValue::Null;
+    let mut v_block_index = CoreValue::Null;
+    let mut v_block_text = CoreValue::Null;
+    let mut v_block_type = CoreValue::Null;
     let mut v_citations = CoreValue::Null;
     let mut v_content = CoreValue::Null;
     let mut v_details = CoreValue::Null;
@@ -75085,10 +75089,12 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_has_calls = CoreValue::Null;
     let mut v_has_citations = CoreValue::Null;
     let mut v_has_finish = CoreValue::Null;
+    let mut v_has_text_blocks = CoreValue::Null;
     let mut v_has_thought = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_is_error = CoreValue::Null;
     let mut v_is_refusal = CoreValue::Null;
+    let mut v_is_text_block = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_model_usage = CoreValue::Null;
     let mut v_out = CoreValue::Null;
@@ -75097,6 +75103,8 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_results = CoreValue::Null;
     let mut v_stop_reason = CoreValue::Null;
     let mut v_text = CoreValue::Null;
+    let mut v_text_block = CoreValue::Null;
+    let mut v_text_blocks = CoreValue::Null;
     let mut v_text_parts = CoreValue::Null;
     let mut v_thought = CoreValue::Null;
     let mut v_thought_blocks = CoreValue::Null;
@@ -75129,6 +75137,8 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
     v_thought_blocks = CoreValue::new_list();
     v_citations = CoreValue::new_list();
     v_empty_content = CoreValue::new_list();
+    v_text_blocks = CoreValue::new_list();
+    v_block_index = CoreValue::Num(0f64);
     v_content = core_get(&v_raw, &CoreValue::from("content"), v_empty_content.clone());
     for v_block in core_iter(&v_content)? {
         let mut v_block = v_block;
@@ -75140,6 +75150,20 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
             v_citations.clone(),
             v_block.clone(),
         ])?;
+        v_block_type = core_get(&v_block, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_text_block = core_eq(&[v_block_type.clone(), CoreValue::from("text")])?;
+        if core_truthy(&v_is_text_block) {
+            v_block_text = core_get(&v_block, &CoreValue::from("text"), CoreValue::from(""));
+            v_block_citations = CoreValue::new_list();
+            _anthropic_append_citations_impl(&[v_block_citations.clone(), v_block.clone()])?;
+            v_text_block = _anthropic_text_block_impl(&[
+                v_block_index.clone(),
+                v_block_text.clone(),
+                v_block_citations.clone(),
+            ])?;
+            core_append(&v_text_blocks, v_text_block.clone())?;
+        }
+        v_block_index = core_add(&[v_block_index.clone(), CoreValue::Num(1f64)])?;
     }
     v_result = CoreValue::new_map();
     core_set(&v_result, CoreValue::from("index"), CoreValue::Num(0f64))?;
@@ -75156,6 +75180,14 @@ fn _anthropic_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, A
     }
     v_text = core_string_join_intrinsic(&[CoreValue::from(""), v_text_parts.clone()])?;
     core_set(&v_result, CoreValue::from("content"), v_text.clone())?;
+    v_has_text_blocks = core_truthy_value(&[v_text_blocks.clone()])?;
+    if core_truthy(&v_has_text_blocks) {
+        core_set(
+            &v_result,
+            CoreValue::from("text_blocks"),
+            v_text_blocks.clone(),
+        )?;
+    }
     core_set(
         &v_result,
         CoreValue::from("function_calls"),
@@ -75324,6 +75356,155 @@ fn _anthropic_merge_response_block_impl(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
+fn _anthropic_map_citation_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_map_citation_impl");
+    let mut v_citation = core_arg(args, 0);
+    let mut v_document_index = CoreValue::Null;
+    let mut v_document_title = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_file_id = CoreValue::Null;
+    let mut v_file_is_string = CoreValue::Null;
+    let mut v_has_url = CoreValue::Null;
+    let mut v_index_is_number = CoreValue::Null;
+    let mut v_is_block = CoreValue::Null;
+    let mut v_is_char = CoreValue::Null;
+    let mut v_is_document = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_page = CoreValue::Null;
+    let mut v_is_range = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_snippet = CoreValue::Null;
+    let mut v_snippet_is_string = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    let mut v_title_is_string = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    let mut v_url_is_string = CoreValue::Null;
+    let mut v_url_nonempty = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_item = CoreValue::new_map();
+    v_url = core_get(&v_citation, &CoreValue::from("url"), CoreValue::from(""));
+    v_url_is_string = core_type_is(&v_url, CoreValue::from("string"));
+    v_url_nonempty = core_ne(&[v_url.clone(), CoreValue::from("")])?;
+    v_has_url = core_and(&[v_url_is_string.clone(), v_url_nonempty.clone()])?;
+    if core_truthy(&v_has_url) {
+        core_set(&v_item, CoreValue::from("url"), v_url.clone())?;
+    }
+    v_title = core_get(&v_citation, &CoreValue::from("title"), CoreValue::Null);
+    v_title_is_string = core_type_is(&v_title, CoreValue::from("string"));
+    if core_truthy(&v_title_is_string) {
+        core_set(&v_item, CoreValue::from("title"), v_title.clone())?;
+    }
+    v_snippet = core_get(&v_citation, &CoreValue::from("cited_text"), CoreValue::Null);
+    v_snippet_is_string = core_type_is(&v_snippet, CoreValue::from("string"));
+    if core_truthy(&v_snippet_is_string) {
+        core_set(&v_item, CoreValue::from("snippet"), v_snippet.clone())?;
+    }
+    v_type = core_get(&v_citation, &CoreValue::from("type"), CoreValue::from(""));
+    v_is_char = core_eq(&[v_type.clone(), CoreValue::from("char_location")])?;
+    v_is_page = core_eq(&[v_type.clone(), CoreValue::from("page_location")])?;
+    v_is_block = core_eq(&[v_type.clone(), CoreValue::from("content_block_location")])?;
+    v_is_range = core_or(&[v_is_char.clone(), v_is_page.clone()])?;
+    v_is_document = core_or(&[v_is_range.clone(), v_is_block.clone()])?;
+    if core_truthy(&v_is_document) {
+        core_set(&v_item, CoreValue::from("type"), v_type.clone())?;
+        v_document_index = core_get(
+            &v_citation,
+            &CoreValue::from("document_index"),
+            CoreValue::Null,
+        );
+        v_index_is_number = core_type_is(&v_document_index, CoreValue::from("number"));
+        if core_truthy(&v_index_is_number) {
+            core_set(
+                &v_item,
+                CoreValue::from("documentIndex"),
+                v_document_index.clone(),
+            )?;
+        }
+        v_document_title = core_get(
+            &v_citation,
+            &CoreValue::from("document_title"),
+            CoreValue::Null,
+        );
+        v_title_is_string = core_type_is(&v_document_title, CoreValue::from("string"));
+        if core_truthy(&v_title_is_string) {
+            core_set(
+                &v_item,
+                CoreValue::from("documentTitle"),
+                v_document_title.clone(),
+            )?;
+        }
+        v_file_id = core_get(&v_citation, &CoreValue::from("file_id"), CoreValue::Null);
+        v_file_is_string = core_type_is(&v_file_id, CoreValue::from("string"));
+        if core_truthy(&v_file_is_string) {
+            core_set(&v_item, CoreValue::from("fileId"), v_file_id.clone())?;
+        }
+        v_fields = CoreValue::new_map();
+        if core_truthy(&v_is_char) {
+            core_set(
+                &v_fields,
+                CoreValue::from("start_char_index"),
+                CoreValue::from("startCharIndex"),
+            )?;
+            core_set(
+                &v_fields,
+                CoreValue::from("end_char_index"),
+                CoreValue::from("endCharIndex"),
+            )?;
+        }
+        if core_truthy(&v_is_page) {
+            core_set(
+                &v_fields,
+                CoreValue::from("start_page_number"),
+                CoreValue::from("startPageNumber"),
+            )?;
+            core_set(
+                &v_fields,
+                CoreValue::from("end_page_number"),
+                CoreValue::from("endPageNumber"),
+            )?;
+        }
+        if core_truthy(&v_is_block) {
+            core_set(
+                &v_fields,
+                CoreValue::from("start_block_index"),
+                CoreValue::from("startBlockIndex"),
+            )?;
+            core_set(
+                &v_fields,
+                CoreValue::from("end_block_index"),
+                CoreValue::from("endBlockIndex"),
+            )?;
+        }
+        v_keys = core_map_keys(&[v_fields.clone()])?;
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_value = core_get(&v_citation, &v_key.clone(), CoreValue::Null);
+            v_is_number = core_type_is(&v_value, CoreValue::from("number"));
+            if core_truthy(&v_is_number) {
+                v_target = core_get(&v_fields, &v_key.clone(), CoreValue::Null);
+                core_set(&v_item, v_target.clone(), v_value.clone())?;
+            }
+        }
+    }
+    v_keep = core_or(&[v_has_url.clone(), v_is_document.clone()])?;
+    if core_truthy(&v_keep) {
+        return Ok(v_item.clone());
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _anthropic_append_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_anthropic_append_citations_impl");
     let mut v_out = core_arg(args, 0);
@@ -75331,36 +75512,113 @@ fn _anthropic_append_citations_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_citation = CoreValue::Null;
     let mut v_citations = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
-    let mut v_has_snippet = CoreValue::Null;
-    let mut v_has_title = CoreValue::Null;
-    let mut v_has_url = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
     let mut v_item = CoreValue::Null;
-    let mut v_snippet = CoreValue::Null;
-    let mut v_title = CoreValue::Null;
-    let mut v_url = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
     v_empty = CoreValue::new_list();
     v_citations = core_get(&v_block, &CoreValue::from("citations"), v_empty.clone());
-    for v_citation in core_iter(&v_citations)? {
-        let mut v_citation = v_citation;
-        v_url = core_get(&v_citation, &CoreValue::from("url"), CoreValue::Null);
-        v_has_url = core_truthy_value(&[v_url.clone()])?;
-        if core_truthy(&v_has_url) {
-            v_item = CoreValue::new_map();
-            core_set(&v_item, CoreValue::from("url"), v_url.clone())?;
-            v_title = core_get(&v_citation, &CoreValue::from("title"), CoreValue::Null);
-            v_has_title = core_is_not_none(&[v_title.clone()])?;
-            if core_truthy(&v_has_title) {
-                core_set(&v_item, CoreValue::from("title"), v_title.clone())?;
+    v_is_list = core_type_is(&v_citations, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+        for v_citation in core_iter(&v_citations)? {
+            let mut v_citation = v_citation;
+            v_item = _anthropic_map_citation_impl(&[v_citation.clone()])?;
+            v_keep = core_is_not_none(&[v_item.clone()])?;
+            if core_truthy(&v_keep) {
+                core_append(&v_out, v_item.clone())?;
             }
-            v_snippet = core_get(&v_citation, &CoreValue::from("cited_text"), CoreValue::Null);
-            v_has_snippet = core_is_not_none(&[v_snippet.clone()])?;
-            if core_truthy(&v_has_snippet) {
-                core_set(&v_item, CoreValue::from("snippet"), v_snippet.clone())?;
-            }
-            core_append(&v_out, v_item.clone())?;
         }
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _anthropic_text_block_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_text_block_impl");
+    let mut v_index = core_arg(args, 0);
+    let mut v_text = core_arg(args, 1);
+    let mut v_citations = core_arg(args, 2);
+    let mut v_block = CoreValue::Null;
+    let mut v_citation = CoreValue::Null;
+    let mut v_copies = CoreValue::Null;
+    let mut v_copy = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_has_citations = CoreValue::Null;
+    v_block = CoreValue::new_map();
+    core_set(&v_block, CoreValue::from("index"), v_index.clone())?;
+    core_set(&v_block, CoreValue::from("text"), v_text.clone())?;
+    v_has_citations = core_truthy_value(&[v_citations.clone()])?;
+    if core_truthy(&v_has_citations) {
+        v_copies = CoreValue::new_list();
+        v_empty = CoreValue::new_map();
+        for v_citation in core_iter(&v_citations)? {
+            let mut v_citation = v_citation;
+            v_copy = core_map_merge(&[v_citation.clone(), v_empty.clone()])?;
+            core_append(&v_copies, v_copy.clone())?;
+        }
+        core_set(&v_block, CoreValue::from("citations"), v_copies.clone())?;
+    }
+    return Ok(v_block.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _anthropic_stream_text_block_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_stream_text_block_impl");
+    let mut v_state = core_arg(args, 0);
+    let mut v_index = core_arg(args, 1);
+    let mut v_text = core_arg(args, 2);
+    let mut v_citations = core_arg(args, 3);
+    let mut v_start = core_arg(args, 4);
+    let mut v_all = CoreValue::Null;
+    let mut v_citation = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_old_citations = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_previous = CoreValue::Null;
+    let mut v_previous_text = CoreValue::Null;
+    let mut v_saved = CoreValue::Null;
+    let mut v_snapshot = CoreValue::Null;
+    v_key = core_string_format(&[CoreValue::from("text_block_{}"), v_index.clone()])?;
+    v_previous = CoreValue::new_map();
+    if core_truthy(&v_start) {
+    } else {
+        v_previous = core_get(&v_state, &v_key.clone(), v_previous.clone());
+    }
+    v_previous_text = core_get(&v_previous, &CoreValue::from("text"), CoreValue::from(""));
+    v_text = core_string_format(&[
+        CoreValue::from("{}{}"),
+        v_previous_text.clone(),
+        v_text.clone(),
+    ])?;
+    v_all = CoreValue::new_list();
+    v_empty = CoreValue::new_list();
+    v_old_citations = core_get(&v_previous, &CoreValue::from("citations"), v_empty.clone());
+    for v_citation in core_iter(&v_old_citations)? {
+        let mut v_citation = v_citation;
+        core_append(&v_all, v_citation.clone())?;
+    }
+    for v_citation in core_iter(&v_citations)? {
+        let mut v_citation = v_citation;
+        core_append(&v_all, v_citation.clone())?;
+    }
+    v_saved = _anthropic_text_block_impl(&[v_index.clone(), v_text.clone(), v_all.clone()])?;
+    core_set(&v_state, v_key.clone(), v_saved.clone())?;
+    v_snapshot = _anthropic_text_block_impl(&[v_index.clone(), v_text.clone(), v_all.clone()])?;
+    v_out = CoreValue::new_list();
+    core_append(&v_out, v_snapshot.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -75510,6 +75768,7 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_cache_read = CoreValue::Null;
     let mut v_call = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
+    let mut v_citation = CoreValue::Null;
     let mut v_citations = CoreValue::Null;
     let mut v_completion = CoreValue::Null;
     let mut v_creation_total = CoreValue::Null;
@@ -75535,6 +75794,7 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_id = CoreValue::Null;
     let mut v_index = CoreValue::Null;
     let mut v_is_block_start = CoreValue::Null;
+    let mut v_is_citations_delta = CoreValue::Null;
     let mut v_is_delta = CoreValue::Null;
     let mut v_is_error = CoreValue::Null;
     let mut v_is_json_delta = CoreValue::Null;
@@ -75545,9 +75805,11 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_is_start = CoreValue::Null;
     let mut v_is_text = CoreValue::Null;
     let mut v_is_text_delta = CoreValue::Null;
+    let mut v_is_text_update = CoreValue::Null;
     let mut v_is_thinking = CoreValue::Null;
     let mut v_is_thinking_delta = CoreValue::Null;
     let mut v_is_tool = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
     let mut v_key = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_model_usage = CoreValue::Null;
@@ -75560,6 +75822,7 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_out = CoreValue::Null;
     let mut v_partial = CoreValue::Null;
     let mut v_prompt = CoreValue::Null;
+    let mut v_raw_citation = CoreValue::Null;
     let mut v_read_total = CoreValue::Null;
     let mut v_remote_id = CoreValue::Null;
     let mut v_result = CoreValue::Null;
@@ -75568,6 +75831,7 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_speed = CoreValue::Null;
     let mut v_stop = CoreValue::Null;
     let mut v_text = CoreValue::Null;
+    let mut v_text_blocks = CoreValue::Null;
     let mut v_thinking = CoreValue::Null;
     let mut v_thought_block = CoreValue::Null;
     let mut v_total = CoreValue::Null;
@@ -75578,6 +75842,7 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_usage_delta = CoreValue::Null;
     let mut v_usage_existing = CoreValue::Null;
     let mut v_usage_raw = CoreValue::Null;
+    let mut v_valid_update = CoreValue::Null;
     v_type = core_get(&v_event, &CoreValue::from("type"), CoreValue::from(""));
     v_is_error = core_eq(&[v_type.clone(), CoreValue::from("error")])?;
     if core_truthy(&v_is_error) {
@@ -75625,6 +75890,19 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
             core_set(&v_result, CoreValue::from("content"), v_text.clone())?;
             v_citations = CoreValue::new_list();
             _anthropic_append_citations_impl(&[v_citations.clone(), v_block.clone()])?;
+            v_event_index = core_get(&v_event, &CoreValue::from("index"), CoreValue::Num(0f64));
+            v_text_blocks = _anthropic_stream_text_block_impl(&[
+                v_state.clone(),
+                v_event_index.clone(),
+                v_text.clone(),
+                v_citations.clone(),
+                CoreValue::Bool(true),
+            ])?;
+            core_set(
+                &v_result,
+                CoreValue::from("text_blocks"),
+                v_text_blocks.clone(),
+            )?;
             v_has_citations = core_truthy_value(&[v_citations.clone()])?;
             if core_truthy(&v_has_citations) {
                 core_set(&v_result, CoreValue::from("citations"), v_citations.clone())?;
@@ -75736,11 +76014,45 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
         v_delta = core_get(&v_event, &CoreValue::from("delta"), CoreValue::Null);
         v_delta_type = core_get(&v_delta, &CoreValue::from("type"), CoreValue::from(""));
         v_is_text_delta = core_eq(&[v_delta_type.clone(), CoreValue::from("text_delta")])?;
-        if core_truthy(&v_is_text_delta) {
+        v_is_citations_delta =
+            core_eq(&[v_delta_type.clone(), CoreValue::from("citations_delta")])?;
+        v_is_text_update = core_or(&[v_is_text_delta.clone(), v_is_citations_delta.clone()])?;
+        if core_truthy(&v_is_text_update) {
             v_result = CoreValue::new_map();
             core_set(&v_result, CoreValue::from("index"), v_index.clone())?;
             v_text = core_get(&v_delta, &CoreValue::from("text"), CoreValue::from(""));
             core_set(&v_result, CoreValue::from("content"), v_text.clone())?;
+            v_citations = CoreValue::new_list();
+            if core_truthy(&v_is_citations_delta) {
+                v_raw_citation = core_get(&v_delta, &CoreValue::from("citation"), CoreValue::Null);
+                v_citation = _anthropic_map_citation_impl(&[v_raw_citation.clone()])?;
+                v_keep = core_is_not_none(&[v_citation.clone()])?;
+                if core_truthy(&v_keep) {
+                    core_append(&v_citations, v_citation.clone())?;
+                }
+            } else {
+                _anthropic_append_citations_impl(&[v_citations.clone(), v_delta.clone()])?;
+            }
+            v_has_citations = core_truthy_value(&[v_citations.clone()])?;
+            if core_truthy(&v_has_citations) {
+                core_set(&v_result, CoreValue::from("citations"), v_citations.clone())?;
+            }
+            v_valid_update = core_or(&[v_is_text_delta.clone(), v_has_citations.clone()])?;
+            if core_truthy(&v_valid_update) {
+                v_event_index = core_get(&v_event, &CoreValue::from("index"), CoreValue::Num(0f64));
+                v_text_blocks = _anthropic_stream_text_block_impl(&[
+                    v_state.clone(),
+                    v_event_index.clone(),
+                    v_text.clone(),
+                    v_citations.clone(),
+                    CoreValue::Bool(false),
+                ])?;
+                core_set(
+                    &v_result,
+                    CoreValue::from("text_blocks"),
+                    v_text_blocks.clone(),
+                )?;
+            }
             v_results = CoreValue::new_list();
             core_append(&v_results, v_result.clone())?;
             v_out = CoreValue::new_map();
@@ -148804,7 +149116,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (1114 of 1114 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (1117 of 1117 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

@@ -7039,6 +7039,15 @@ writeFixture('anthropic-simple-chat', {
         index: 0,
         id: 'msg_anthropic_1',
         content: 'Ax is portable.',
+        text_blocks: [
+          {
+            index: 0,
+            text: 'Ax is portable.',
+            citations: [
+              { url: 'https://axllm.dev', title: 'Ax', snippet: 'Ax docs' },
+            ],
+          },
+        ],
         function_calls: [],
         finish_reason: 'stop',
         citations: [
@@ -7223,6 +7232,7 @@ writeFixture('anthropic-thinking-response', {
         index: 0,
         id: 'msg_think',
         content: 'Done.',
+        text_blocks: [{ index: 2, text: 'Done.' }],
         function_calls: [],
         finish_reason: 'stop',
         thought: 'plansecret',
@@ -7287,6 +7297,7 @@ writeFixture('anthropic-sonnet-5-adaptive-thinking-request', {
         index: 0,
         id: 'msg_sonnet5_think',
         content: 'Done.',
+        text_blocks: [{ index: 0, text: 'Done.' }],
         function_calls: [],
         finish_reason: 'stop',
       },
@@ -7344,6 +7355,7 @@ writeFixture('anthropic-adaptive-thinking-hidden-request', {
         index: 0,
         id: 'msg_hidden_think',
         content: 'Done.',
+        text_blocks: [{ index: 0, text: 'Done.' }],
         function_calls: [],
         finish_reason: 'stop',
       },
@@ -7405,6 +7417,7 @@ writeFixture('anthropic-qualified-adaptive-model-request', {
         index: 0,
         id: 'msg_qualified_adaptive',
         content: 'Done.',
+        text_blocks: [{ index: 0, text: 'Done.' }],
         function_calls: [],
         finish_reason: 'stop',
       },
@@ -7465,7 +7478,9 @@ writeFixture('anthropic-streaming-tool-thinking', {
       },
     },
     {
-      results: [{ index: 0, content: 'hel' }],
+      results: [
+        { index: 0, content: 'hel', text_blocks: [{ index: 0, text: 'hel' }] },
+      ],
       remote_id: 'msg_stream_a',
     },
     {
@@ -13663,6 +13678,7 @@ const snakeSonnet55 = (value: any): any => {
   if (!value || typeof value !== 'object') return value;
   const names: Record<string, string> = {
     thoughtBlocks: 'thought_blocks',
+    textBlocks: 'text_blocks',
     functionCalls: 'function_calls',
     finishReason: 'finish_reason',
     remoteId: 'remote_id',
@@ -13980,6 +13996,7 @@ const snakeHaiku55 = (value: any): any => {
   if (!value || typeof value !== 'object') return value;
   const names: Record<string, string> = {
     thoughtBlocks: 'thought_blocks',
+    textBlocks: 'text_blocks',
     functionCalls: 'function_calls',
     finishReason: 'finish_reason',
     remoteId: 'remote_id',
@@ -17693,3 +17710,157 @@ writeFixture('gemini-hydrogen-features', {
     caching: hydrogenFeatures.caching as Json,
   },
 });
+
+// Preserve Anthropic's source locations and the output blocks they support.
+// Expected results come from the TypeScript provider for both transport modes.
+for (const stream of [false, true]) {
+  const citations = [
+    {
+      type: 'char_location',
+      cited_text: 'A passage',
+      document_index: 0,
+      document_title: 'Notes',
+      start_char_index: 12,
+      end_char_index: 21,
+      file_id: 'file_notes',
+    },
+    {
+      type: 'page_location',
+      cited_text: 'A PDF passage',
+      document_index: 1,
+      document_title: 'Report',
+      start_page_number: 2,
+      end_page_number: 3,
+    },
+    {
+      type: 'content_block_location',
+      cited_text: 'A custom block',
+      document_index: 2,
+      start_block_index: 0,
+      end_block_index: 1,
+    },
+    {
+      type: 'web_search_result_location',
+      url: 'https://axllm.dev',
+      title: 'Ax',
+      cited_text: 'Web passage',
+    },
+  ];
+  const content = [
+    { type: 'text', text: 'Answer: ', citations: [] },
+    ...citations.map((citation, i) => ({
+      type: 'text',
+      text: `Claim ${i}. `,
+      citations: [citation],
+    })),
+    {
+      type: 'text',
+      text: 'Uncited.',
+      citations: [null, {}, { cited_text: 'unlocated' }],
+    },
+  ];
+  const raw = {
+    id: 'msg_citation_blocks',
+    type: 'message',
+    role: 'assistant',
+    model: haiku55,
+    content,
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 2, output_tokens: 3 },
+  };
+  const events = [
+    {
+      type: 'message_start',
+      message: {
+        ...raw,
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 2, output_tokens: 0 },
+      },
+    },
+    ...content.flatMap((block, index) => [
+      {
+        type: 'content_block_start',
+        index,
+        content_block: {
+          type: 'text',
+          text: '',
+          citations: index === 1 ? block.citations : [],
+        },
+      },
+      {
+        type: 'content_block_delta',
+        index,
+        delta: { type: 'text_delta', text: block.text },
+      },
+      ...(index === 1
+        ? []
+        : block.citations.map((citation) => ({
+            type: 'content_block_delta',
+            index,
+            delta: { type: 'citations_delta', citation },
+          }))),
+      { type: 'content_block_stop', index },
+    ]),
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 3 },
+    },
+    { type: 'message_stop' },
+  ];
+  const body = events
+    .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+    .join('');
+  const client = new AxAIAnthropic({
+    apiKey: 'test-key',
+    config: { model: haiku55 },
+    options: {
+      fetch: async () =>
+        stream
+          ? new Response(body, {
+              headers: { 'content-type': 'text/event-stream' },
+            })
+          : Response.json(raw),
+    },
+  });
+  const response = await client.chat(
+    { chatPrompt: [{ role: 'user', content: 'Cite the evidence.' }] },
+    { stream }
+  );
+  const normalize = (value: any, event?: { type: string }) => {
+    const result = snakeSonnet55(value);
+    if (result.model_usage) result.model_usage.ai = 'anthropic';
+    // Portable stream usage is emitted on usage-bearing events, while TS also
+    // repeats the latest snapshot on intervening text and citation events.
+    if (
+      stream &&
+      event?.type !== 'message_start' &&
+      event?.type !== 'message_delta'
+    )
+      delete result.model_usage;
+    if (!stream) for (const item of result.results) item.function_calls ??= [];
+    return result;
+  };
+  const expected: any = stream ? [] : normalize(response);
+  if (stream) {
+    for await (const chunk of response as ReadableStream)
+      expected.push(normalize(chunk, events[expected.length]));
+  }
+  writeFixture(
+    `anthropic-document-citation-blocks-${stream ? 'stream' : 'chat'}`,
+    {
+      kind: stream ? 'ai_stream' : 'ai_chat',
+      provider: 'anthropic',
+      model: haiku55,
+      request: {
+        chat_prompt: [{ role: 'user', content: 'Cite the evidence.' }],
+        model_config: { stream },
+      },
+      transport_responses: [
+        stream ? { status: 200, body } : { status: 200, json: raw },
+      ],
+      expected_output: expected,
+    } as any
+  );
+}

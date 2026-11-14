@@ -38629,6 +38629,10 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	var v_ai_name Value
 	var v_model Value
 	var v_block Value
+	var v_block_citations Value
+	var v_block_index Value
+	var v_block_text Value
+	var v_block_type Value
 	var v_citations Value
 	var v_content Value
 	var v_details Value
@@ -38641,10 +38645,12 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	var v_has_calls Value
 	var v_has_citations Value
 	var v_has_finish Value
+	var v_has_text_blocks Value
 	var v_has_thought Value
 	var v_id Value
 	var v_is_error Value
 	var v_is_refusal Value
+	var v_is_text_block Value
 	var v_message Value
 	var v_model_usage Value
 	var v_out Value
@@ -38653,6 +38659,8 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	var v_results Value
 	var v_stop_reason Value
 	var v_text Value
+	var v_text_block Value
+	var v_text_blocks Value
 	var v_text_parts Value
 	var v_thought Value
 	var v_thought_blocks Value
@@ -38667,6 +38675,10 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	if len(args) > 2 { v_model = args[2] }
 	_ = v_model
 	_ = v_block
+	_ = v_block_citations
+	_ = v_block_index
+	_ = v_block_text
+	_ = v_block_type
 	_ = v_citations
 	_ = v_content
 	_ = v_details
@@ -38679,10 +38691,12 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_has_calls
 	_ = v_has_citations
 	_ = v_has_finish
+	_ = v_has_text_blocks
 	_ = v_has_thought
 	_ = v_id
 	_ = v_is_error
 	_ = v_is_refusal
+	_ = v_is_text_block
 	_ = v_message
 	_ = v_model_usage
 	_ = v_out
@@ -38691,6 +38705,8 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_results
 	_ = v_stop_reason
 	_ = v_text
+	_ = v_text_block
+	_ = v_text_blocks
 	_ = v_text_parts
 	_ = v_thought
 	_ = v_thought_blocks
@@ -38723,9 +38739,23 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	v_thought_blocks = MutableArray()
 	v_citations = MutableArray()
 	v_empty_content = MutableArray()
+	v_text_blocks = MutableArray()
+	v_block_index = 0
 	v_content = coreGet(v_raw, "content", v_empty_content)
 	for _, v_block = range coreIter(v_content) {
 		if _, err := _anthropic_merge_response_block_impl(v_text_parts, v_function_calls, v_thought_parts, v_thought_blocks, v_citations, v_block); err != nil { return nil, err }
+		v_block_type = coreGet(v_block, "type", "")
+		v_is_text_block = _core_eq(v_block_type, "text")
+		if coreTruthy(v_is_text_block) {
+			v_block_text = coreGet(v_block, "text", "")
+			v_block_citations = MutableArray()
+			if _, err := _anthropic_append_citations_impl(v_block_citations, v_block); err != nil { return nil, err }
+			{ v, err := _anthropic_text_block_impl(v_block_index, v_block_text, v_block_citations); if err != nil { return nil, err }; v_text_block = v }
+			v_text_blocks = coreAppend(v_text_blocks, v_text_block)
+		} else {
+		// empty
+		}
+		v_block_index = _core_add(v_block_index, 1)
 	}
 	v_result = Object()
 	if err := coreSet(v_result, "index", 0); err != nil { return nil, err }
@@ -38740,6 +38770,12 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	}
 	v_text = _core_string_join("", v_text_parts)
 	if err := coreSet(v_result, "content", v_text); err != nil { return nil, err }
+	v_has_text_blocks = _core_truthy(v_text_blocks)
+	if coreTruthy(v_has_text_blocks) {
+		if err := coreSet(v_result, "text_blocks", v_text_blocks); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	if err := coreSet(v_result, "function_calls", v_function_calls); err != nil { return nil, err }
 	v_has_calls = _core_truthy(v_function_calls)
 	if coreTruthy(v_has_calls) {
@@ -38898,6 +38934,160 @@ func _anthropic_merge_response_block_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _anthropic_map_citation_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_map_citation_impl")
+	var v_citation Value
+	var v_document_index Value
+	var v_document_title Value
+	var v_fields Value
+	var v_file_id Value
+	var v_file_is_string Value
+	var v_has_url Value
+	var v_index_is_number Value
+	var v_is_block Value
+	var v_is_char Value
+	var v_is_document Value
+	var v_is_number Value
+	var v_is_page Value
+	var v_is_range Value
+	var v_item Value
+	var v_keep Value
+	var v_key Value
+	var v_keys Value
+	var v_snippet Value
+	var v_snippet_is_string Value
+	var v_target Value
+	var v_title Value
+	var v_title_is_string Value
+	var v_type Value
+	var v_url Value
+	var v_url_is_string Value
+	var v_url_nonempty Value
+	var v_value Value
+	if len(args) > 0 { v_citation = args[0] }
+	_ = v_citation
+	_ = v_document_index
+	_ = v_document_title
+	_ = v_fields
+	_ = v_file_id
+	_ = v_file_is_string
+	_ = v_has_url
+	_ = v_index_is_number
+	_ = v_is_block
+	_ = v_is_char
+	_ = v_is_document
+	_ = v_is_number
+	_ = v_is_page
+	_ = v_is_range
+	_ = v_item
+	_ = v_keep
+	_ = v_key
+	_ = v_keys
+	_ = v_snippet
+	_ = v_snippet_is_string
+	_ = v_target
+	_ = v_title
+	_ = v_title_is_string
+	_ = v_type
+	_ = v_url
+	_ = v_url_is_string
+	_ = v_url_nonempty
+	_ = v_value
+	v_item = Object()
+	v_url = coreGet(v_citation, "url", "")
+	v_url_is_string = coreTypeIs(v_url, "string")
+	v_url_nonempty = _core_ne(v_url, "")
+	v_has_url = _core_and(v_url_is_string, v_url_nonempty)
+	if coreTruthy(v_has_url) {
+		if err := coreSet(v_item, "url", v_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_title = coreGet(v_citation, "title", nil)
+	v_title_is_string = coreTypeIs(v_title, "string")
+	if coreTruthy(v_title_is_string) {
+		if err := coreSet(v_item, "title", v_title); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_snippet = coreGet(v_citation, "cited_text", nil)
+	v_snippet_is_string = coreTypeIs(v_snippet, "string")
+	if coreTruthy(v_snippet_is_string) {
+		if err := coreSet(v_item, "snippet", v_snippet); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_type = coreGet(v_citation, "type", "")
+	v_is_char = _core_eq(v_type, "char_location")
+	v_is_page = _core_eq(v_type, "page_location")
+	v_is_block = _core_eq(v_type, "content_block_location")
+	v_is_range = _core_or(v_is_char, v_is_page)
+	v_is_document = _core_or(v_is_range, v_is_block)
+	if coreTruthy(v_is_document) {
+		if err := coreSet(v_item, "type", v_type); err != nil { return nil, err }
+		v_document_index = coreGet(v_citation, "document_index", nil)
+		v_index_is_number = coreTypeIs(v_document_index, "number")
+		if coreTruthy(v_index_is_number) {
+			if err := coreSet(v_item, "documentIndex", v_document_index); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_document_title = coreGet(v_citation, "document_title", nil)
+		v_title_is_string = coreTypeIs(v_document_title, "string")
+		if coreTruthy(v_title_is_string) {
+			if err := coreSet(v_item, "documentTitle", v_document_title); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_file_id = coreGet(v_citation, "file_id", nil)
+		v_file_is_string = coreTypeIs(v_file_id, "string")
+		if coreTruthy(v_file_is_string) {
+			if err := coreSet(v_item, "fileId", v_file_id); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_fields = Object()
+		if coreTruthy(v_is_char) {
+			if err := coreSet(v_fields, "start_char_index", "startCharIndex"); err != nil { return nil, err }
+			if err := coreSet(v_fields, "end_char_index", "endCharIndex"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_page) {
+			if err := coreSet(v_fields, "start_page_number", "startPageNumber"); err != nil { return nil, err }
+			if err := coreSet(v_fields, "end_page_number", "endPageNumber"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_block) {
+			if err := coreSet(v_fields, "start_block_index", "startBlockIndex"); err != nil { return nil, err }
+			if err := coreSet(v_fields, "end_block_index", "endBlockIndex"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_keys = _core_map_keys(v_fields)
+		for _, v_key = range coreIter(v_keys) {
+			v_value = coreGet(v_citation, v_key, nil)
+			v_is_number = coreTypeIs(v_value, "number")
+			if coreTruthy(v_is_number) {
+				v_target = coreGet(v_fields, v_key, nil)
+				if err := coreSet(v_item, v_target, v_value); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_keep = _core_or(v_has_url, v_is_document)
+	if coreTruthy(v_keep) {
+		return v_item, nil
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
 func _anthropic_append_citations_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_anthropic_append_citations_impl")
 	var v_out Value
@@ -38905,13 +39095,9 @@ func _anthropic_append_citations_impl(args ...Value) (Value, error) {
 	var v_citation Value
 	var v_citations Value
 	var v_empty Value
-	var v_has_snippet Value
-	var v_has_title Value
-	var v_has_url Value
+	var v_is_list Value
 	var v_item Value
-	var v_snippet Value
-	var v_title Value
-	var v_url Value
+	var v_keep Value
 	if len(args) > 0 { v_out = args[0] }
 	_ = v_out
 	if len(args) > 1 { v_block = args[1] }
@@ -38919,41 +39105,130 @@ func _anthropic_append_citations_impl(args ...Value) (Value, error) {
 	_ = v_citation
 	_ = v_citations
 	_ = v_empty
-	_ = v_has_snippet
-	_ = v_has_title
-	_ = v_has_url
+	_ = v_is_list
 	_ = v_item
-	_ = v_snippet
-	_ = v_title
-	_ = v_url
+	_ = v_keep
 	v_empty = MutableArray()
 	v_citations = coreGet(v_block, "citations", v_empty)
-	for _, v_citation = range coreIter(v_citations) {
-		v_url = coreGet(v_citation, "url", nil)
-		v_has_url = _core_truthy(v_url)
-		if coreTruthy(v_has_url) {
-			v_item = Object()
-			if err := coreSet(v_item, "url", v_url); err != nil { return nil, err }
-			v_title = coreGet(v_citation, "title", nil)
-			v_has_title = _core_is_not_none(v_title)
-			if coreTruthy(v_has_title) {
-				if err := coreSet(v_item, "title", v_title); err != nil { return nil, err }
+	v_is_list = coreTypeIs(v_citations, "list")
+	if coreTruthy(v_is_list) {
+		for _, v_citation = range coreIter(v_citations) {
+			{ v, err := _anthropic_map_citation_impl(v_citation); if err != nil { return nil, err }; v_item = v }
+			v_keep = _core_is_not_none(v_item)
+			if coreTruthy(v_keep) {
+				v_out = coreAppend(v_out, v_item)
 			} else {
 			// empty
 			}
-			v_snippet = coreGet(v_citation, "cited_text", nil)
-			v_has_snippet = _core_is_not_none(v_snippet)
-			if coreTruthy(v_has_snippet) {
-				if err := coreSet(v_item, "snippet", v_snippet); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_out = coreAppend(v_out, v_item)
-		} else {
-		// empty
 		}
+	} else {
+	// empty
 	}
 	return nil, nil
+}
+
+func _anthropic_text_block_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_text_block_impl")
+	var v_index Value
+	var v_text Value
+	var v_citations Value
+	var v_block Value
+	var v_citation Value
+	var v_copies Value
+	var v_copy Value
+	var v_empty Value
+	var v_has_citations Value
+	if len(args) > 0 { v_index = args[0] }
+	_ = v_index
+	if len(args) > 1 { v_text = args[1] }
+	_ = v_text
+	if len(args) > 2 { v_citations = args[2] }
+	_ = v_citations
+	_ = v_block
+	_ = v_citation
+	_ = v_copies
+	_ = v_copy
+	_ = v_empty
+	_ = v_has_citations
+	v_block = Object()
+	if err := coreSet(v_block, "index", v_index); err != nil { return nil, err }
+	if err := coreSet(v_block, "text", v_text); err != nil { return nil, err }
+	v_has_citations = _core_truthy(v_citations)
+	if coreTruthy(v_has_citations) {
+		v_copies = MutableArray()
+		v_empty = Object()
+		for _, v_citation = range coreIter(v_citations) {
+			v_copy = _core_map_merge(v_citation, v_empty)
+			v_copies = coreAppend(v_copies, v_copy)
+		}
+		if err := coreSet(v_block, "citations", v_copies); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_block, nil
+}
+
+func _anthropic_stream_text_block_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_stream_text_block_impl")
+	var v_state Value
+	var v_index Value
+	var v_text Value
+	var v_citations Value
+	var v_start Value
+	var v_all Value
+	var v_citation Value
+	var v_empty Value
+	var v_key Value
+	var v_old_citations Value
+	var v_out Value
+	var v_previous Value
+	var v_previous_text Value
+	var v_saved Value
+	var v_snapshot Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_index = args[1] }
+	_ = v_index
+	if len(args) > 2 { v_text = args[2] }
+	_ = v_text
+	if len(args) > 3 { v_citations = args[3] }
+	_ = v_citations
+	if len(args) > 4 { v_start = args[4] }
+	_ = v_start
+	_ = v_all
+	_ = v_citation
+	_ = v_empty
+	_ = v_key
+	_ = v_old_citations
+	_ = v_out
+	_ = v_previous
+	_ = v_previous_text
+	_ = v_saved
+	_ = v_snapshot
+	v_key = _core_string_format("text_block_{}", v_index)
+	v_previous = Object()
+	if coreTruthy(v_start) {
+	// empty
+	} else {
+		v_previous = coreGet(v_state, v_key, v_previous)
+	}
+	v_previous_text = coreGet(v_previous, "text", "")
+	v_text = _core_string_format("{}{}", v_previous_text, v_text)
+	v_all = MutableArray()
+	v_empty = MutableArray()
+	v_old_citations = coreGet(v_previous, "citations", v_empty)
+	for _, v_citation = range coreIter(v_old_citations) {
+		v_all = coreAppend(v_all, v_citation)
+	}
+	for _, v_citation = range coreIter(v_citations) {
+		v_all = coreAppend(v_all, v_citation)
+	}
+	{ v, err := _anthropic_text_block_impl(v_index, v_text, v_all); if err != nil { return nil, err }; v_saved = v }
+	if err := coreSet(v_state, v_key, v_saved); err != nil { return nil, err }
+	{ v, err := _anthropic_text_block_impl(v_index, v_text, v_all); if err != nil { return nil, err }; v_snapshot = v }
+	v_out = MutableArray()
+	v_out = coreAppend(v_out, v_snapshot)
+	return v_out, nil
 }
 
 func _anthropic_finish_reason_impl(args ...Value) (Value, error) {
@@ -39091,6 +39366,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_cache_read Value
 	var v_call Value
 	var v_calls Value
+	var v_citation Value
 	var v_citations Value
 	var v_completion Value
 	var v_creation_total Value
@@ -39116,6 +39392,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_id Value
 	var v_index Value
 	var v_is_block_start Value
+	var v_is_citations_delta Value
 	var v_is_delta Value
 	var v_is_error Value
 	var v_is_json_delta Value
@@ -39126,9 +39403,11 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_is_start Value
 	var v_is_text Value
 	var v_is_text_delta Value
+	var v_is_text_update Value
 	var v_is_thinking Value
 	var v_is_thinking_delta Value
 	var v_is_tool Value
+	var v_keep Value
 	var v_key Value
 	var v_message Value
 	var v_model_usage Value
@@ -39141,6 +39420,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_out Value
 	var v_partial Value
 	var v_prompt Value
+	var v_raw_citation Value
 	var v_read_total Value
 	var v_remote_id Value
 	var v_result Value
@@ -39149,6 +39429,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_speed Value
 	var v_stop Value
 	var v_text Value
+	var v_text_blocks Value
 	var v_thinking Value
 	var v_thought_block Value
 	var v_total Value
@@ -39159,6 +39440,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_usage_delta Value
 	var v_usage_existing Value
 	var v_usage_raw Value
+	var v_valid_update Value
 	if len(args) > 0 { v_event = args[0] }
 	_ = v_event
 	if len(args) > 1 { v_state = args[1] }
@@ -39174,6 +39456,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_cache_read
 	_ = v_call
 	_ = v_calls
+	_ = v_citation
 	_ = v_citations
 	_ = v_completion
 	_ = v_creation_total
@@ -39199,6 +39482,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_id
 	_ = v_index
 	_ = v_is_block_start
+	_ = v_is_citations_delta
 	_ = v_is_delta
 	_ = v_is_error
 	_ = v_is_json_delta
@@ -39209,9 +39493,11 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_is_start
 	_ = v_is_text
 	_ = v_is_text_delta
+	_ = v_is_text_update
 	_ = v_is_thinking
 	_ = v_is_thinking_delta
 	_ = v_is_tool
+	_ = v_keep
 	_ = v_key
 	_ = v_message
 	_ = v_model_usage
@@ -39224,6 +39510,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_out
 	_ = v_partial
 	_ = v_prompt
+	_ = v_raw_citation
 	_ = v_read_total
 	_ = v_remote_id
 	_ = v_result
@@ -39232,6 +39519,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_speed
 	_ = v_stop
 	_ = v_text
+	_ = v_text_blocks
 	_ = v_thinking
 	_ = v_thought_block
 	_ = v_total
@@ -39242,6 +39530,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_usage_delta
 	_ = v_usage_existing
 	_ = v_usage_raw
+	_ = v_valid_update
 	v_type = coreGet(v_event, "type", "")
 	v_is_error = _core_eq(v_type, "error")
 	if coreTruthy(v_is_error) {
@@ -39288,6 +39577,9 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 			if err := coreSet(v_result, "content", v_text); err != nil { return nil, err }
 			v_citations = MutableArray()
 			if _, err := _anthropic_append_citations_impl(v_citations, v_block); err != nil { return nil, err }
+			v_event_index = coreGet(v_event, "index", 0)
+			{ v, err := _anthropic_stream_text_block_impl(v_state, v_event_index, v_text, v_citations, true); if err != nil { return nil, err }; v_text_blocks = v }
+			if err := coreSet(v_result, "text_blocks", v_text_blocks); err != nil { return nil, err }
 			v_has_citations = _core_truthy(v_citations)
 			if coreTruthy(v_has_citations) {
 				if err := coreSet(v_result, "citations", v_citations); err != nil { return nil, err }
@@ -39382,11 +39674,40 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 		v_delta = coreGet(v_event, "delta", nil)
 		v_delta_type = coreGet(v_delta, "type", "")
 		v_is_text_delta = _core_eq(v_delta_type, "text_delta")
-		if coreTruthy(v_is_text_delta) {
+		v_is_citations_delta = _core_eq(v_delta_type, "citations_delta")
+		v_is_text_update = _core_or(v_is_text_delta, v_is_citations_delta)
+		if coreTruthy(v_is_text_update) {
 			v_result = Object()
 			if err := coreSet(v_result, "index", v_index); err != nil { return nil, err }
 			v_text = coreGet(v_delta, "text", "")
 			if err := coreSet(v_result, "content", v_text); err != nil { return nil, err }
+			v_citations = MutableArray()
+			if coreTruthy(v_is_citations_delta) {
+				v_raw_citation = coreGet(v_delta, "citation", nil)
+				{ v, err := _anthropic_map_citation_impl(v_raw_citation); if err != nil { return nil, err }; v_citation = v }
+				v_keep = _core_is_not_none(v_citation)
+				if coreTruthy(v_keep) {
+					v_citations = coreAppend(v_citations, v_citation)
+				} else {
+				// empty
+				}
+			} else {
+				if _, err := _anthropic_append_citations_impl(v_citations, v_delta); err != nil { return nil, err }
+			}
+			v_has_citations = _core_truthy(v_citations)
+			if coreTruthy(v_has_citations) {
+				if err := coreSet(v_result, "citations", v_citations); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_valid_update = _core_or(v_is_text_delta, v_has_citations)
+			if coreTruthy(v_valid_update) {
+				v_event_index = coreGet(v_event, "index", 0)
+				{ v, err := _anthropic_stream_text_block_impl(v_state, v_event_index, v_text, v_citations, false); if err != nil { return nil, err }; v_text_blocks = v }
+				if err := coreSet(v_result, "text_blocks", v_text_blocks); err != nil { return nil, err }
+			} else {
+			// empty
+			}
 			v_results = MutableArray()
 			v_results = coreAppend(v_results, v_result)
 			v_out = Object()

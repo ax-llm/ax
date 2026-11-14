@@ -30,6 +30,7 @@ import {
   logResponse,
   logResponseStreamingDoneResult,
 } from './debug.js';
+import { requiresNativeDocuments } from './documents.js';
 import {
   type AxAIMetricsInstruments,
   getOrCreateAIMetricsInstruments,
@@ -429,11 +430,20 @@ function hashContentPart(
   } else if (part.type === 'audio') {
     hasher.update(`audio:${part.format}:${part.data.slice(0, 100)}`);
   } else if (part.type === 'file') {
+    hasher.update(
+      stableStringify({
+        title: part.title,
+        context: part.context,
+        citations: part.citations,
+      })
+    );
     if ('fileUri' in part) {
       hasher.update(`file:${part.mimeType}:${part.fileUri}`);
     } else {
       hasher.update(`file:${part.mimeType}:${part.data.slice(0, 100)}`);
     }
+  } else if (part.type === 'document') {
+    hasher.update(`document:${stableStringify(part)}`);
   }
 }
 
@@ -527,6 +537,8 @@ export interface AxAIFeatures {
   requiresStructuredOutput?: boolean;
   /** Enhanced media capability specifications */
   media: {
+    /** Native document sources and per-document citation controls. */
+    documents?: { supported: boolean; citations: boolean };
     /** Image processing capabilities */
     images: {
       /** Whether the provider supports image inputs */
@@ -1977,9 +1989,23 @@ export class AxBaseAI<
     req: Readonly<AxChatRequest<TModel | TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): void {
-    if (!this.aiImpl.validateChatReq) return;
     const { model, modelConfig } = this.resolveChatModelConfig(req, options);
-    this.aiImpl.validateChatReq({ ...req, model, modelConfig });
+    this.validateDocumentSupport(req, model);
+    this.aiImpl.validateChatReq?.({ ...req, model, modelConfig });
+  }
+
+  private validateDocumentSupport(
+    req: Readonly<AxChatRequest<unknown>>,
+    model: TModel
+  ): void {
+    if (
+      requiresNativeDocuments(req) &&
+      !this.getFeatures(model).media.documents?.supported
+    ) {
+      throw new Error(
+        `${this.name} does not support native document inputs and citations`
+      );
+    }
   }
 
   private async _chat1(
@@ -2224,6 +2250,7 @@ export class AxBaseAI<
       );
     }
 
+    this.validateDocumentSupport(req, model);
     this.aiImpl.validateChatReq?.(req);
 
     // After logging, optionally emulate prompt-based function mode centrally
@@ -3442,7 +3469,7 @@ export class AxBaseAI<
                   charCount += 1000; // Images typically use ~1000 tokens
                 } else if (part.type === 'audio') {
                   charCount += 2000; // Audio uses more tokens
-                } else if (part.type === 'file') {
+                } else if (part.type === 'file' || part.type === 'document') {
                   charCount += 500; // Files vary widely
                 }
               }

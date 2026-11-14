@@ -16,7 +16,13 @@
         "finish_reason": "stop",
         "function_calls": [],
         "id": "msg_hidden_think",
-        "index": 0
+        "index": 0,
+        "text_blocks": [
+          {
+            "index": 0,
+            "text": "Done."
+          }
+        ]
       }
     ]
   },

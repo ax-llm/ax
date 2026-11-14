@@ -18051,9 +18051,22 @@ def _anthropic_normalize_chat_response(raw: Any, ai_name: str, model: str) -> Ax
     thought_blocks = []
     citations = []
     empty_content = []
+    text_blocks = []
+    block_index = 0
     content = _core_get(raw, "content", empty_content)
     for block in content:
         _anthropic_merge_response_block_impl(text_parts, function_calls, thought_parts, thought_blocks, citations, block)
+        block_type = _core_get(block, "type", "")
+        is_text_block = _core_eq(block_type, "text")
+        if is_text_block:
+            block_text = _core_get(block, "text", "")
+            block_citations = []
+            _anthropic_append_citations_impl(block_citations, block)
+            text_block = _anthropic_text_block_impl(block_index, block_text, block_citations)
+            text_blocks.append(text_block)
+        else:
+            pass
+        block_index = _core_add(block_index, 1)
     result = {}
     result["index"] = 0
     id = _core_get(raw, "id", "0")
@@ -18066,6 +18079,11 @@ def _anthropic_normalize_chat_response(raw: Any, ai_name: str, model: str) -> Ax
         pass
     text = _core_string_join("", text_parts)
     result["content"] = text
+    has_text_blocks = _core_truthy(text_blocks)
+    if has_text_blocks:
+        result["text_blocks"] = text_blocks
+    else:
+        pass
     result["function_calls"] = function_calls
     has_calls = _core_truthy(function_calls)
     if has_calls:
@@ -18162,32 +18180,149 @@ def _anthropic_merge_response_block_impl(text_parts: list[Any], function_calls: 
     return None
 
 
+def _anthropic_map_citation_impl(citation: Any) -> Any:
+    _core_coverage_mark("_anthropic_map_citation_impl")
+    item = {}
+    url = _core_get(citation, "url", "")
+    url_is_string = _core_type_is(url, "string")
+    url_nonempty = _core_ne(url, "")
+    has_url = _core_and(url_is_string, url_nonempty)
+    if has_url:
+        item["url"] = url
+    else:
+        pass
+    title = _core_get(citation, "title", None)
+    title_is_string = _core_type_is(title, "string")
+    if title_is_string:
+        item["title"] = title
+    else:
+        pass
+    snippet = _core_get(citation, "cited_text", None)
+    snippet_is_string = _core_type_is(snippet, "string")
+    if snippet_is_string:
+        item["snippet"] = snippet
+    else:
+        pass
+    type = _core_get(citation, "type", "")
+    is_char = _core_eq(type, "char_location")
+    is_page = _core_eq(type, "page_location")
+    is_block = _core_eq(type, "content_block_location")
+    is_range = _core_or(is_char, is_page)
+    is_document = _core_or(is_range, is_block)
+    if is_document:
+        item["type"] = type
+        document_index = _core_get(citation, "document_index", None)
+        index_is_number = _core_type_is(document_index, "number")
+        if index_is_number:
+            item["documentIndex"] = document_index
+        else:
+            pass
+        document_title = _core_get(citation, "document_title", None)
+        title_is_string = _core_type_is(document_title, "string")
+        if title_is_string:
+            item["documentTitle"] = document_title
+        else:
+            pass
+        file_id = _core_get(citation, "file_id", None)
+        file_is_string = _core_type_is(file_id, "string")
+        if file_is_string:
+            item["fileId"] = file_id
+        else:
+            pass
+        fields = {}
+        if is_char:
+            fields["start_char_index"] = "startCharIndex"
+            fields["end_char_index"] = "endCharIndex"
+        else:
+            pass
+        if is_page:
+            fields["start_page_number"] = "startPageNumber"
+            fields["end_page_number"] = "endPageNumber"
+        else:
+            pass
+        if is_block:
+            fields["start_block_index"] = "startBlockIndex"
+            fields["end_block_index"] = "endBlockIndex"
+        else:
+            pass
+        keys = _core_map_keys(fields)
+        for key in keys:
+            value = _core_get(citation, key, None)
+            is_number = _core_type_is(value, "number")
+            if is_number:
+                target = _core_get(fields, key, None)
+                item[target] = value
+            else:
+                pass
+    else:
+        pass
+    keep = _core_or(has_url, is_document)
+    if keep:
+        return item
+    else:
+        pass
+    return None
+
+
 def _anthropic_append_citations_impl(out: list[Any], block: Any) -> None:
     _core_coverage_mark("_anthropic_append_citations_impl")
     empty = []
     citations = _core_get(block, "citations", empty)
-    for citation in citations:
-        url = _core_get(citation, "url", None)
-        has_url = _core_truthy(url)
-        if has_url:
-            item = {}
-            item["url"] = url
-            title = _core_get(citation, "title", None)
-            has_title = _core_is_not_none(title)
-            if has_title:
-                item["title"] = title
+    is_list = _core_type_is(citations, "list")
+    if is_list:
+        for citation in citations:
+            item = _anthropic_map_citation_impl(citation)
+            keep = _core_is_not_none(item)
+            if keep:
+                out.append(item)
             else:
                 pass
-            snippet = _core_get(citation, "cited_text", None)
-            has_snippet = _core_is_not_none(snippet)
-            if has_snippet:
-                item["snippet"] = snippet
-            else:
-                pass
-            out.append(item)
-        else:
-            pass
+    else:
+        pass
     return None
+
+
+def _anthropic_text_block_impl(index: Any, text: str, citations: list[Any]) -> Any:
+    _core_coverage_mark("_anthropic_text_block_impl")
+    block = {}
+    block["index"] = index
+    block["text"] = text
+    has_citations = _core_truthy(citations)
+    if has_citations:
+        copies = []
+        empty = {}
+        for citation in citations:
+            copy = _core_map_merge(citation, empty)
+            copies.append(copy)
+        block["citations"] = copies
+    else:
+        pass
+    return block
+
+
+def _anthropic_stream_text_block_impl(state: Any, index: Any, text: str, citations: list[Any], start: bool) -> list[Any]:
+    _core_coverage_mark("_anthropic_stream_text_block_impl")
+    key = _core_string_format("text_block_{}", index)
+    previous = {}
+    if start:
+        pass
+    else:
+        previous = _core_get(state, key, previous)
+    previous_text = _core_get(previous, "text", "")
+    text = _core_string_format("{}{}", previous_text, text)
+    all = []
+    empty = []
+    old_citations = _core_get(previous, "citations", empty)
+    for citation in old_citations:
+        all.append(citation)
+    for citation in citations:
+        all.append(citation)
+    saved = _anthropic_text_block_impl(index, text, all)
+    state[key] = saved
+    snapshot = _anthropic_text_block_impl(index, text, all)
+    out = []
+    out.append(snapshot)
+    return out
 
 
 def _anthropic_finish_reason_impl(reason: Any) -> str:
@@ -18302,6 +18437,9 @@ def _anthropic_normalize_stream_delta(event: Any, state: Any, ai_name: str, mode
             result["content"] = text
             citations = []
             _anthropic_append_citations_impl(citations, block)
+            event_index = _core_get(event, "index", 0)
+            text_blocks = _anthropic_stream_text_block_impl(state, event_index, text, citations, True)
+            result["text_blocks"] = text_blocks
             has_citations = _core_truthy(citations)
             if has_citations:
                 result["citations"] = citations
@@ -18390,11 +18528,36 @@ def _anthropic_normalize_stream_delta(event: Any, state: Any, ai_name: str, mode
         delta = _core_get(event, "delta", None)
         delta_type = _core_get(delta, "type", "")
         is_text_delta = _core_eq(delta_type, "text_delta")
-        if is_text_delta:
+        is_citations_delta = _core_eq(delta_type, "citations_delta")
+        is_text_update = _core_or(is_text_delta, is_citations_delta)
+        if is_text_update:
             result = {}
             result["index"] = index
             text = _core_get(delta, "text", "")
             result["content"] = text
+            citations = []
+            if is_citations_delta:
+                raw_citation = _core_get(delta, "citation", None)
+                citation = _anthropic_map_citation_impl(raw_citation)
+                keep = _core_is_not_none(citation)
+                if keep:
+                    citations.append(citation)
+                else:
+                    pass
+            else:
+                _anthropic_append_citations_impl(citations, delta)
+            has_citations = _core_truthy(citations)
+            if has_citations:
+                result["citations"] = citations
+            else:
+                pass
+            valid_update = _core_or(is_text_delta, has_citations)
+            if valid_update:
+                event_index = _core_get(event, "index", 0)
+                text_blocks = _anthropic_stream_text_block_impl(state, event_index, text, citations, False)
+                result["text_blocks"] = text_blocks
+            else:
+                pass
             results = []
             results.append(result)
             out = {}

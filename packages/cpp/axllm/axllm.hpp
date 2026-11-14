@@ -949,7 +949,10 @@ struct Core {
   static Value _anthropic_map_error_event(Value error, Value raw);
   static Value _anthropic_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _anthropic_merge_response_block_impl(Value text_parts, Value function_calls, Value thought_parts, Value thought_blocks, Value citations, Value block);
+  static Value _anthropic_map_citation_impl(Value citation);
   static Value _anthropic_append_citations_impl(Value out, Value block);
+  static Value _anthropic_text_block_impl(Value index, Value text, Value citations);
+  static Value _anthropic_stream_text_block_impl(Value state, Value index, Value text, Value citations, Value start);
   static Value _anthropic_finish_reason_impl(Value reason);
   static Value _anthropic_usage_impl(Value usage);
   static Value _anthropic_normalize_stream_delta(Value event, Value state, Value ai_name, Value model);

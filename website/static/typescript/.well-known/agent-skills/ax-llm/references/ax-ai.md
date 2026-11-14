@@ -707,6 +707,44 @@ the only place it is served. These models default an omitted effort to
 `none` and Ax throws.
 Earlier OpenAI models retain their existing mapping.
 
+### Anthropic document citations (TypeScript)
+
+Use a `document` chat part with `source`, optional `title` and `context`, and
+`citations: { enabled: true }`. The same value without `type` works in an AxGen
+`file` input or `f.file()` field. Source forms are:
+
+- `{ type: 'text', data: 'plain text' }`
+- `{ type: 'base64', mediaType: 'application/pdf', data: 'base64 PDF' }`
+- `{ type: 'url', url: 'https://example.com/source.pdf' }`
+- `{ type: 'file', fileId: 'uploaded file id' }` (first-party Files API)
+- `{ type: 'content', content: [{ type: 'text', text: 'one citable block' }] }`
+
+Existing PDF `file` parts also accept `title`, `context`, `citations`, and `cache`.
+Enable citations on every document in the request, including earlier messages,
+or on none. Native JSON-schema output (`output_config.format`, including
+`.useStructured()`) is rejected locally when citations are enabled. Use a text
+signature and cite the document in the output field description. Ax does not
+silently weaken an explicitly requested structured-output contract.
+
+`response.results[i].textBlocks` preserves each output block's text and citations.
+Streaming updates are complete snapshots for the given block `index`; replace
+that block rather than appending its snapshot text. Ordinary `result.content`
+retains its existing text-delta behavior. Citation source offsets point into the
+input document, while a text block identifies the output passage they support.
+Document citations have no `url`; inspect `type`, `documentIndex`, `documentTitle`,
+`snippet`, and the corresponding character, page, or content-block range.
+
+After `forward()` or `streamingForward()`, use `program.getChatLog()[i].textBlocks`
+for output passage associations, scoped to that round trip. Blocks also carry
+`resultIndex`. `getUsage().citations` retains a flat source list; document indices
+are request-local and must not be treated as global document identifiers.
+Routers preserve native document inputs and exclude incompatible providers,
+even when media degradation is enabled.
+
+Run `src/examples/typescript/generation/anthropic-document-citations.ts` for
+non-streaming and streaming calls. Generated-language parity is tracked in the
+AxIR backlog; this API is currently TypeScript-only.
+
 ### Anthropic Model-Specific Behavior
 
 - Opus 5.5, Fable 5.1, Fable 5, Opus 5, Opus 4.8, 4.7, and 4.6 plus Sonnet 5, Sonnet 5.5, and Haiku 5.5:

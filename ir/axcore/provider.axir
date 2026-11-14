@@ -10353,9 +10353,21 @@ module @ax.provider version "0.1" {
       %thought_blocks = core.list
       %citations = core.list
       %empty_content = core.list
+      %text_blocks = core.list
+      %block_index = core.let 0
       %content = core.get %raw["content"] default %empty_content
       core.for %block in %content {
         core.call @anthropic_merge_response_block_impl(%text_parts, %function_calls, %thought_parts, %thought_blocks, %citations, %block)
+        %block_type = core.get %block["type"] default ""
+        %is_text_block = core.call intrinsic.eq(%block_type, "text")
+        core.if %is_text_block {
+          %block_text = core.get %block["text"] default ""
+          %block_citations = core.list
+          core.call @anthropic_append_citations_impl(%block_citations, %block)
+          %text_block = core.call @anthropic_text_block_impl(%block_index, %block_text, %block_citations)
+          core.append %text_blocks, %text_block
+        }
+        %block_index = core.call intrinsic.add(%block_index, 1)
       }
       %result = core.map
       core.set %result["index"] = 0
@@ -10368,6 +10380,10 @@ module @ax.provider version "0.1" {
       }
       %text = core.call intrinsic.string.join("", %text_parts)
       core.set %result["content"] = %text
+      %has_text_blocks = core.call intrinsic.truthy(%text_blocks)
+      core.if %has_text_blocks {
+        core.set %result["text_blocks"] = %text_blocks
+      }
       core.set %result["function_calls"] = %function_calls
       %has_calls = core.call intrinsic.truthy(%function_calls)
       core.if %has_calls {
@@ -10461,6 +10477,71 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @anthropic_map_citation_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts#mapAnthropicCitation"
+    type signature = "(json) -> json"
+    body @entry(%citation: json) {
+      %item = core.map
+      %url = core.get %citation["url"] default ""
+      %url_is_string = core.type_is %url type "string"
+      %url_nonempty = core.call intrinsic.ne(%url, "")
+      %has_url = core.call intrinsic.and(%url_is_string, %url_nonempty)
+      core.if %has_url { core.set %item["url"] = %url }
+      %title = core.get %citation["title"]
+      %title_is_string = core.type_is %title type "string"
+      core.if %title_is_string { core.set %item["title"] = %title }
+      %snippet = core.get %citation["cited_text"]
+      %snippet_is_string = core.type_is %snippet type "string"
+      core.if %snippet_is_string { core.set %item["snippet"] = %snippet }
+      %type = core.get %citation["type"] default ""
+      %is_char = core.call intrinsic.eq(%type, "char_location")
+      %is_page = core.call intrinsic.eq(%type, "page_location")
+      %is_block = core.call intrinsic.eq(%type, "content_block_location")
+      %is_range = core.call intrinsic.or(%is_char, %is_page)
+      %is_document = core.call intrinsic.or(%is_range, %is_block)
+      core.if %is_document {
+        core.set %item["type"] = %type
+        %document_index = core.get %citation["document_index"]
+        %index_is_number = core.type_is %document_index type "number"
+        core.if %index_is_number { core.set %item["documentIndex"] = %document_index }
+        %document_title = core.get %citation["document_title"]
+        %title_is_string = core.type_is %document_title type "string"
+        core.if %title_is_string { core.set %item["documentTitle"] = %document_title }
+        %file_id = core.get %citation["file_id"]
+        %file_is_string = core.type_is %file_id type "string"
+        core.if %file_is_string { core.set %item["fileId"] = %file_id }
+        %fields = core.map
+        core.if %is_char {
+          core.set %fields["start_char_index"] = "startCharIndex"
+          core.set %fields["end_char_index"] = "endCharIndex"
+        }
+        core.if %is_page {
+          core.set %fields["start_page_number"] = "startPageNumber"
+          core.set %fields["end_page_number"] = "endPageNumber"
+        }
+        core.if %is_block {
+          core.set %fields["start_block_index"] = "startBlockIndex"
+          core.set %fields["end_block_index"] = "endBlockIndex"
+        }
+        %keys = core.call intrinsic.map.keys(%fields)
+        core.for %key in %keys {
+          %value = core.get %citation[%key]
+          %is_number = core.type_is %value type "number"
+          core.if %is_number {
+            %target = core.get %fields[%key]
+            core.set %item[%target] = %value
+          }
+        }
+      }
+      %keep = core.call intrinsic.or(%has_url, %is_document)
+      core.if %keep { core.return %item }
+      core.return null
+    }
+  }
+
   op ax.provider.semantic @anthropic_append_citations_impl {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -10470,26 +10551,66 @@ module @ax.provider version "0.1" {
     body @entry(%out: list<json>, %block: json) {
       %empty = core.list
       %citations = core.get %block["citations"] default %empty
-      core.for %citation in %citations {
-        %url = core.get %citation["url"]
-        %has_url = core.call intrinsic.truthy(%url)
-        core.if %has_url {
-          %item = core.map
-          core.set %item["url"] = %url
-          %title = core.get %citation["title"]
-          %has_title = core.call intrinsic.is_not_none(%title)
-          core.if %has_title {
-            core.set %item["title"] = %title
-          }
-          %snippet = core.get %citation["cited_text"]
-          %has_snippet = core.call intrinsic.is_not_none(%snippet)
-          core.if %has_snippet {
-            core.set %item["snippet"] = %snippet
-          }
-          core.append %out, %item
+      %is_list = core.type_is %citations type "list"
+      core.if %is_list {
+        core.for %citation in %citations {
+          %item = core.call @anthropic_map_citation_impl(%citation)
+          %keep = core.call intrinsic.is_not_none(%item)
+          core.if %keep { core.append %out, %item }
         }
       }
       core.return
+    }
+  }
+
+  op ax.provider.semantic @anthropic_text_block_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    type signature = "(json, string, list<json>) -> json"
+    body @entry(%index: json, %text: string, %citations: list<json>) {
+      %block = core.map
+      core.set %block["index"] = %index
+      core.set %block["text"] = %text
+      %has_citations = core.call intrinsic.truthy(%citations)
+      core.if %has_citations {
+        %copies = core.list
+        %empty = core.map
+        core.for %citation in %citations {
+          %copy = core.call intrinsic.map.merge(%citation, %empty)
+          core.append %copies, %copy
+        }
+        core.set %block["citations"] = %copies
+      }
+      core.return %block
+    }
+  }
+
+  op ax.provider.semantic @anthropic_stream_text_block_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    type signature = "(json, json, string, list<json>, bool) -> list<json>"
+    body @entry(%state: json, %index: json, %text: string, %citations: list<json>, %start: bool) {
+      %key = core.call intrinsic.string.format("text_block_{}", %index)
+      %previous = core.map
+      core.if %start {
+      } else {
+        %previous = core.get %state[%key] default %previous
+      }
+      %previous_text = core.get %previous["text"] default ""
+      %text = core.call intrinsic.string.format("{}{}", %previous_text, %text)
+      %all = core.list
+      %empty = core.list
+      %old_citations = core.get %previous["citations"] default %empty
+      core.for %citation in %old_citations { core.append %all, %citation }
+      core.for %citation in %citations { core.append %all, %citation }
+      %saved = core.call @anthropic_text_block_impl(%index, %text, %all)
+      core.set %state[%key] = %saved
+      %snapshot = core.call @anthropic_text_block_impl(%index, %text, %all)
+      %out = core.list
+      core.append %out, %snapshot
+      core.return %out
     }
   }
 
@@ -10614,6 +10735,9 @@ module @ax.provider version "0.1" {
           core.set %result["content"] = %text
           %citations = core.list
           core.call @anthropic_append_citations_impl(%citations, %block)
+          %event_index = core.get %event["index"] default 0
+          %text_blocks = core.call @anthropic_stream_text_block_impl(%state, %event_index, %text, %citations, true)
+          core.set %result["text_blocks"] = %text_blocks
           %has_citations = core.call intrinsic.truthy(%citations)
           core.if %has_citations {
             core.set %result["citations"] = %citations
@@ -10696,11 +10820,30 @@ module @ax.provider version "0.1" {
         %delta = core.get %event["delta"]
         %delta_type = core.get %delta["type"] default ""
         %is_text_delta = core.call intrinsic.eq(%delta_type, "text_delta")
-        core.if %is_text_delta {
+        %is_citations_delta = core.call intrinsic.eq(%delta_type, "citations_delta")
+        %is_text_update = core.call intrinsic.or(%is_text_delta, %is_citations_delta)
+        core.if %is_text_update {
           %result = core.map
           core.set %result["index"] = %index
           %text = core.get %delta["text"] default ""
           core.set %result["content"] = %text
+          %citations = core.list
+          core.if %is_citations_delta {
+            %raw_citation = core.get %delta["citation"]
+            %citation = core.call @anthropic_map_citation_impl(%raw_citation)
+            %keep = core.call intrinsic.is_not_none(%citation)
+            core.if %keep { core.append %citations, %citation }
+          } else {
+            core.call @anthropic_append_citations_impl(%citations, %delta)
+          }
+          %has_citations = core.call intrinsic.truthy(%citations)
+          core.if %has_citations { core.set %result["citations"] = %citations }
+          %valid_update = core.call intrinsic.or(%is_text_delta, %has_citations)
+          core.if %valid_update {
+            %event_index = core.get %event["index"] default 0
+            %text_blocks = core.call @anthropic_stream_text_block_impl(%state, %event_index, %text, %citations, false)
+            core.set %result["text_blocks"] = %text_blocks
+          }
           %results = core.list
           core.append %results, %result
           %out = core.map

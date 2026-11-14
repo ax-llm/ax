@@ -17,6 +17,12 @@
         "function_calls": [],
         "id": "msg_sonnet55",
         "index": 0,
+        "text_blocks": [
+          {
+            "index": 3,
+            "text": "Done."
+          }
+        ],
         "thought_blocks": [
           {
             "data": "Plan.",
