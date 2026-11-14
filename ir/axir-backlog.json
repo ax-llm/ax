@@ -3760,6 +3760,28 @@
       "completedAt": "2026-11-13",
       "completedByCommit": "dcbe2fb57eb6b40c6e287031fa43ca7a41829eef",
       "verification": "34 TypeScript-derived Hydrogen fixtures pass in all five generated languages. Full release verification passes for Python, Java, C++, Go, and Rust, each executing all 2,154 conformance fixtures; Java and Go were rerun after fixing per-call streaming options. Live Hydrogen calls pass in all five generated languages. The TypeScript workspace suite passes (4,123 tests, one existing skip), as do build, conformance sync, strict Core checking, lint, provenance, lowering, generated package consistency, generated examples, skills, and website checks."
+    },
+    {
+      "id": "axir-2026-11-14-keep-anthropic-document-citations-instead-of-dropping-them",
+      "status": "open",
+      "title": "Keep Anthropic document citations instead of dropping them",
+      "createdAt": "2026-11-14",
+      "sourcePR": 894,
+      "sourceCommit": "cb4d34eba5b2a0c661126ee0fd31d61846715ec4",
+      "tsPaths": [
+        "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/types.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Anthropic document citations (char_location, page_location, content_block_location) carry a cited span instead of a url; normalization must keep that span and its document index/title for both streaming and non-streaming responses.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

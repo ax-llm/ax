@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-14-keep-anthropic-document-citations-instead-of-dropping-them` [axai] Keep Anthropic document citations instead of dropping them
+  - Status: open
+  - Source PR: #894
+  - Source commit: `cb4d34eba5b2a0c661126ee0fd31d61846715ec4`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/types.ts`
+  - Impact: Anthropic document citations (char_location, page_location, content_block_location) carry a cited span instead of a url; normalization must keep that span and its document index/title for both streaming and non-streaming responses.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
