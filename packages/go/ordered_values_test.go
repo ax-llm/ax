@@ -262,3 +262,17 @@ func TestStreamedSplitSurrogatePairJoins(t *testing.T) {
 		t.Fatalf("raw deltas joined = %q", text)
 	}
 }
+
+func TestRuntimeStringifySliceViewsAndCycles(t *testing.T) {
+    values := make([]Value, 1)
+    values[0] = values[:0]
+    got, err := _agent_smart_stringify(values, 3000)
+    if err != nil || got != "[\n  []\n]" {
+        t.Fatalf("a shorter shared slice is not a cycle: got %v, error %v", got, err)
+    }
+    values[0] = values
+    got, err = _agent_smart_stringify(values, 3000)
+    if err != nil || got != "[\n  \"[Circular]\"\n]" {
+        t.Fatalf("a slice containing itself must be marked circular: got %v, error %v", got, err)
+    }
+}

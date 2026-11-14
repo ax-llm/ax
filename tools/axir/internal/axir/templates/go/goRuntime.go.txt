@@ -2612,8 +2612,12 @@ func _core_same_reference(left, right Value) Value {
     a, b := reflect.ValueOf(left), reflect.ValueOf(right)
     if !a.IsValid() || !b.IsValid() || a.Type() != b.Type() { return false }
     switch a.Kind() {
-    case reflect.Map, reflect.Slice, reflect.Ptr:
+    case reflect.Map, reflect.Ptr:
         return a.Pointer() == b.Pointer()
+    case reflect.Slice:
+        // A shorter view can start at the same backing element without
+        // containing its parent (for example, a child with length zero).
+        return a.Pointer() == b.Pointer() && a.Len() == b.Len()
     }
     return false
 }
