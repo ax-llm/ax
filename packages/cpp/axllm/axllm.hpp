@@ -456,6 +456,7 @@ struct Core {
   static Value json_parse_strict(Value value);
   static Value json_stringify(Value value);
   static Value json_stable_stringify(Value value);
+  static Value same_reference(Value left, Value right);
   static Value json_pretty(Value value);
   static Value signature_error(Value message);
   static Value validation_error(Value message);
@@ -663,7 +664,9 @@ struct Core {
   static Value _evidence_probability_impl(Value v, Value path);
   static Value _strip_internal_fields_impl(Value fields, Value values);
   static Value _validate_keyed_fields_impl(Value fields_map);
+  static Value _document_nonempty_string(Value value);
   static Value _schema_to_json_schema_impl(Value fields, Value schema_title, Value options);
+  static Value _validate_document_input(Value doc);
   static Value _evidence_result_schema_impl(Value typ);
   static Value render_template_content(Value template_, Value vars, Value context);
   static Value collect_template_variable_names(Value source, Value context);
@@ -677,6 +680,7 @@ struct Core {
   static Value _prompt_structured_impl(Value signature, Value values, Value functions, Value options);
   static Value _prompt_user_content_impl(Value signature, Value values);
   static Value _prompt_messages_impl(Value system, Value user);
+  static Value _prompt_document_part(Value value);
   static Value decisions_require_object(Value value, Value context);
   static Value google_decisions_require_object(Value value, Value context);
   static Value typesafe_require_object(Value value, Value context);
@@ -793,10 +797,11 @@ struct Core {
   static Value _chat_result_function_call_problems(Value result, Value result_index);
   static Value _provider_features_support(Value features, Value path);
   static Value provider_route_preprocess_request(Value features, Value request, Value processing);
-  static Value _provider_route_file_content(Value features, Value part, Value processing, Value slot);
   static Value router_embed_request(Value request, Value model, Value embed_model);
+  static Value _provider_route_file_content(Value features, Value part, Value processing, Value slot);
   static Value router_embed_route(Value request, Value entries);
   static Value provider_route_file_extractions(Value features, Value request);
+  static Value _ai_merge_citation_metadata(Value target, Value incoming);
   static Value _provider_route_score(Value provider, Value requirements);
   static Value provider_route_recommendation(Value providers, Value request, Value options);
   static Value _provider_route_any_supports(Value providers, Value path);
@@ -999,6 +1004,9 @@ struct Core {
   static Value request_retry_delay(Value config, Value attempt, Value failure, Value now_ms, Value random);
   static Value provider_merge_audio_output(Value features, Value child);
   static Value provider_compatibility_report(Value providers, Value request);
+  static Value _anthropic_document_input(Value part);
+  static Value _provider_validate_documents(Value profile, Value request, Value options);
+  static Value _anthropic_document_part(Value doc);
   static Value chat_session_mode_enabled(Value options);
   static Value _eval_codepoints_impl(Value text);
   static Value fold_stream(Value events);
@@ -1290,6 +1298,7 @@ struct Core {
   static Value _stream_marker_incomplete_impl(Value marker);
   static Value _run_tool_calls_impl(Value gen, Value functions, Value messages, Value calls, Value options);
   static Value _stream_apply_structured_impl(Value state, Value fields, Value parsed, Value marker, Value held);
+  static Value _gen_citation_log_metadata(Value entry, Value response);
   static Value _stream_feedback_text_impl(Value result);
   static Value _stream_run_processors_impl(Value gen, Value kind, Value state, Value content, Value done);
   static Value _stream_check_assertions_impl(Value gen, Value xstate, Value content, Value done);
@@ -1376,6 +1385,7 @@ struct Core {
   static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
   static Value _build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace);
   static Value _agent_render_context_pressure(Value pressure);
+  static Value _agent_depth_limited_value(Value value, Value depth, Value ancestors);
   static Value _agent_smart_stringify(Value value, Value max_chars);
   static Value _agent_record_context_event(Value state, Value event);
   static Value _agent_entry_turn(Value entry, Value fallback);

@@ -2437,6 +2437,9 @@ def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_truthy(value): return bool(value)
+def _core_same_reference(left, right): return left is right
+
+
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_lt(left, right): return left < right
@@ -5289,6 +5292,54 @@ def _agent_render_context_pressure(pressure: str) -> str:
     return text
 
 
+def _agent_depth_limited_value(value: Any, depth: number, ancestors: Any) -> Any:
+    _core_coverage_mark("_agent_depth_limited_value")
+    is_list = _core_type_is(value, "list")
+    is_map = _core_type_is(value, "object")
+    container = _core_or(is_list, is_map)
+    if container:
+        pass
+    else:
+        return value
+    for ancestor in ancestors:
+        same = _core_same_reference(value, ancestor)
+        if same:
+            return "[Circular]"
+        else:
+            pass
+    too_deep = _core_gte(depth, 3)
+    if too_deep:
+        if is_list:
+            length = _core_len(value)
+            placeholder = _core_string_format("[Array({})]", length)
+            return placeholder
+        else:
+            pass
+        return "[Object]"
+    else:
+        pass
+    branch = []
+    for ancestor in ancestors:
+        branch.append(ancestor)
+    branch.append(value)
+    next = _core_add(depth, 1)
+    if is_list:
+        out_list = []
+        for item in value:
+            processed = _agent_depth_limited_value(item, next, branch)
+            out_list.append(processed)
+        return out_list
+    else:
+        pass
+    out = {}
+    keys = _core_map_keys(value)
+    for key in keys:
+        item = _core_get(value, key, None)
+        processed = _agent_depth_limited_value(item, next, branch)
+        out[key] = processed
+    return out
+
+
 def _agent_smart_stringify(value: Any, max_chars: Any) -> str:
     _core_coverage_mark("_agent_smart_stringify")
     context_registry = _agent_context_policy_registry()
@@ -5306,9 +5357,24 @@ def _agent_smart_stringify(value: Any, max_chars: Any) -> str:
             tail = []
             negative_tail_items = _core_mul(-1, array_tail_items)
             tail_start = _core_add(count, negative_tail_items)
+            per_item = _core_div(max_chars, 6)
+            per_item = _core_math_floor(per_item)
+            small_budget = _core_lt(per_item, 80)
+            if small_budget:
+                per_item = 80
+            else:
+                pass
             index = 0
             for item in value:
                 item_text = _core_json_stringify(item)
+                item_length = _core_len(item_text)
+                too_long = _core_gt(item_length, per_item)
+                if too_long:
+                    keep = _core_add(per_item, -3)
+                    prefix = _core_string_slice(item_text, 0, keep)
+                    item_text = _core_string_format("{}...", prefix)
+                else:
+                    pass
                 in_head = _core_lt(index, array_head_items)
                 if in_head:
                     head.append(item_text)
@@ -5329,7 +5395,9 @@ def _agent_smart_stringify(value: Any, max_chars: Any) -> str:
             pass
     else:
         pass
-    json = _core_json_pretty(value)
+    ancestors = []
+    processed = _agent_depth_limited_value(value, 0, ancestors)
+    json = _core_json_pretty(processed)
     return json
 
 
@@ -6642,6 +6710,40 @@ def _agent_context_fixture_result(state: Any, fixture: Any) -> Any:
     is_smart = _core_eq(operation, "smart_stringify")
     if is_smart:
         value = _core_get(fixture, "value", None)
+        graph = _core_get(fixture, "value_graph", None)
+        has_graph = _core_type_is(graph, "object")
+        if has_graph:
+            descriptors = _core_get(graph, "nodes", None)
+            nodes = {}
+            node_keys = _core_map_keys(descriptors)
+            for node_key in node_keys:
+                descriptor = _core_get(descriptors, node_key, None)
+                is_array_node = _core_type_is(descriptor, "list")
+                if is_array_node:
+                    node_list = []
+                    for item in descriptor:
+                        node_list.append(item)
+                    nodes[node_key] = node_list
+                else:
+                    seed = {}
+                    node_map = _core_map_merge(seed, descriptor)
+                    nodes[node_key] = node_map
+            edges = _core_get(graph, "edges", None)
+            for edge in edges:
+                parent_id = _core_get(edge, "from", None)
+                child_id = _core_get(edge, "to", None)
+                key = _core_get(edge, "key", None)
+                parent = _core_get(nodes, parent_id, None)
+                child = _core_get(nodes, child_id, None)
+                is_array = _core_type_is(parent, "list")
+                if is_array:
+                    parent.append(child)
+                else:
+                    parent[key] = child
+            root = _core_get(graph, "root", None)
+            value = _core_get(nodes, root, None)
+        else:
+            pass
         max_chars = _core_get(fixture, "max_chars", 400)
         text = _agent_smart_stringify(value, max_chars)
         out_smart = {}
@@ -8680,7 +8782,12 @@ def _normalize_agent_runtime_step_result(raw: Any, code: str) -> Any:
         is_error = _core_get(raw, "is_error", False)
         result = _core_get(raw, "result", raw)
         output = _core_get(raw, "output", "")
-        output_is_empty = _core_eq(output, "")
+        output_is_text = _core_type_is(output, "string")
+        output_is_empty = False
+        if output_is_text:
+            output_is_empty = _core_eq(output, "")
+        else:
+            pass
         if output_is_empty:
             raw_logs = _core_get(raw, "logs", None)
             raw_logs_is_list = _core_type_is(raw_logs, "list")
@@ -8871,6 +8978,24 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
         _agent_attach_code_analysis(normalized, raw)
     else:
         pass
+    output = _core_get(normalized, "output", "")
+    output_is_string = _core_type_is(output, "string")
+    if output_is_string:
+        pass
+    else:
+        context_policy = _resolve_agent_context_policy(options)
+        max_chars = _core_get(context_policy, "maxRuntimeChars", 3000)
+        rendered = _agent_smart_stringify(output, max_chars)
+        length = _core_len(rendered)
+        too_long = _core_gt(length, max_chars)
+        if too_long:
+            prefix = _core_string_slice(rendered, 0, max_chars)
+            negative_max = _core_mul(max_chars, -1)
+            dropped = _core_add(length, negative_max)
+            rendered = _core_string_format("{}\n...[truncated {} chars]", prefix, dropped)
+        else:
+            pass
+        normalized["output"] = rendered
     _agent_runtime_append_action_log(state, normalized)
     _agent_record_trace_event(state, "runtime_execute", normalized)
     step_error = _core_get(normalized, "is_error", False)

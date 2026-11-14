@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import json
 
 import copy
 import re
@@ -15,6 +16,11 @@ from .signature import (
 
 class AxValidationError(ValueError):
     pass
+
+
+def _core_json_parse(value): return json.loads(value)
+def _core_runtime_error(message): return RuntimeError(str(message))
+def _core_string_starts_with(value, prefix): return isinstance(value, str) and value.startswith(str(prefix))
 
 
 def _core_not(value):
@@ -823,6 +829,12 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         pass
     is_file = _core_eq(type_name, "file")
     if is_file:
+        has_source = _core_map_contains(value, "source")
+        if has_source:
+            _validate_document_input(value)
+            return None
+        else:
+            pass
         valid_file = _valid_file(value)
         invalid_file = _core_not(valid_file)
         if invalid_file:
@@ -1407,6 +1419,18 @@ def _validate_keyed_fields_impl(fields_map: Any) -> list[Any]:
     return out
 
 
+def _document_nonempty_string(value: Any) -> bool:
+    _core_coverage_mark("_document_nonempty_string")
+    is_string = _core_type_is(value, "string")
+    if is_string:
+        trimmed = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        nonempty = _core_ne(trimmed, "")
+        return nonempty
+    else:
+        pass
+    return False
+
+
 def _schema_to_json_schema_impl(fields: list[Any], schema_title: str, options: Any) -> dict[str, Any]:
     _core_coverage_mark("_schema_to_json_schema_impl")
     schema = {}
@@ -1432,6 +1456,137 @@ def _schema_to_json_schema_impl(fields: list[Any], schema_title: str, options: A
         else:
             pass
     return schema
+
+
+def _validate_document_input(doc: Any) -> None:
+    _core_coverage_mark("_validate_document_input")
+    source = _core_get(doc, "source", None)
+    has_source = _core_map_contains(doc, "source")
+    if has_source:
+        pass
+    else:
+        error = _core_runtime_error("Document input must contain a source")
+        raise error
+    metadata = _core_json_parse("[\"title\",\"context\"]")
+    for key in metadata:
+        has = _core_map_contains(doc, key)
+        if has:
+            value = _core_get(doc, key, None)
+            is_string = _core_type_is(value, "string")
+            if is_string:
+                pass
+            else:
+                message = _core_string_format("Document {} must be a string", key)
+                error = _core_runtime_error(message)
+                raise error
+        else:
+            pass
+    has_citations = _core_map_contains(doc, "citations")
+    if has_citations:
+        citations = _core_get(doc, "citations", None)
+        enabled = _core_get(citations, "enabled", None)
+        is_bool = _core_type_is(enabled, "boolean")
+        if is_bool:
+            pass
+        else:
+            error = _core_runtime_error("Document citations.enabled must be a boolean")
+            raise error
+    else:
+        pass
+    source_is_object = _core_type_is(source, "object")
+    if source_is_object:
+        pass
+    else:
+        error = _core_runtime_error("Document source must be an object")
+        raise error
+    type = _core_get(source, "type", "")
+    is_text = _core_eq(type, "text")
+    if is_text:
+        data = _core_get(source, "data", None)
+        valid = _document_nonempty_string(data)
+        if valid:
+            return None
+        else:
+            pass
+        error = _core_runtime_error("Document text must not be empty")
+        raise error
+    else:
+        pass
+    is_base64 = _core_eq(type, "base64")
+    if is_base64:
+        data = _core_get(source, "data", None)
+        media_snake = _core_get(source, "media_type", None)
+        media = _core_get(source, "mediaType", media_snake)
+        pdf = _core_eq(media, "application/pdf")
+        nonempty = _document_nonempty_string(data)
+        valid = _core_and(pdf, nonempty)
+        if valid:
+            return None
+        else:
+            pass
+        error = _core_runtime_error("Document base64 source requires PDF data and mediaType application/pdf")
+        raise error
+    else:
+        pass
+    is_url = _core_eq(type, "url")
+    if is_url:
+        url = _core_get(source, "url", None)
+        nonempty = _document_nonempty_string(url)
+        if nonempty:
+            lower = _core_string_lower(url)
+            http = _core_string_starts_with(lower, "http://")
+            https = _core_string_starts_with(lower, "https://")
+            valid = _core_or(http, https)
+            if valid:
+                return None
+            else:
+                pass
+        else:
+            pass
+        error = _core_runtime_error("Document URL must use http or https")
+        raise error
+    else:
+        pass
+    is_file = _core_eq(type, "file")
+    if is_file:
+        file_snake = _core_get(source, "file_id", None)
+        file = _core_get(source, "fileId", file_snake)
+        valid = _document_nonempty_string(file)
+        if valid:
+            return None
+        else:
+            pass
+        error = _core_runtime_error("Document fileId must not be empty")
+        raise error
+    else:
+        pass
+    is_content = _core_eq(type, "content")
+    if is_content:
+        content = _core_get(source, "content", None)
+        is_list = _core_type_is(content, "list")
+        valid = False
+        if is_list:
+            length = _core_len(content)
+            valid = _core_gt(length, 0)
+            for block in content:
+                block_type = _core_get(block, "type", None)
+                text = _core_get(block, "text", None)
+                is_text = _core_eq(block_type, "text")
+                nonempty = _document_nonempty_string(text)
+                block_valid = _core_and(is_text, nonempty)
+                valid = _core_and(valid, block_valid)
+        else:
+            pass
+        if valid:
+            return None
+        else:
+            pass
+        error = _core_runtime_error("Document custom content must contain nonempty text blocks")
+        raise error
+    else:
+        pass
+    error = _core_runtime_error("Unsupported document source type")
+    raise error
 
 
 def _evidence_result_schema_impl(typ: FieldType) -> Any:

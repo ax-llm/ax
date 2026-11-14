@@ -1,0 +1,27 @@
+{
+  "expected_error_contains": "Document title must be a string",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-invalid-title",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "source": {
+              "data": "Text.",
+              "type": "text"
+            },
+            "title": 3,
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

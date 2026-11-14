@@ -3333,4 +3333,49 @@ module @ax.gen version "0.1" {
       core.return %messages
     }
   }
+  op ax.gen.semantic @gen_citation_log_metadata {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> void"
+    body @entry(%entry: json, %response: json) {
+      %fallback = core.list
+      core.append %fallback, %response
+      %results = core.get %response["results"] default %fallback
+      %blocks = core.list
+      %citation_holder = core.map
+      %position = core.let 0
+      core.for %result in %results {
+        %index = core.get %result["index"] default %position
+        %metadata = core.map
+        core.call @ai_merge_citation_metadata(%metadata, %result)
+        %empty = core.list
+        %result_blocks = core.get %metadata["text_blocks"] default %empty
+        core.for %block in %result_blocks {
+          %seed = core.map
+          %copy = core.call intrinsic.map.merge(%seed, %block)
+          core.set %copy["result_index"] = %index
+          core.append %blocks, %copy
+        }
+        core.call @ai_merge_citation_metadata(%citation_holder, %result)
+        %position = core.call intrinsic.add(%position, 1)
+      }
+      %count = core.call intrinsic.len(%blocks)
+      %has_blocks = core.call intrinsic.gt(%count, 0)
+      core.if %has_blocks { core.set %entry["text_blocks"] = %blocks }
+      %citations = core.get %citation_holder["citations"]
+      %has_citations = core.type_is %citations type "list"
+      core.if %has_citations {
+        // Copy usage before adding citations: provider usage objects may be reused.
+        %existing = core.get %entry["usage"]
+        %seed = core.map
+        %usage = core.call intrinsic.map.merge(%seed, %existing)
+        core.set %usage["citations"] = %citations
+        core.set %entry["usage"] = %usage
+      }
+      core.return
+    }
+  }
+
 }

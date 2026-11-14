@@ -313,6 +313,11 @@ module @ax.validate version "0.1" {
       }
       %is_file = core.call intrinsic.eq(%type_name, "file")
       core.if %is_file {
+        %has_source = core.call intrinsic.map.contains(%value, "source")
+        core.if %has_source {
+          core.call @validate_document_input(%value)
+          core.return
+        }
         %valid_file = core.call intrinsic.media.valid_file(%value)
         %invalid_file = core.call intrinsic.not(%valid_file)
         core.if %invalid_file {
@@ -519,6 +524,135 @@ module @ax.validate version "0.1" {
         core.append %out, %field
       }
       core.return %out
+    }
+  }
+
+  op ax.validate.semantic @document_nonempty_string {
+    tag "src/ax/ai/documents.ts"
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    type signature = "(json) -> bool"
+    body @entry(%value: json) {
+      %is_string = core.type_is %value type "string"
+      core.if %is_string {
+        %trimmed = core.string_trim %value
+        %nonempty = core.call intrinsic.ne(%trimmed, "")
+        core.return %nonempty
+      }
+      core.return false
+    }
+  }
+
+  op ax.validate.semantic @validate_document_input {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "schema"
+    attr private = true
+    tag "source:src/ax/ai/documents.ts#validateDocumentInput"
+    type signature = "(json) -> void throws"
+    body @entry(%doc: json) {
+      %source = core.get %doc["source"]
+      %has_source = core.call intrinsic.map.contains(%doc, "source")
+      core.if %has_source {} else {
+        %error = core.call intrinsic.error.runtime("Document input must contain a source")
+        core.raise %error
+      }
+      %metadata = core.call intrinsic.json.parse("[\"title\",\"context\"]")
+      core.for %key in %metadata {
+        %has = core.call intrinsic.map.contains(%doc, %key)
+        core.if %has {
+          %value = core.get %doc[%key]
+          %is_string = core.type_is %value type "string"
+          core.if %is_string {} else {
+            %message = core.call intrinsic.string.format("Document {} must be a string", %key)
+            %error = core.call intrinsic.error.runtime(%message)
+            core.raise %error
+          }
+        }
+      }
+      %has_citations = core.call intrinsic.map.contains(%doc, "citations")
+      core.if %has_citations {
+        %citations = core.get %doc["citations"]
+        %enabled = core.get %citations["enabled"]
+        %is_bool = core.type_is %enabled type "boolean"
+        core.if %is_bool {} else {
+          %error = core.call intrinsic.error.runtime("Document citations.enabled must be a boolean")
+          core.raise %error
+        }
+      }
+      %source_is_object = core.type_is %source type "object"
+      core.if %source_is_object {} else {
+        %error = core.call intrinsic.error.runtime("Document source must be an object")
+        core.raise %error
+      }
+      %type = core.get %source["type"] default ""
+      %is_text = core.call intrinsic.eq(%type, "text")
+      core.if %is_text {
+        %data = core.get %source["data"]
+        %valid = core.call @document_nonempty_string(%data)
+        core.if %valid { core.return }
+        %error = core.call intrinsic.error.runtime("Document text must not be empty")
+        core.raise %error
+      }
+      %is_base64 = core.call intrinsic.eq(%type, "base64")
+      core.if %is_base64 {
+        %data = core.get %source["data"]
+        %media_snake = core.get %source["media_type"]
+        %media = core.get %source["mediaType"] default %media_snake
+        %pdf = core.call intrinsic.eq(%media, "application/pdf")
+        %nonempty = core.call @document_nonempty_string(%data)
+        %valid = core.call intrinsic.and(%pdf, %nonempty)
+        core.if %valid { core.return }
+        %error = core.call intrinsic.error.runtime("Document base64 source requires PDF data and mediaType application/pdf")
+        core.raise %error
+      }
+      %is_url = core.call intrinsic.eq(%type, "url")
+      core.if %is_url {
+        %url = core.get %source["url"]
+        %nonempty = core.call @document_nonempty_string(%url)
+        core.if %nonempty {
+          %lower = core.call intrinsic.string.lower(%url)
+          %http = core.call intrinsic.string.starts_with(%lower, "http://")
+          %https = core.call intrinsic.string.starts_with(%lower, "https://")
+          %valid = core.call intrinsic.or(%http, %https)
+          core.if %valid { core.return }
+        }
+        %error = core.call intrinsic.error.runtime("Document URL must use http or https")
+        core.raise %error
+      }
+      %is_file = core.call intrinsic.eq(%type, "file")
+      core.if %is_file {
+        %file_snake = core.get %source["file_id"]
+        %file = core.get %source["fileId"] default %file_snake
+        %valid = core.call @document_nonempty_string(%file)
+        core.if %valid { core.return }
+        %error = core.call intrinsic.error.runtime("Document fileId must not be empty")
+        core.raise %error
+      }
+      %is_content = core.call intrinsic.eq(%type, "content")
+      core.if %is_content {
+        %content = core.get %source["content"]
+        %is_list = core.type_is %content type "list"
+        %valid = core.let false
+        core.if %is_list {
+          %length = core.call intrinsic.len(%content)
+          %valid = core.call intrinsic.gt(%length, 0)
+          core.for %block in %content {
+            %block_type = core.get %block["type"]
+            %text = core.get %block["text"]
+            %is_text = core.call intrinsic.eq(%block_type, "text")
+            %nonempty = core.call @document_nonempty_string(%text)
+            %block_valid = core.call intrinsic.and(%is_text, %nonempty)
+            %valid = core.call intrinsic.and(%valid, %block_valid)
+          }
+        }
+        core.if %valid { core.return }
+        %error = core.call intrinsic.error.runtime("Document custom content must contain nonempty text blocks")
+        core.raise %error
+      }
+      %error = core.call intrinsic.error.runtime("Unsupported document source type")
+      core.raise %error
     }
   }
 }

@@ -1,0 +1,106 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-haiku-5-5",
+      "tokens": {
+        "completion_tokens": 3,
+        "prompt_tokens": 2,
+        "total_tokens": 5
+      }
+    },
+    "remote_id": "msg_documents",
+    "results": [
+      {
+        "content": "Answer: supported",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_documents",
+        "index": 0,
+        "text_blocks": [
+          {
+            "index": 0,
+            "text": "Answer: supported"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "citations": {
+                "enabled": true
+              },
+              "context": "Use as evidence.",
+              "source": {
+                "data": "JVBERi0=",
+                "media_type": "application/pdf",
+                "type": "base64"
+              },
+              "title": "Evidence",
+              "type": "document"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-source-5",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "cache": true,
+            "citations": {
+              "enabled": true
+            },
+            "context": "Use as evidence.",
+            "data": "JVBERi0=",
+            "filename": "legacy.pdf",
+            "mimeType": "application/pdf",
+            "title": "Evidence",
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "Answer: supported",
+            "type": "text"
+          }
+        ],
+        "id": "msg_documents",
+        "model": "claude-haiku-5-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

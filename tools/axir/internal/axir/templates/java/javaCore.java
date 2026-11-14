@@ -686,6 +686,7 @@ final class Core {
   static Object jsonParseStrict(Object value) { return Json.parse(String.valueOf(value).trim()); }
   static Object jsonStringify(Object value) { return Json.stringify(value); }
   static Object jsonStableStringify(Object value) { return Json.stableStringify(value); }
+  static boolean sameReference(Object left, Object right) { return left == right; }
   static Object jsonPretty(Object value) { return Json.pretty(value); }
 
   static Object signatureError(Object message) { return new AxSignatureError(String.valueOf(message)); }
@@ -1533,6 +1534,7 @@ final class Core {
     entry.put("thought", asMap(response).get("thought"));
     entry.put("thought_blocks", asMap(response).getOrDefault("thought_blocks", List.of()));
     entry.put("providerMetadata", asMap(request).getOrDefault("provider_metadata", Map.of()));
+    _gen_citation_log_metadata(entry, response);
     asList(get(gen, "chat_log", List.of())).add(entry);
     return null;
   }
@@ -2170,6 +2172,8 @@ class PromptRuntime {
   // TS defaultRenderInField: a file part carries the mime type and either its
   // data or its fileUri.
   static Map<String, Object> filePart(Object value) {
+    Object document = Core._prompt_document_part(value);
+    if (document instanceof Map<?, ?>) return (Map<String, Object>) document;
     Map<?, ?> map = mediaObject(value, "File", "mimeType");
     boolean hasData = map.containsKey("data");
     boolean hasFileUri = map.containsKey("fileUri");
@@ -2180,7 +2184,7 @@ class PromptRuntime {
     part.put("mimeType", map.get("mimeType"));
     if (hasFileUri) part.put("fileUri", map.get("fileUri"));
     else part.put("data", map.get("data"));
-    return declaredKeys(part, map, "filename", "cache", "extractedText");
+    return declaredKeys(part, map, "filename", "cache", "extractedText", "title", "context", "citations");
   }
 
   // TS defaultRenderInField: a url part carries the url, and the title and

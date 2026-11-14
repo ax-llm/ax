@@ -23,6 +23,9 @@ import warnings
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
+from .schema import (
+    _validate_document_input,
+)
 from .signature import (
     _box_validate_impl,
     _signature_validate_value_descriptions_impl,
@@ -5416,6 +5419,11 @@ def validate_chat_request(request: AxChatRequest) -> None:
                     raise type_error
                 else:
                     pass
+                is_document = _core_eq(item_type, "document")
+                if is_document:
+                    _validate_document_input(item)
+                else:
+                    pass
                 next_item_index = _core_add(item_index, 1)
                 item_index = next_item_index
         else:
@@ -8053,6 +8061,7 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
         completion["decisionContext"] = trusted
     else:
         pass
+    _ai_merge_citation_metadata(completion, result)
     return completion
 
 
@@ -8262,6 +8271,7 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
         out["finish_reason"] = finish
     else:
         pass
+    _ai_merge_citation_metadata(out, first)
     return out
 
 
@@ -8347,6 +8357,7 @@ def google_decisions_media(kind: str, mime: Any, data: Any, uri: bool, resolutio
 def provider_validate_chat_request(profile: str, request: Any, options: Any) -> None:
     _core_coverage_mark("provider_validate_chat_request")
     canonical = provider_normalize_profile(profile)
+    _provider_validate_documents(canonical, request, options)
     is_google_decisions = _core_eq(canonical, "google-gemini-decisions")
     if is_google_decisions:
         model = _core_get(request, "model", "gemini-decision-1")
@@ -9100,6 +9111,7 @@ def provider_model_catalog(options: Any) -> Any:
 
 def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
     _core_coverage_mark("_fold_chat_stream_chunk_impl")
+    _ai_merge_citation_metadata(target, chunk)
     trusted = _core_get(chunk, "decisionContext", None)
     has_trusted = _core_is_not_none(trusted)
     if has_trusted:
@@ -9520,6 +9532,8 @@ def provider_route_request_requirements(request: Any) -> Any:
                 else:
                     pass
                 is_file = _core_eq(part_type, "file")
+                is_document = _core_eq(part_type, "document")
+                is_file = _core_or(is_file, is_document)
                 if is_file:
                     requirements["hasFiles"] = True
                     cached_file = _core_get(part, "cache", False)
@@ -9940,6 +9954,26 @@ def provider_route_preprocess_request(features: Any, request: Any, processing: A
             part_index = 0
             for part in content:
                 part_type = _core_get(part, "type", "text")
+                is_document = _core_eq(part_type, "document")
+                citation_config = _core_get(part, "citations", None)
+                cited = _core_get(citation_config, "enabled", False)
+                needs_documents = _core_or(is_document, cited)
+                if needs_documents:
+                    media = _core_get(features, "media", None)
+                    documents = _core_get(media, "documents", None)
+                    supported = _core_get(documents, "supported", False)
+                    supports_citations = _core_get(documents, "citations", False)
+                    no_citations = _core_not(cited)
+                    citing_supported = _core_or(no_citations, supports_citations)
+                    can_preserve = _core_and(supported, citing_supported)
+                    cannot_preserve = _core_not(can_preserve)
+                    if cannot_preserve:
+                        error = _core_runtime_error("Document inputs and citations require native document support")
+                        raise error
+                    else:
+                        pass
+                else:
+                    pass
                 is_file = _core_eq(part_type, "file")
                 if is_file:
                     slot = _core_string_format("{}:{}", message_index, part_index)
@@ -9982,8 +10016,29 @@ def provider_route_preprocess_request(features: Any, request: Any, processing: A
     return out
 
 
+def router_embed_request(request: Any, model: Any, embed_model: Any) -> Any:
+    _core_coverage_mark("router_embed_request")
+    empty = {}
+    out = _core_map_merge(empty, request)
+    chat_key = _core_truthy(model)
+    embed_key = _core_truthy(embed_model)
+    service_key = _core_or(chat_key, embed_key)
+    if service_key:
+        pass
+    else:
+        _core_map_delete(out, "embedModel")
+        _core_map_delete(out, "embed_model")
+    return out
+
+
 def _provider_route_file_content(features: Any, part: Any, processing: Any, slot: str) -> Any:
     _core_coverage_mark("_provider_route_file_content")
+    citation_config = _core_get(part, "citations", None)
+    cited = _core_get(citation_config, "enabled", False)
+    if cited:
+        return part
+    else:
+        pass
     supports_files = _provider_features_support(features, "files")
     if supports_files:
         empty = {}
@@ -10022,21 +10077,6 @@ def _provider_route_file_content(features: Any, part: Any, processing: Any, slot
     out = {}
     out["type"] = "text"
     out["text"] = text
-    return out
-
-
-def router_embed_request(request: Any, model: Any, embed_model: Any) -> Any:
-    _core_coverage_mark("router_embed_request")
-    empty = {}
-    out = _core_map_merge(empty, request)
-    chat_key = _core_truthy(model)
-    embed_key = _core_truthy(embed_model)
-    service_key = _core_or(chat_key, embed_key)
-    if service_key:
-        pass
-    else:
-        _core_map_delete(out, "embedModel")
-        _core_map_delete(out, "embed_model")
     return out
 
 
@@ -10130,6 +10170,59 @@ def provider_route_file_extractions(features: Any, request: Any) -> Any:
             pass
         message_index = _core_add(message_index, 1)
     return tasks
+
+
+def _ai_merge_citation_metadata(target: Any, incoming: Any) -> None:
+    _core_coverage_mark("_ai_merge_citation_metadata")
+    empty = []
+    snake = _core_get(incoming, "text_blocks", None)
+    updates = _core_get(incoming, "textBlocks", snake)
+    has_blocks = _core_type_is(updates, "list")
+    if has_blocks:
+        blocks = _core_get(target, "text_blocks", empty)
+        for update in updates:
+            index = _core_get(update, "index", 0)
+            next = []
+            found = False
+            for block in blocks:
+                old_index = _core_get(block, "index", 0)
+                same = _core_eq(index, old_index)
+                if same:
+                    next.append(update)
+                    found = True
+                else:
+                    next.append(block)
+            if found:
+                pass
+            else:
+                next.append(update)
+            blocks = next
+        target["text_blocks"] = blocks
+    else:
+        pass
+    updates = _core_get(incoming, "citations", None)
+    has_citations = _core_type_is(updates, "list")
+    if has_citations:
+        citations = []
+        previous = _core_get(target, "citations", empty)
+        for citation in previous:
+            citations.append(citation)
+        for citation in updates:
+            found = False
+            for existing in citations:
+                same = _core_eq(citation, existing)
+                if same:
+                    found = True
+                else:
+                    pass
+            if found:
+                pass
+            else:
+                citations.append(citation)
+        target["citations"] = citations
+    else:
+        pass
+    return None
 
 
 def _provider_route_score(provider: Any, requirements: Any) -> Any:
@@ -12278,6 +12371,18 @@ def provider_resolve_features(profile: str, model: str, options: Any) -> Any:
         features["caching"] = cache_features
     else:
         pass
+    anthropic = _core_eq(profile, "anthropic")
+    if anthropic:
+        empty_media = {}
+        base_media = _core_get(features, "media", empty_media)
+        media = _core_map_merge(empty_media, base_media)
+        documents = _core_json_parse("{\"supported\":true,\"citations\":true}")
+        files = _core_json_parse("{\"supported\":true,\"formats\":[\"application/pdf\"],\"uploadMethod\":\"inline\"}")
+        media["documents"] = documents
+        media["files"] = files
+        features["media"] = media
+    else:
+        pass
     return features
 
 
@@ -12677,6 +12782,7 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
     _core_coverage_mark("provider_build_chat_request")
     model = _core_get(request, "model", "")
     provider_id = provider_chat_profile(profile, model)
+    _provider_validate_documents(provider_id, request, options)
     descriptor = provider_resolve_descriptor(provider_id, options)
     transport = _core_get(descriptor, "transport", "openai-chat")
     is_google_decisions = _core_eq(transport, "google-gemini-decisions")
@@ -17784,6 +17890,13 @@ def _anthropic_content_parts_impl(content: Any) -> list[Any]:
 
 def _anthropic_content_part_impl(part: Any) -> Any:
     _core_coverage_mark("_anthropic_content_part_impl")
+    doc = _anthropic_document_input(part)
+    has_doc = _core_is_not_none(doc)
+    if has_doc:
+        mapped = _anthropic_document_part(doc)
+        return mapped
+    else:
+        pass
     type = _core_get(part, "type", "text")
     is_text = _core_eq(type, "text")
     if is_text:
@@ -20423,6 +20536,211 @@ def provider_compatibility_report(providers: Any, request: Any) -> Any:
     out["providerScores"] = scores
     out["recommendedProvider"] = recommended
     out["summary"] = summary
+    return out
+
+
+def _anthropic_document_input(part: Any) -> Any:
+    _core_coverage_mark("_anthropic_document_input")
+    type = _core_get(part, "type", "")
+    supports_native_documents = _core_eq(type, "document")
+    if supports_native_documents:
+        return part
+    else:
+        pass
+    file = _core_eq(type, "file")
+    if file:
+        pass
+    else:
+        return None
+    mime_snake = _core_get(part, "mime_type", None)
+    mime = _core_get(part, "mimeType", mime_snake)
+    pdf = _core_eq(mime, "application/pdf")
+    if pdf:
+        pass
+    else:
+        citations = _core_get(part, "citations", None)
+        enabled = _core_get(citations, "enabled", False)
+        if enabled:
+            error = _core_runtime_error("Anthropic file citations require a PDF; use a document text source for plain text")
+            raise error
+        else:
+            pass
+        return None
+    doc = {}
+    source = {}
+    uri_snake = _core_get(part, "file_uri", None)
+    uri = _core_get(part, "fileUri", uri_snake)
+    has_uri = _core_is_not_none(uri)
+    if has_uri:
+        source["type"] = "url"
+        source["url"] = uri
+    else:
+        source["type"] = "base64"
+        source["mediaType"] = "application/pdf"
+        data = _core_get(part, "data", None)
+        source["data"] = data
+    doc["source"] = source
+    keys = _core_json_parse("[\"title\",\"context\",\"citations\",\"cache\"]")
+    for key in keys:
+        has = _core_map_contains(part, key)
+        if has:
+            value = _core_get(part, key, None)
+            doc[key] = value
+        else:
+            pass
+    return doc
+
+
+def _provider_validate_documents(profile: str, request: Any, options: Any) -> None:
+    _core_coverage_mark("_provider_validate_documents")
+    supports_native_documents = _core_eq(profile, "anthropic")
+    empty = []
+    snake_prompt = _core_get(request, "chat_prompt", empty)
+    prompt = _core_get(request, "chatPrompt", snake_prompt)
+    any_enabled = False
+    any_disabled = False
+    for message in prompt:
+        role = _core_get(message, "role", "")
+        user = _core_eq(role, "user")
+        content = _core_get(message, "content", None)
+        parts = _core_type_is(content, "list")
+        check = _core_and(user, parts)
+        if check:
+            for part in content:
+                type = _core_get(part, "type", "")
+                document = _core_eq(type, "document")
+                file = _core_eq(type, "file")
+                citations = _core_get(part, "citations", None)
+                enabled = _core_get(citations, "enabled", False)
+                enabled = _core_eq(enabled, True)
+                cited_file = _core_and(file, enabled)
+                requires_native = _core_or(document, cited_file)
+                unsupported = _core_not(supports_native_documents)
+                reject = _core_and(requires_native, unsupported)
+                if reject:
+                    error = _core_ai_error_unsupported("Provider does not support native document inputs and citations")
+                    raise error
+                else:
+                    pass
+                if supports_native_documents:
+                    doc = _anthropic_document_input(part)
+                    has_doc = _core_is_not_none(doc)
+                    if has_doc:
+                        _validate_document_input(doc)
+                        source = _core_get(doc, "source", None)
+                        source_type = _core_get(source, "type", None)
+                        uploaded = _core_eq(source_type, "file")
+                        if uploaded:
+                            descriptor = provider_resolve_descriptor(profile, options)
+                            vertex = _core_get(descriptor, "vertex", False)
+                            if vertex:
+                                error = _core_runtime_error("Anthropic fileId document sources require the first-party Files API")
+                                raise error
+                            else:
+                                pass
+                        else:
+                            pass
+                        if enabled:
+                            any_enabled = True
+                        else:
+                            any_disabled = True
+                    else:
+                        pass
+                else:
+                    pass
+        else:
+            pass
+    if any_enabled:
+        if any_disabled:
+            error = _core_runtime_error("Anthropic citations must be enabled on all documents in the request or none")
+            raise error
+        else:
+            pass
+        format_snake = _core_get(request, "response_format", None)
+        format = _core_get(request, "responseFormat", format_snake)
+        format_type = _core_get(format, "type", None)
+        json = _core_eq(format_type, "json_schema")
+        if json:
+            error = _core_runtime_error("Anthropic document citations cannot be combined with native structured outputs (output_config.format); use a text signature without .useStructured()")
+            raise error
+        else:
+            pass
+    else:
+        pass
+    return None
+
+
+def _anthropic_document_part(doc: Any) -> Any:
+    _core_coverage_mark("_anthropic_document_part")
+    _validate_document_input(doc)
+    input = _core_get(doc, "source", None)
+    type = _core_get(input, "type", None)
+    source = {}
+    source["type"] = type
+    text = _core_eq(type, "text")
+    base64 = _core_eq(type, "base64")
+    data_type = _core_or(text, base64)
+    if data_type:
+        data = _core_get(input, "data", None)
+        source["data"] = data
+        if text:
+            source["media_type"] = "text/plain"
+        else:
+            source["media_type"] = "application/pdf"
+    else:
+        pass
+    url = _core_eq(type, "url")
+    if url:
+        value = _core_get(input, "url", None)
+        source["url"] = value
+    else:
+        pass
+    file = _core_eq(type, "file")
+    if file:
+        snake = _core_get(input, "file_id", None)
+        value = _core_get(input, "fileId", snake)
+        source["file_id"] = value
+    else:
+        pass
+    content = _core_eq(type, "content")
+    if content:
+        blocks = _core_get(input, "content", None)
+        mapped = []
+        for block in blocks:
+            text = _core_get(block, "text", None)
+            part = {}
+            part["type"] = "text"
+            part["text"] = text
+            mapped.append(part)
+        source["content"] = mapped
+    else:
+        pass
+    out = {}
+    out["type"] = "document"
+    out["source"] = source
+    keys = _core_json_parse("[\"title\",\"context\"]")
+    for key in keys:
+        has = _core_map_contains(doc, key)
+        if has:
+            value = _core_get(doc, key, None)
+            out[key] = value
+        else:
+            pass
+    has_citations = _core_map_contains(doc, "citations")
+    if has_citations:
+        citations = _core_get(doc, "citations", None)
+        enabled = _core_get(citations, "enabled", None)
+        config = {}
+        config["enabled"] = enabled
+        out["citations"] = config
+    else:
+        pass
+    cache = _core_get(doc, "cache", False)
+    if cache:
+        control = _core_json_parse("{\"type\":\"ephemeral\"}")
+        out["cache_control"] = control
+    else:
+        pass
     return out
 
 # END AXIR CORE EMITTED FUNCTIONS

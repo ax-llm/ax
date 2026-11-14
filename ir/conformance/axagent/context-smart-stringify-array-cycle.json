@@ -1,0 +1,22 @@
+{
+  "context_operation": "smart_stringify",
+  "expected_context_result": {
+    "text": "[\n  \"[Circular]\"\n]"
+  },
+  "kind": "agent_runtime_policy",
+  "max_chars": 3000,
+  "name": "context-smart-stringify-array-cycle",
+  "signature": "question:string -> answer:string",
+  "value_graph": {
+    "edges": [
+      {
+        "from": "root",
+        "to": "root"
+      }
+    ],
+    "nodes": {
+      "root": []
+    },
+    "root": "root"
+  }
+}

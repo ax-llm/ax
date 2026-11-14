@@ -249,4 +249,36 @@ module @ax.template version "0.1" {
       core.return %messages
     }
   }
+  // File-valued signature inputs may carry a native document source.
+  op ax.template.semantic @prompt_document_part {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "src/ax/dsp/prompt.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%value: json) {
+      %has_source = core.call intrinsic.map.contains(%value, "source")
+      core.if %has_source {
+        core.call @validate_document_input(%value)
+        %part = core.map
+        core.set %part["type"] = "document"
+        %keys = core.list
+        core.append %keys, "source"
+        core.append %keys, "title"
+        core.append %keys, "context"
+        core.append %keys, "citations"
+        core.append %keys, "cache"
+        core.for %key in %keys {
+          %present = core.call intrinsic.map.contains(%value, %key)
+          core.if %present {
+            %item = core.get %value[%key]
+            core.set %part[%key] = %item
+          }
+        }
+        core.return %part
+      }
+      core.return null
+    }
+  }
+
 }

@@ -357,6 +357,16 @@ client. Normalized usage and catalog-backed cost estimation distinguish
 uncached prompt, cache-read, and cache-write tokens, including long-context
 pricing thresholds.
 
+Anthropic native document sources, citation validation, source locations, and
+text-block snapshots are Core-owned across all five generated languages.
+Generated AxGen logs retain `text_blocks` with `result_index` and per-request
+`usage.citations`, including citations without URLs. Streaming snapshots replace
+the same block index; they are not appended as text deltas. Public examples
+under each language's `generation/` directory exercise both transport modes.
+The Core runtime output formatter tracks ancestor identity through a small host
+reference primitive, preserving shared sibling values while marking true cycles.
+TS-derived reference-graph fixtures reconstruct these aliases in every target.
+
 Audio and realtime are modeled as provider operations. Core owns request shape,
 audio metadata, event grammar folding, usage folding, error normalization, and
 scripted-transport conformance. Targets own real HTTP/SSE/WebSocket transport,

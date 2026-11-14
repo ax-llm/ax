@@ -14,6 +14,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.not":                     "core_not",
 	"intrinsic.and":                     "core_and",
 	"intrinsic.or":                      "core_or",
+	"intrinsic.same_reference":          "core_same_reference",
 	"intrinsic.eq":                      "core_eq",
 	"intrinsic.ne":                      "core_ne",
 	"intrinsic.lt":                      "core_lt",

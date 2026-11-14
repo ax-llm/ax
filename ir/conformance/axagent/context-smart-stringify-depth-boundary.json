@@ -1,0 +1,20 @@
+{
+  "context_operation": "smart_stringify",
+  "expected_context_result": {
+    "text": "{\n  \"a\": {\n    \"b\": {\n      \"c\": \"[Object]\"\n    }\n  },\n  \"d\": [\n    [\n      \"[Array(2)]\"\n    ]\n  ]\n}"
+  },
+  "kind": "agent_runtime_policy",
+  "max_chars": 3000,
+  "name": "context-smart-stringify-depth-boundary",
+  "signature": "question:string -> answer:string",
+  "value": {
+    "a": {
+      "b": {
+        "c": {
+          "value": 7
+        }
+      }
+    },
+    "d": [[[1, 2]]]
+  }
+}

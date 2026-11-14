@@ -487,6 +487,8 @@ module @ax.ai version "0.1" {
               %type_error = core.call intrinsic.ai.error.response(%type_text)
               core.raise %type_error
             }
+            %is_document = core.call intrinsic.eq(%item_type, "document")
+            core.if %is_document { core.call @validate_document_input(%item) }
             %next_item_index = core.call intrinsic.add(%item_index, 1)
             %item_index = core.let %next_item_index
           }
@@ -987,6 +989,7 @@ module @ax.ai version "0.1" {
       %trusted = core.get %result["decisionContext"]
       %has_trusted = core.call intrinsic.is_not_none(%trusted)
       core.if %has_trusted { core.set %completion["decisionContext"] = %trusted }
+      core.call @ai_merge_citation_metadata(%completion, %result)
       core.return %completion
     }
   }
@@ -1068,6 +1071,7 @@ module @ax.ai version "0.1" {
       core.if %has_finish {
         core.set %out["finish_reason"] = %finish
       }
+      core.call @ai_merge_citation_metadata(%out, %first)
       core.return %out
     }
   }
@@ -1402,6 +1406,7 @@ module @ax.ai version "0.1" {
     tag "src/ax/dsp/response/streaming.ts"
     type signature = "(json, json) -> void"
     body @entry(%target: json, %chunk: json) {
+      core.call @ai_merge_citation_metadata(%target, %chunk)
       %trusted = core.get %chunk["decisionContext"]
       %has_trusted = core.call intrinsic.is_not_none(%trusted)
       core.if %has_trusted { core.set %target["decisionContext"] = %trusted }
@@ -1938,6 +1943,55 @@ module @ax.ai version "0.1" {
       %message = core.call intrinsic.string.format("No service found for embed model key: {}", %key)
       %error = core.call intrinsic.error.runtime(%message)
       core.raise %error
+    }
+  }
+
+  op ax.ai.semantic @ai_merge_citation_metadata {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> void"
+    body @entry(%target: json, %incoming: json) {
+      %empty = core.list
+      %snake = core.get %incoming["text_blocks"]
+      %updates = core.get %incoming["textBlocks"] default %snake
+      %has_blocks = core.type_is %updates type "list"
+      core.if %has_blocks {
+        %blocks = core.get %target["text_blocks"] default %empty
+        core.for %update in %updates {
+          %index = core.get %update["index"] default 0
+          %next = core.list
+          %found = core.let false
+          core.for %block in %blocks {
+            %old_index = core.get %block["index"] default 0
+            %same = core.call intrinsic.eq(%index, %old_index)
+            core.if %same { core.append %next, %update
+              %found = core.let true }
+            else { core.append %next, %block }
+          }
+          core.if %found {} else { core.append %next, %update }
+          %blocks = core.let %next
+        }
+        core.set %target["text_blocks"] = %blocks
+      }
+      %updates = core.get %incoming["citations"]
+      %has_citations = core.type_is %updates type "list"
+      core.if %has_citations {
+        %citations = core.list
+        %previous = core.get %target["citations"] default %empty
+        core.for %citation in %previous { core.append %citations, %citation }
+        core.for %citation in %updates {
+          %found = core.let false
+          core.for %existing in %citations {
+            %same = core.call intrinsic.eq(%citation, %existing)
+            core.if %same { %found = core.let true }
+          }
+          core.if %found {} else { core.append %citations, %citation }
+        }
+        core.set %target["citations"] = %citations
+      }
+      core.return
     }
   }
 

@@ -2240,3 +2240,127 @@ writeFixture('eval-novel-f1', {
     }))
   ),
 });
+
+// Citation ranges need no URL, and text blocks remain snapshots across chunks.
+for (const stream of [false, true]) {
+  const citation = {
+    type: 'char_location' as const,
+    documentIndex: 0,
+    documentTitle: 'Notes',
+    fileId: 'file_notes',
+    startCharIndex: 0,
+    endCharIndex: 10,
+    snippet: 'A passage.',
+  };
+  const blocks = [
+    { index: 0, text: 'Answer: ' },
+    { index: 1, text: 'supported', citations: [citation] },
+  ];
+  const modelUsage = {
+    ai: 'mock-ai-service',
+    model: 'mock-model',
+    tokens: { promptTokens: 2, completionTokens: 3, totalTokens: 5 },
+  };
+  const response = {
+    modelUsage,
+    results: [
+      {
+        index: 0,
+        content: 'Answer: supported',
+        textBlocks: blocks,
+        citations: [citation, citation],
+      },
+    ],
+  };
+  const chunks = [
+    {
+      modelUsage,
+      results: [{ index: 0, content: 'Answer: ', textBlocks: [blocks[0]] }],
+    },
+    {
+      results: [
+        {
+          index: 0,
+          content: 'supported',
+          textBlocks: [{ index: 1, text: 'supported' }],
+        },
+      ],
+    },
+    { results: [{ index: 0, textBlocks: [blocks[1]], citations: [citation] }] },
+    {
+      results: [
+        {
+          index: 0,
+          textBlocks: [blocks[1]],
+          citations: [citation],
+          finishReason: 'stop' as const,
+        },
+      ],
+    },
+  ];
+  const mock = new AxMockAIService({
+    features: { functions: false, streaming: stream },
+    chatResponse: stream
+      ? async () =>
+          new ReadableStream({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          })
+      : response,
+  });
+  const program = ax('doc:file -> answer:string');
+  const input = {
+    doc: {
+      source: { type: 'text' as const, data: 'A passage.' },
+      title: 'Notes',
+      citations: { enabled: true },
+    },
+  };
+  const output = await program.forward(mock, input, { stream });
+  const log = program.getChatLog();
+  const textBlocks = log
+    .flatMap((entry) => entry.textBlocks ?? [])
+    .map(({ resultIndex, ...block }) => ({
+      ...block,
+      result_index: resultIndex,
+    }));
+  const citations = program
+    .getUsage()
+    .flatMap((usage) => usage.citations ?? []);
+  const portResponse = (value: any): any =>
+    Array.isArray(value)
+      ? value.map(portResponse)
+      : value && typeof value === 'object'
+        ? Object.fromEntries(
+            Object.entries(value).map(([key, item]) => [
+              key === 'textBlocks'
+                ? 'text_blocks'
+                : key === 'finishReason'
+                  ? 'finish_reason'
+                  : key === 'modelUsage'
+                    ? 'model_usage'
+                    : key,
+              portResponse(item),
+            ])
+          )
+        : value;
+  writeFixture(
+    `native-document-citation-log-${stream ? 'stream' : 'forward'}`,
+    {
+      kind: 'forward',
+      signature: 'doc:file -> answer:string',
+      input,
+      options: { stream },
+      responses: stream
+        ? [{ stream: portResponse(chunks) }]
+        : [portResponse(response)],
+      expected_output: output,
+      expected_chat_log_subset: [
+        { text_blocks: textBlocks, usage: { citations } },
+      ],
+      expected_request_count: 1,
+    } as any
+  );
+}

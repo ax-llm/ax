@@ -1,0 +1,49 @@
+{
+  "expected_error_contains": "Anthropic citations must be enabled on all documents in the request or none",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-history-mixed",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "source": {
+              "data": "Earlier uncited source.",
+              "type": "text"
+            },
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": "Read it.",
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "cache": true,
+            "citations": {
+              "enabled": true
+            },
+            "context": "Use as evidence.",
+            "source": {
+              "data": "A passage.",
+              "type": "text"
+            },
+            "title": "Evidence",
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {}
+}

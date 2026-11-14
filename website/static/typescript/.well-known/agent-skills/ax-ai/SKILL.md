@@ -713,7 +713,7 @@ the only place it is served. These models default an omitted effort to
 `none` and Ax throws.
 Earlier OpenAI models retain their existing mapping.
 
-### Anthropic document citations (TypeScript)
+### Anthropic document citations
 
 Use a `document` chat part with `source`, optional `title` and `context`, and
 `citations: { enabled: true }`. The same value without `type` works in an AxGen
@@ -742,14 +742,19 @@ Document citations have no `url`; inspect `type`, `documentIndex`, `documentTitl
 
 After `forward()` or `streamingForward()`, use `program.getChatLog()[i].textBlocks`
 for output passage associations, scoped to that round trip. Blocks also carry
-`resultIndex`. `getUsage().citations` retains a flat source list; document indices
+`resultIndex`. `getUsage()[i].citations` retains a flat source list; document indices
 are request-local and must not be treated as global document identifiers.
 Routers preserve native document inputs and exclude incompatible providers,
 even when media degradation is enabled.
 
 Run `src/examples/typescript/generation/anthropic-document-citations.ts` for
-non-streaming and streaming calls. Generated-language parity is tracked in the
-AxIR backlog; this API is currently TypeScript-only.
+non-streaming and streaming calls. Python, Java, C++, Go, and Rust support the
+same sources and validation. Generated chat results use `text_blocks` and their
+generation logs use `text_blocks` with `result_index`, plus `usage.citations`.
+Read these per-request logs using `get_chat_log()` (Python/C++/Rust),
+`getChatLog()` (Java), or `ChatLog` (Go). Citation location fields retain the
+camelCase names shown above. Public document citation examples are available
+under each language's `generation/` directory.
 
 ### Anthropic Model-Specific Behavior
 

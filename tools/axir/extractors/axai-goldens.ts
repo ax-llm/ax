@@ -17864,3 +17864,275 @@ for (const stream of [false, true]) {
     } as any
   );
 }
+
+// Native document sources and request-wide citation constraints come from TS.
+const nativeDocuments = [
+  { type: 'document', source: { type: 'text', data: 'A passage.' } },
+  {
+    type: 'document',
+    source: { type: 'base64', mediaType: 'application/pdf', data: 'JVBERi0=' },
+  },
+  {
+    type: 'document',
+    source: { type: 'url', url: 'https://example.com/report.pdf' },
+  },
+  { type: 'document', source: { type: 'file', fileId: 'file_report' } },
+  {
+    type: 'document',
+    source: {
+      type: 'content',
+      content: [{ type: 'text', text: 'A custom passage.' }],
+    },
+  },
+  {
+    type: 'file',
+    mimeType: 'application/pdf',
+    data: 'JVBERi0=',
+    filename: 'legacy.pdf',
+  },
+  {
+    type: 'file',
+    mimeType: 'application/pdf',
+    fileUri: 'https://example.com/legacy.pdf',
+  },
+].map((doc) => ({
+  ...doc,
+  title: 'Evidence',
+  context: 'Use as evidence.',
+  citations: { enabled: true },
+  cache: true,
+}));
+const documentReply = {
+  id: 'msg_documents',
+  type: 'message',
+  role: 'assistant',
+  model: haiku55,
+  content: [{ type: 'text', text: 'Answer: supported' }],
+  stop_reason: 'end_turn',
+  usage: { input_tokens: 2, output_tokens: 3 },
+};
+for (const [index, doc] of nativeDocuments.entries()) {
+  let sent: any;
+  const client = new AxAIAnthropic({
+    apiKey: 'test-key',
+    config: { model: haiku55 },
+    options: {
+      fetch: async (_url, init) => {
+        sent = JSON.parse(String(init?.body));
+        return Response.json(documentReply);
+      },
+    },
+  });
+  const result = await client.chat(
+    { chatPrompt: [{ role: 'user', content: [doc] as any }] },
+    { stream: false }
+  );
+  const expected = snakeSonnet55(result);
+  expected.model_usage.ai = 'anthropic';
+  for (const item of expected.results) item.function_calls ??= [];
+  writeFixture(`anthropic-native-document-source-${index}`, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model: haiku55,
+    request: {
+      chat_prompt: [{ role: 'user', content: [doc] }],
+      model_config: { stream: false },
+    },
+    transport_responses: [{ status: 200, json: documentReply }],
+    expected_output: expected,
+    expected_transport_request: { json: { messages: sent.messages } },
+  } as any);
+}
+for (const [name, content, extra] of [
+  [
+    'mixed-citations',
+    [
+      nativeDocuments[0],
+      { type: 'document', source: { type: 'text', data: 'Uncited.' } },
+    ],
+    {},
+  ],
+  [
+    'json-schema',
+    [nativeDocuments[0]],
+    { responseFormat: { type: 'json_schema', schema: { type: 'object' } } },
+  ],
+  [
+    'empty-text',
+    [{ type: 'document', source: { type: 'text', data: ' ' } }],
+    {},
+  ],
+  [
+    'invalid-pdf',
+    [
+      {
+        type: 'document',
+        source: { type: 'base64', mediaType: 'text/plain', data: 'abc' },
+      },
+    ],
+    {},
+  ],
+  [
+    'invalid-url',
+    [{ type: 'document', source: { type: 'url', url: 'file:///tmp/doc' } }],
+    {},
+  ],
+  [
+    'empty-file-id',
+    [{ type: 'document', source: { type: 'file', fileId: '' } }],
+    {},
+  ],
+  [
+    'empty-content',
+    [{ type: 'document', source: { type: 'content', content: [] } }],
+    {},
+  ],
+  [
+    'invalid-title',
+    [{ type: 'document', source: { type: 'text', data: 'Text.' }, title: 3 }],
+    {},
+  ],
+  [
+    'invalid-citations',
+    [
+      {
+        type: 'document',
+        source: { type: 'text', data: 'Text.' },
+        citations: { enabled: 'yes' },
+      },
+    ],
+    {},
+  ],
+] as const) {
+  let requests = 0;
+  const client = new AxAIAnthropic({
+    apiKey: 'test-key',
+    config: { model: haiku55 },
+    options: {
+      fetch: async () => {
+        requests++;
+        return Response.json(documentReply);
+      },
+    },
+  });
+  let message = '';
+  try {
+    await client.chat(
+      { chatPrompt: [{ role: 'user', content }], ...extra } as any,
+      { stream: false }
+    );
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  if (!message || requests)
+    throw new Error(
+      `Document validation did not reject ${name} before transport`
+    );
+  writeFixture(`anthropic-native-document-reject-${name}`, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model: haiku55,
+    request: {
+      chat_prompt: [{ role: 'user', content }],
+      ...extra,
+      model_config: { stream: false },
+    },
+    expected_error_contains: message,
+  } as any);
+}
+
+for (const test of [
+  {
+    name: 'history-mixed',
+    provider: 'anthropic',
+    options: {},
+    prompt: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'text', data: 'Earlier uncited source.' },
+          },
+        ],
+      },
+      { role: 'assistant', content: 'Read it.' },
+      { role: 'user', content: [nativeDocuments[0]] },
+    ],
+  },
+  {
+    name: 'vertex-file-id',
+    provider: 'anthropic',
+    options: { projectId: 'demo-project', region: 'us' },
+    prompt: [{ role: 'user', content: [nativeDocuments[3]] }],
+  },
+  {
+    name: 'non-pdf-file',
+    provider: 'anthropic',
+    options: {},
+    prompt: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            mimeType: 'text/plain',
+            data: 'hello',
+            citations: { enabled: true },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'unsupported-provider',
+    provider: 'openai',
+    options: {},
+    prompt: [{ role: 'user', content: [nativeDocuments[0]] }],
+  },
+  {
+    name: 'unsupported-cited-pdf',
+    provider: 'openai',
+    options: {},
+    prompt: [{ role: 'user', content: [nativeDocuments[5]] }],
+  },
+] as const) {
+  let calls = 0;
+  const fetch = async () => {
+    calls++;
+    return Response.json(documentReply);
+  };
+  const client =
+    test.provider === 'anthropic'
+      ? new AxAIAnthropic({
+          apiKey: async () => 'test-key',
+          ...test.options,
+          config: { model: haiku55 },
+          options: { fetch },
+        })
+      : new AxAIOpenAI({
+          apiKey: 'test-key',
+          config: { model: AxAIOpenAIModel.GPT54Mini },
+          options: { fetch },
+        });
+  let error = '';
+  try {
+    await client.chat({ chatPrompt: test.prompt } as any, { stream: false });
+  } catch (e) {
+    error = (e as Error).message;
+  }
+  if (!error || calls)
+    throw new Error(`Expected preflight rejection for ${test.name}`);
+  const expected =
+    test.provider === 'openai' && error.includes('native document')
+      ? 'native document'
+      : error;
+  writeFixture(`anthropic-native-document-reject-${test.name}`, {
+    kind: 'ai_chat',
+    provider: test.provider,
+    model: test.provider === 'anthropic' ? haiku55 : 'gpt-5.4-mini',
+    service_options: test.options,
+    request: { chat_prompt: test.prompt, model_config: { stream: false } },
+    expected_error_contains: expected,
+  } as any);
+}

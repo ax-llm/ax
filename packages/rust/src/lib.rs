@@ -31549,6 +31549,10 @@ fn core_prompt_image_part(value: &CoreValue) -> Result<CoreValue, AxError> {
 // data or its fileUri.
 #[allow(dead_code)]
 fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    let document = _prompt_document_part(&[value.clone()])?;
+    if !document.is_null() {
+        return Ok(document);
+    }
     core_prompt_media_object(value, "File", "mimeType")?;
     let has_data = core_prompt_has_key(value, "data");
     let has_file_uri = core_prompt_has_key(value, "fileUri");
@@ -31575,7 +31579,18 @@ fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
         CoreValue::from(key),
         core_get(value, &CoreValue::from(key), CoreValue::Null),
     )?;
-    core_prompt_declared_keys(part, value, &["filename", "cache", "extractedText"])
+    core_prompt_declared_keys(
+        part,
+        value,
+        &[
+            "filename",
+            "cache",
+            "extractedText",
+            "title",
+            "context",
+            "citations",
+        ],
+    )
 }
 
 // TS defaultRenderInField: a url part carries the url, and the title and
@@ -35106,6 +35121,7 @@ fn core_axgen_record_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             ),
         ),
     ])?;
+    _gen_citation_log_metadata(&[entry.clone(), response])?;
     core_append(&chat_log, entry)?;
     Ok(CoreValue::Null)
 }
@@ -37247,6 +37263,15 @@ fn core_regex_replace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 // JSON.stringify(value, null, 2)
 #[allow(dead_code)]
+fn core_same_reference(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let same = match (core_arg(args, 0), core_arg(args, 1)) {
+        (CoreValue::List(a), CoreValue::List(b)) => Rc::ptr_eq(&a, &b),
+        (CoreValue::Map(a), CoreValue::Map(b)) => Rc::ptr_eq(&a, &b),
+        _ => false,
+    };
+    Ok(CoreValue::Bool(same))
+}
+
 fn core_json_pretty(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::from_string(js_json_pretty(&core_value_to_json(
         &core_arg(args, 0),
@@ -42553,6 +42578,7 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_end = CoreValue::Null;
     let mut v_has_nested = CoreValue::Null;
     let mut v_has_options = CoreValue::Null;
+    let mut v_has_source = CoreValue::Null;
     let mut v_has_start = CoreValue::Null;
     let mut v_invalid_audio = CoreValue::Null;
     let mut v_invalid_file = CoreValue::Null;
@@ -42690,6 +42716,11 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_is_file = core_eq(&[v_type_name.clone(), CoreValue::from("file")])?;
     if core_truthy(&v_is_file) {
+        v_has_source = core_map_contains(&[v_value.clone(), CoreValue::from("source")])?;
+        if core_truthy(&v_has_source) {
+            _validate_document_input(&[v_value.clone()])?;
+            return Ok(CoreValue::Null);
+        }
         v_valid_file = core_media_valid_file(&[v_value.clone()])?;
         v_invalid_file = core_not(&[v_valid_file.clone()])?;
         if core_truthy(&v_invalid_file) {
@@ -43705,6 +43736,28 @@ fn _validate_keyed_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
+fn _document_nonempty_string(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_document_nonempty_string");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_string = CoreValue::Null;
+    let mut v_nonempty = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    if core_truthy(&v_is_string) {
+        v_trimmed = core_string_trim(&v_value);
+        v_nonempty = core_ne(&[v_trimmed.clone(), CoreValue::from("")])?;
+        return Ok(v_nonempty.clone());
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_schema_to_json_schema_impl");
     let mut v_fields = core_arg(args, 0);
@@ -43762,6 +43815,187 @@ fn _schema_to_json_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
         }
     }
     return Ok(v_schema.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _validate_document_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_document_input");
+    let mut v_doc = core_arg(args, 0);
+    let mut v_block = CoreValue::Null;
+    let mut v_block_type = CoreValue::Null;
+    let mut v_block_valid = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_file = CoreValue::Null;
+    let mut v_file_snake = CoreValue::Null;
+    let mut v_has = CoreValue::Null;
+    let mut v_has_citations = CoreValue::Null;
+    let mut v_has_source = CoreValue::Null;
+    let mut v_http = CoreValue::Null;
+    let mut v_https = CoreValue::Null;
+    let mut v_is_base64 = CoreValue::Null;
+    let mut v_is_bool = CoreValue::Null;
+    let mut v_is_content = CoreValue::Null;
+    let mut v_is_file = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_is_url = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_media = CoreValue::Null;
+    let mut v_media_snake = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_metadata = CoreValue::Null;
+    let mut v_nonempty = CoreValue::Null;
+    let mut v_pdf = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_source_is_object = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_source = core_get(&v_doc, &CoreValue::from("source"), CoreValue::Null);
+    v_has_source = core_map_contains(&[v_doc.clone(), CoreValue::from("source")])?;
+    if core_truthy(&v_has_source) {
+    } else {
+        v_error = core_runtime_error(&[CoreValue::from("Document input must contain a source")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_metadata = core_json_parse(&[CoreValue::from("[\"title\",\"context\"]")])?;
+    for v_key in core_iter(&v_metadata)? {
+        let mut v_key = v_key;
+        v_has = core_map_contains(&[v_doc.clone(), v_key.clone()])?;
+        if core_truthy(&v_has) {
+            v_value = core_get(&v_doc, &v_key.clone(), CoreValue::Null);
+            v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+            if core_truthy(&v_is_string) {
+            } else {
+                v_message = core_string_format(&[
+                    CoreValue::from("Document {} must be a string"),
+                    v_key.clone(),
+                ])?;
+                v_error = core_runtime_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        }
+    }
+    v_has_citations = core_map_contains(&[v_doc.clone(), CoreValue::from("citations")])?;
+    if core_truthy(&v_has_citations) {
+        v_citations = core_get(&v_doc, &CoreValue::from("citations"), CoreValue::Null);
+        v_enabled = core_get(&v_citations, &CoreValue::from("enabled"), CoreValue::Null);
+        v_is_bool = core_type_is(&v_enabled, CoreValue::from("boolean"));
+        if core_truthy(&v_is_bool) {
+        } else {
+            v_error = core_runtime_error(&[CoreValue::from(
+                "Document citations.enabled must be a boolean",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_source_is_object = core_type_is(&v_source, CoreValue::from("object"));
+    if core_truthy(&v_source_is_object) {
+    } else {
+        v_error = core_runtime_error(&[CoreValue::from("Document source must be an object")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_type = core_get(&v_source, &CoreValue::from("type"), CoreValue::from(""));
+    v_is_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
+    if core_truthy(&v_is_text) {
+        v_data = core_get(&v_source, &CoreValue::from("data"), CoreValue::Null);
+        v_valid = _document_nonempty_string(&[v_data.clone()])?;
+        if core_truthy(&v_valid) {
+            return Ok(CoreValue::Null);
+        }
+        v_error = core_runtime_error(&[CoreValue::from("Document text must not be empty")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_is_base64 = core_eq(&[v_type.clone(), CoreValue::from("base64")])?;
+    if core_truthy(&v_is_base64) {
+        v_data = core_get(&v_source, &CoreValue::from("data"), CoreValue::Null);
+        v_media_snake = core_get(&v_source, &CoreValue::from("media_type"), CoreValue::Null);
+        v_media = core_get(
+            &v_source,
+            &CoreValue::from("mediaType"),
+            v_media_snake.clone(),
+        );
+        v_pdf = core_eq(&[v_media.clone(), CoreValue::from("application/pdf")])?;
+        v_nonempty = _document_nonempty_string(&[v_data.clone()])?;
+        v_valid = core_and(&[v_pdf.clone(), v_nonempty.clone()])?;
+        if core_truthy(&v_valid) {
+            return Ok(CoreValue::Null);
+        }
+        v_error = core_runtime_error(&[CoreValue::from(
+            "Document base64 source requires PDF data and mediaType application/pdf",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_is_url = core_eq(&[v_type.clone(), CoreValue::from("url")])?;
+    if core_truthy(&v_is_url) {
+        v_url = core_get(&v_source, &CoreValue::from("url"), CoreValue::Null);
+        v_nonempty = _document_nonempty_string(&[v_url.clone()])?;
+        if core_truthy(&v_nonempty) {
+            v_lower = core_string_lower(&[v_url.clone()])?;
+            v_http = core_string_starts_with(&[v_lower.clone(), CoreValue::from("http://")])?;
+            v_https = core_string_starts_with(&[v_lower.clone(), CoreValue::from("https://")])?;
+            v_valid = core_or(&[v_http.clone(), v_https.clone()])?;
+            if core_truthy(&v_valid) {
+                return Ok(CoreValue::Null);
+            }
+        }
+        v_error = core_runtime_error(&[CoreValue::from("Document URL must use http or https")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_is_file = core_eq(&[v_type.clone(), CoreValue::from("file")])?;
+    if core_truthy(&v_is_file) {
+        v_file_snake = core_get(&v_source, &CoreValue::from("file_id"), CoreValue::Null);
+        v_file = core_get(&v_source, &CoreValue::from("fileId"), v_file_snake.clone());
+        v_valid = _document_nonempty_string(&[v_file.clone()])?;
+        if core_truthy(&v_valid) {
+            return Ok(CoreValue::Null);
+        }
+        v_error = core_runtime_error(&[CoreValue::from("Document fileId must not be empty")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_is_content = core_eq(&[v_type.clone(), CoreValue::from("content")])?;
+    if core_truthy(&v_is_content) {
+        v_content = core_get(&v_source, &CoreValue::from("content"), CoreValue::Null);
+        v_is_list = core_type_is(&v_content, CoreValue::from("list"));
+        v_valid = CoreValue::Bool(false);
+        if core_truthy(&v_is_list) {
+            v_length = core_len(&[v_content.clone()])?;
+            v_valid = core_gt(&[v_length.clone(), CoreValue::Num(0f64)])?;
+            for v_block in core_iter(&v_content)? {
+                let mut v_block = v_block;
+                v_block_type = core_get(&v_block, &CoreValue::from("type"), CoreValue::Null);
+                v_text = core_get(&v_block, &CoreValue::from("text"), CoreValue::Null);
+                v_is_text = core_eq(&[v_block_type.clone(), CoreValue::from("text")])?;
+                v_nonempty = _document_nonempty_string(&[v_text.clone()])?;
+                v_block_valid = core_and(&[v_is_text.clone(), v_nonempty.clone()])?;
+                v_valid = core_and(&[v_valid.clone(), v_block_valid.clone()])?;
+            }
+        }
+        if core_truthy(&v_valid) {
+            return Ok(CoreValue::Null);
+        }
+        v_error = core_runtime_error(&[CoreValue::from(
+            "Document custom content must contain nonempty text blocks",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_error = core_runtime_error(&[CoreValue::from("Unsupported document source type")])?;
+    return Err(core_as_error(&v_error));
 }
 
 #[allow(
@@ -44516,6 +44750,50 @@ fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_append(&v_messages, v_system_message.clone())?;
     core_append(&v_messages, v_user_message.clone())?;
     return Ok(v_messages.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _prompt_document_part(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_prompt_document_part");
+    let mut v_value = core_arg(args, 0);
+    let mut v_has_source = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    v_has_source = core_map_contains(&[v_value.clone(), CoreValue::from("source")])?;
+    if core_truthy(&v_has_source) {
+        _validate_document_input(&[v_value.clone()])?;
+        v_part = CoreValue::new_map();
+        core_set(
+            &v_part,
+            CoreValue::from("type"),
+            CoreValue::from("document"),
+        )?;
+        v_keys = CoreValue::new_list();
+        core_append(&v_keys, CoreValue::from("source"))?;
+        core_append(&v_keys, CoreValue::from("title"))?;
+        core_append(&v_keys, CoreValue::from("context"))?;
+        core_append(&v_keys, CoreValue::from("citations"))?;
+        core_append(&v_keys, CoreValue::from("cache"))?;
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_present = core_map_contains(&[v_value.clone(), v_key.clone()])?;
+            if core_truthy(&v_present) {
+                v_item = core_get(&v_value, &v_key.clone(), CoreValue::Null);
+                core_set(&v_part, v_key.clone(), v_item.clone())?;
+            }
+        }
+        return Ok(v_part.clone());
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -47761,6 +48039,7 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_images = CoreValue::Null;
     let mut v_invalid_role = CoreValue::Null;
     let mut v_is_assistant = CoreValue::Null;
+    let mut v_is_document = CoreValue::Null;
     let mut v_is_function = CoreValue::Null;
     let mut v_is_system = CoreValue::Null;
     let mut v_is_user = CoreValue::Null;
@@ -47905,6 +48184,10 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     ])?;
                     v_type_error = core_ai_error_response(&[v_type_text.clone()])?;
                     return Err(core_as_error(&v_type_error));
+                }
+                v_is_document = core_eq(&[v_item_type.clone(), CoreValue::from("document")])?;
+                if core_truthy(&v_is_document) {
+                    _validate_document_input(&[v_item.clone()])?;
                 }
                 v_next_item_index = core_add(&[v_item_index.clone(), CoreValue::Num(1f64)])?;
                 v_item_index = v_next_item_index.clone();
@@ -53334,6 +53617,7 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             v_trusted.clone(),
         )?;
     }
+    _ai_merge_citation_metadata(&[v_completion.clone(), v_result.clone()])?;
     return Ok(v_completion.clone());
 }
 
@@ -53790,6 +54074,7 @@ fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError>
     if core_truthy(&v_has_finish) {
         core_set(&v_out, CoreValue::from("finish_reason"), v_finish.clone())?;
     }
+    _ai_merge_citation_metadata(&[v_out.clone(), v_first.clone()])?;
     return Ok(v_out.clone());
 }
 
@@ -54005,6 +54290,7 @@ fn provider_validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_prepared = CoreValue::Null;
     let mut v_sampled = CoreValue::Null;
     v_canonical = provider_normalize_profile(&[v_profile.clone()])?;
+    _provider_validate_documents(&[v_canonical.clone(), v_request.clone(), v_options.clone()])?;
     v_is_google_decisions = core_eq(&[
         v_canonical.clone(),
         CoreValue::from("google-gemini-decisions"),
@@ -55618,6 +55904,7 @@ fn _fold_chat_stream_chunk_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_visible = CoreValue::Null;
     let mut v_visible_parts = CoreValue::Null;
     let mut v_visible_text = CoreValue::Null;
+    _ai_merge_citation_metadata(&[v_target.clone(), v_chunk.clone()])?;
     v_trusted = core_get(
         &v_chunk,
         &CoreValue::from("decisionContext"),
@@ -56432,6 +56719,7 @@ fn provider_route_request_requirements(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_functions_count = CoreValue::Null;
     let mut v_has_functions = CoreValue::Null;
     let mut v_is_audio = CoreValue::Null;
+    let mut v_is_document = CoreValue::Null;
     let mut v_is_file = CoreValue::Null;
     let mut v_is_image = CoreValue::Null;
     let mut v_is_url = CoreValue::Null;
@@ -56567,6 +56855,8 @@ fn provider_route_request_requirements(args: &[CoreValue]) -> Result<CoreValue, 
                     }
                 }
                 v_is_file = core_eq(&[v_part_type.clone(), CoreValue::from("file")])?;
+                v_is_document = core_eq(&[v_part_type.clone(), CoreValue::from("document")])?;
+                v_is_file = core_or(&[v_is_file.clone(), v_is_document.clone()])?;
                 if core_truthy(&v_is_file) {
                     core_set(
                         &v_requirements,
@@ -57278,25 +57568,36 @@ fn provider_route_preprocess_request(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_features = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
     let mut v_processing = core_arg(args, 2);
+    let mut v_can_preserve = CoreValue::Null;
+    let mut v_cannot_preserve = CoreValue::Null;
+    let mut v_citation_config = CoreValue::Null;
+    let mut v_cited = CoreValue::Null;
+    let mut v_citing_supported = CoreValue::Null;
     let mut v_content = CoreValue::Null;
     let mut v_content_count = CoreValue::Null;
     let mut v_content_is_list = CoreValue::Null;
+    let mut v_documents = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
     let mut v_file_part = CoreValue::Null;
     let mut v_has_any_prompt = CoreValue::Null;
     let mut v_has_camel_prompt = CoreValue::Null;
     let mut v_has_snake_prompt = CoreValue::Null;
     let mut v_image_copy = CoreValue::Null;
     let mut v_image_seed = CoreValue::Null;
+    let mut v_is_document = CoreValue::Null;
     let mut v_is_file = CoreValue::Null;
     let mut v_is_image = CoreValue::Null;
     let mut v_is_user = CoreValue::Null;
     let mut v_keep_file = CoreValue::Null;
+    let mut v_media = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_message_copy = CoreValue::Null;
     let mut v_message_index = CoreValue::Null;
     let mut v_message_seed = CoreValue::Null;
     let mut v_missing_camel_prompt = CoreValue::Null;
     let mut v_missing_prompt = CoreValue::Null;
+    let mut v_needs_documents = CoreValue::Null;
+    let mut v_no_citations = CoreValue::Null;
     let mut v_only = CoreValue::Null;
     let mut v_only_text = CoreValue::Null;
     let mut v_only_type = CoreValue::Null;
@@ -57315,6 +57616,8 @@ fn provider_route_preprocess_request(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_role = CoreValue::Null;
     let mut v_single = CoreValue::Null;
     let mut v_slot = CoreValue::Null;
+    let mut v_supported = CoreValue::Null;
+    let mut v_supports_citations = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     v_has_camel_prompt = core_map_contains(&[v_request.clone(), CoreValue::from("chatPrompt")])?;
     v_has_snake_prompt = core_map_contains(&[v_request.clone(), CoreValue::from("chat_prompt")])?;
@@ -57352,6 +57655,41 @@ fn provider_route_preprocess_request(args: &[CoreValue]) -> Result<CoreValue, Ax
             for v_part in core_iter(&v_content)? {
                 let mut v_part = v_part;
                 v_part_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::from("text"));
+                v_is_document = core_eq(&[v_part_type.clone(), CoreValue::from("document")])?;
+                v_citation_config =
+                    core_get(&v_part, &CoreValue::from("citations"), CoreValue::Null);
+                v_cited = core_get(
+                    &v_citation_config,
+                    &CoreValue::from("enabled"),
+                    CoreValue::Bool(false),
+                );
+                v_needs_documents = core_or(&[v_is_document.clone(), v_cited.clone()])?;
+                if core_truthy(&v_needs_documents) {
+                    v_media = core_get(&v_features, &CoreValue::from("media"), CoreValue::Null);
+                    v_documents =
+                        core_get(&v_media, &CoreValue::from("documents"), CoreValue::Null);
+                    v_supported = core_get(
+                        &v_documents,
+                        &CoreValue::from("supported"),
+                        CoreValue::Bool(false),
+                    );
+                    v_supports_citations = core_get(
+                        &v_documents,
+                        &CoreValue::from("citations"),
+                        CoreValue::Bool(false),
+                    );
+                    v_no_citations = core_not(&[v_cited.clone()])?;
+                    v_citing_supported =
+                        core_or(&[v_no_citations.clone(), v_supports_citations.clone()])?;
+                    v_can_preserve = core_and(&[v_supported.clone(), v_citing_supported.clone()])?;
+                    v_cannot_preserve = core_not(&[v_can_preserve.clone()])?;
+                    if core_truthy(&v_cannot_preserve) {
+                        v_error = core_runtime_error(&[CoreValue::from(
+                            "Document inputs and citations require native document support",
+                        )])?;
+                        return Err(core_as_error(&v_error));
+                    }
+                }
                 v_is_file = core_eq(&[v_part_type.clone(), CoreValue::from("file")])?;
                 if core_truthy(&v_is_file) {
                     v_slot = core_string_format(&[
@@ -57418,12 +57756,44 @@ fn provider_route_preprocess_request(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
+fn router_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("router_embed_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_embed_model = core_arg(args, 2);
+    let mut v_chat_key = CoreValue::Null;
+    let mut v_embed_key = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_service_key = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_out = core_map_merge(&[v_empty.clone(), v_request.clone()])?;
+    v_chat_key = core_truthy_value(&[v_model.clone()])?;
+    v_embed_key = core_truthy_value(&[v_embed_model.clone()])?;
+    v_service_key = core_or(&[v_chat_key.clone(), v_embed_key.clone()])?;
+    if core_truthy(&v_service_key) {
+    } else {
+        core_map_delete(&[v_out.clone(), CoreValue::from("embedModel")])?;
+        core_map_delete(&[v_out.clone(), CoreValue::from("embed_model")])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _provider_route_file_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_provider_route_file_content");
     let mut v_features = core_arg(args, 0);
     let mut v_part = core_arg(args, 1);
     let mut v_processing = core_arg(args, 2);
     let mut v_slot = core_arg(args, 3);
+    let mut v_citation_config = CoreValue::Null;
+    let mut v_cited = CoreValue::Null;
     let mut v_copy = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
     let mut v_empty_texts = CoreValue::Null;
@@ -57441,6 +57811,15 @@ fn _provider_route_file_content(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_supports_files = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_texts = CoreValue::Null;
+    v_citation_config = core_get(&v_part, &CoreValue::from("citations"), CoreValue::Null);
+    v_cited = core_get(
+        &v_citation_config,
+        &CoreValue::from("enabled"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_cited) {
+        return Ok(v_part.clone());
+    }
     v_supports_files = _provider_features_support(&[v_features.clone(), CoreValue::from("files")])?;
     if core_truthy(&v_supports_files) {
         v_empty = CoreValue::new_map();
@@ -57505,36 +57884,6 @@ fn _provider_route_file_content(args: &[CoreValue]) -> Result<CoreValue, AxError
     v_out = CoreValue::new_map();
     core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
     core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn router_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("router_embed_request");
-    let mut v_request = core_arg(args, 0);
-    let mut v_model = core_arg(args, 1);
-    let mut v_embed_model = core_arg(args, 2);
-    let mut v_chat_key = CoreValue::Null;
-    let mut v_embed_key = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_service_key = CoreValue::Null;
-    v_empty = CoreValue::new_map();
-    v_out = core_map_merge(&[v_empty.clone(), v_request.clone()])?;
-    v_chat_key = core_truthy_value(&[v_model.clone()])?;
-    v_embed_key = core_truthy_value(&[v_embed_model.clone()])?;
-    v_service_key = core_or(&[v_chat_key.clone(), v_embed_key.clone()])?;
-    if core_truthy(&v_service_key) {
-    } else {
-        core_map_delete(&[v_out.clone(), CoreValue::from("embedModel")])?;
-        core_map_delete(&[v_out.clone(), CoreValue::from("embed_model")])?;
-    }
     return Ok(v_out.clone());
 }
 
@@ -57727,6 +58076,97 @@ fn provider_route_file_extractions(args: &[CoreValue]) -> Result<CoreValue, AxEr
         v_message_index = core_add(&[v_message_index.clone(), CoreValue::Num(1f64)])?;
     }
     return Ok(v_tasks.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ai_merge_citation_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ai_merge_citation_metadata");
+    let mut v_target = core_arg(args, 0);
+    let mut v_incoming = core_arg(args, 1);
+    let mut v_block = CoreValue::Null;
+    let mut v_blocks = CoreValue::Null;
+    let mut v_citation = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_has_blocks = CoreValue::Null;
+    let mut v_has_citations = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_old_index = CoreValue::Null;
+    let mut v_previous = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_update = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_empty = CoreValue::new_list();
+    v_snake = core_get(
+        &v_incoming,
+        &CoreValue::from("text_blocks"),
+        CoreValue::Null,
+    );
+    v_updates = core_get(&v_incoming, &CoreValue::from("textBlocks"), v_snake.clone());
+    v_has_blocks = core_type_is(&v_updates, CoreValue::from("list"));
+    if core_truthy(&v_has_blocks) {
+        v_blocks = core_get(&v_target, &CoreValue::from("text_blocks"), v_empty.clone());
+        for v_update in core_iter(&v_updates)? {
+            let mut v_update = v_update;
+            v_index = core_get(&v_update, &CoreValue::from("index"), CoreValue::Num(0f64));
+            v_next = CoreValue::new_list();
+            v_found = CoreValue::Bool(false);
+            for v_block in core_iter(&v_blocks)? {
+                let mut v_block = v_block;
+                v_old_index = core_get(&v_block, &CoreValue::from("index"), CoreValue::Num(0f64));
+                v_same = core_eq(&[v_index.clone(), v_old_index.clone()])?;
+                if core_truthy(&v_same) {
+                    core_append(&v_next, v_update.clone())?;
+                    v_found = CoreValue::Bool(true);
+                } else {
+                    core_append(&v_next, v_block.clone())?;
+                }
+            }
+            if core_truthy(&v_found) {
+            } else {
+                core_append(&v_next, v_update.clone())?;
+            }
+            v_blocks = v_next.clone();
+        }
+        core_set(&v_target, CoreValue::from("text_blocks"), v_blocks.clone())?;
+    }
+    v_updates = core_get(&v_incoming, &CoreValue::from("citations"), CoreValue::Null);
+    v_has_citations = core_type_is(&v_updates, CoreValue::from("list"));
+    if core_truthy(&v_has_citations) {
+        v_citations = CoreValue::new_list();
+        v_previous = core_get(&v_target, &CoreValue::from("citations"), v_empty.clone());
+        for v_citation in core_iter(&v_previous)? {
+            let mut v_citation = v_citation;
+            core_append(&v_citations, v_citation.clone())?;
+        }
+        for v_citation in core_iter(&v_updates)? {
+            let mut v_citation = v_citation;
+            v_found = CoreValue::Bool(false);
+            for v_existing in core_iter(&v_citations)? {
+                let mut v_existing = v_existing;
+                v_same = core_eq(&[v_citation.clone(), v_existing.clone()])?;
+                if core_truthy(&v_same) {
+                    v_found = CoreValue::Bool(true);
+                }
+            }
+            if core_truthy(&v_found) {
+            } else {
+                core_append(&v_citations, v_citation.clone())?;
+            }
+        }
+        core_set(&v_target, CoreValue::from("citations"), v_citations.clone())?;
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -62016,9 +62456,11 @@ fn provider_resolve_features(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_alias = CoreValue::Null;
     let mut v_alias_match = CoreValue::Null;
     let mut v_aliases = CoreValue::Null;
+    let mut v_anthropic = CoreValue::Null;
     let mut v_apply_native_override = CoreValue::Null;
     let mut v_astra_session = CoreValue::Null;
     let mut v_base_features = CoreValue::Null;
+    let mut v_base_media = CoreValue::Null;
     let mut v_cache_features = CoreValue::Null;
     let mut v_cache_types = CoreValue::Null;
     let mut v_can_steer = CoreValue::Null;
@@ -62029,11 +62471,14 @@ fn provider_resolve_features(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_current_mode = CoreValue::Null;
     let mut v_current_modes = CoreValue::Null;
     let mut v_descriptor = CoreValue::Null;
+    let mut v_documents = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
+    let mut v_empty_media = CoreValue::Null;
     let mut v_factory = CoreValue::Null;
     let mut v_factory_snake = CoreValue::Null;
     let mut v_features = CoreValue::Null;
+    let mut v_files = CoreValue::Null;
     let mut v_gpt6_cache = CoreValue::Null;
     let mut v_gpt6_model = CoreValue::Null;
     let mut v_has_factory = CoreValue::Null;
@@ -62061,6 +62506,7 @@ fn provider_resolve_features(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_matches = CoreValue::Null;
     let mut v_matches_alias = CoreValue::Null;
     let mut v_matches_name = CoreValue::Null;
+    let mut v_media = CoreValue::Null;
     let mut v_model_info = CoreValue::Null;
     let mut v_model_info_missing = CoreValue::Null;
     let mut v_model_info_snake = CoreValue::Null;
@@ -62462,6 +62908,24 @@ fn provider_resolve_features(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             CoreValue::from("caching"),
             v_cache_features.clone(),
         )?;
+    }
+    v_anthropic = core_eq(&[v_profile.clone(), CoreValue::from("anthropic")])?;
+    if core_truthy(&v_anthropic) {
+        v_empty_media = CoreValue::new_map();
+        v_base_media = core_get(
+            &v_features,
+            &CoreValue::from("media"),
+            v_empty_media.clone(),
+        );
+        v_media = core_map_merge(&[v_empty_media.clone(), v_base_media.clone()])?;
+        v_documents =
+            core_json_parse(&[CoreValue::from("{\"supported\":true,\"citations\":true}")])?;
+        v_files = core_json_parse(&[CoreValue::from(
+            "{\"supported\":true,\"formats\":[\"application/pdf\"],\"uploadMethod\":\"inline\"}",
+        )])?;
+        core_set(&v_media, CoreValue::from("documents"), v_documents.clone())?;
+        core_set(&v_media, CoreValue::from("files"), v_files.clone())?;
+        core_set(&v_features, CoreValue::from("media"), v_media.clone())?;
     }
     return Ok(v_features.clone());
 }
@@ -63464,6 +63928,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_transport = CoreValue::Null;
     v_model = core_get(&v_request, &CoreValue::from("model"), CoreValue::from(""));
     v_provider_id = provider_chat_profile(&[v_profile.clone(), v_model.clone()])?;
+    _provider_validate_documents(&[v_provider_id.clone(), v_request.clone(), v_options.clone()])?;
     v_descriptor = provider_resolve_descriptor(&[v_provider_id.clone(), v_options.clone()])?;
     v_transport = core_get(
         &v_descriptor,
@@ -74652,10 +75117,12 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_cache = CoreValue::Null;
     let mut v_cache_control = CoreValue::Null;
     let mut v_data = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_file_uri = CoreValue::Null;
     let mut v_file_uri_snake = CoreValue::Null;
     let mut v_format = CoreValue::Null;
+    let mut v_has_doc = CoreValue::Null;
     let mut v_has_file_uri = CoreValue::Null;
     let mut v_image = CoreValue::Null;
     let mut v_image_alt = CoreValue::Null;
@@ -74666,6 +75133,7 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_is_text = CoreValue::Null;
     let mut v_is_url = CoreValue::Null;
     let mut v_is_video = CoreValue::Null;
+    let mut v_mapped = CoreValue::Null;
     let mut v_media_type = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_mime = CoreValue::Null;
@@ -74674,6 +75142,12 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_source = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_type = CoreValue::Null;
+    v_doc = _anthropic_document_input(&[v_part.clone()])?;
+    v_has_doc = core_is_not_none(&[v_doc.clone()])?;
+    if core_truthy(&v_has_doc) {
+        v_mapped = _anthropic_document_part(&[v_doc.clone()])?;
+        return Ok(v_mapped.clone());
+    }
     v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::from("text"));
     v_is_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
     if core_truthy(&v_is_text) {
@@ -79702,6 +80176,362 @@ fn provider_compatibility_report(args: &[CoreValue]) -> Result<CoreValue, AxErro
         v_recommended.clone(),
     )?;
     core_set(&v_out, CoreValue::from("summary"), v_summary.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _anthropic_document_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_document_input");
+    let mut v_part = core_arg(args, 0);
+    let mut v_citations = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_file = CoreValue::Null;
+    let mut v_has = CoreValue::Null;
+    let mut v_has_uri = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_mime = CoreValue::Null;
+    let mut v_mime_snake = CoreValue::Null;
+    let mut v_pdf = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_supports_native_documents = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_uri_snake = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::from(""));
+    v_supports_native_documents = core_eq(&[v_type.clone(), CoreValue::from("document")])?;
+    if core_truthy(&v_supports_native_documents) {
+        return Ok(v_part.clone());
+    }
+    v_file = core_eq(&[v_type.clone(), CoreValue::from("file")])?;
+    if core_truthy(&v_file) {
+    } else {
+        return Ok(CoreValue::Null);
+    }
+    v_mime_snake = core_get(&v_part, &CoreValue::from("mime_type"), CoreValue::Null);
+    v_mime = core_get(&v_part, &CoreValue::from("mimeType"), v_mime_snake.clone());
+    v_pdf = core_eq(&[v_mime.clone(), CoreValue::from("application/pdf")])?;
+    if core_truthy(&v_pdf) {
+    } else {
+        v_citations = core_get(&v_part, &CoreValue::from("citations"), CoreValue::Null);
+        v_enabled = core_get(
+            &v_citations,
+            &CoreValue::from("enabled"),
+            CoreValue::Bool(false),
+        );
+        if core_truthy(&v_enabled) {
+            v_error = core_runtime_error(&[CoreValue::from(
+                "Anthropic file citations require a PDF; use a document text source for plain text",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_doc = CoreValue::new_map();
+    v_source = CoreValue::new_map();
+    v_uri_snake = core_get(&v_part, &CoreValue::from("file_uri"), CoreValue::Null);
+    v_uri = core_get(&v_part, &CoreValue::from("fileUri"), v_uri_snake.clone());
+    v_has_uri = core_is_not_none(&[v_uri.clone()])?;
+    if core_truthy(&v_has_uri) {
+        core_set(&v_source, CoreValue::from("type"), CoreValue::from("url"))?;
+        core_set(&v_source, CoreValue::from("url"), v_uri.clone())?;
+    } else {
+        core_set(
+            &v_source,
+            CoreValue::from("type"),
+            CoreValue::from("base64"),
+        )?;
+        core_set(
+            &v_source,
+            CoreValue::from("mediaType"),
+            CoreValue::from("application/pdf"),
+        )?;
+        v_data = core_get(&v_part, &CoreValue::from("data"), CoreValue::Null);
+        core_set(&v_source, CoreValue::from("data"), v_data.clone())?;
+    }
+    core_set(&v_doc, CoreValue::from("source"), v_source.clone())?;
+    v_keys = core_json_parse(&[CoreValue::from(
+        "[\"title\",\"context\",\"citations\",\"cache\"]",
+    )])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_has = core_map_contains(&[v_part.clone(), v_key.clone()])?;
+        if core_truthy(&v_has) {
+            v_value = core_get(&v_part, &v_key.clone(), CoreValue::Null);
+            core_set(&v_doc, v_key.clone(), v_value.clone())?;
+        }
+    }
+    return Ok(v_doc.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _provider_validate_documents(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_validate_documents");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_any_disabled = CoreValue::Null;
+    let mut v_any_enabled = CoreValue::Null;
+    let mut v_check = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_cited_file = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_descriptor = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_document = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_file = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_format_snake = CoreValue::Null;
+    let mut v_format_type = CoreValue::Null;
+    let mut v_has_doc = CoreValue::Null;
+    let mut v_json = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_prompt = CoreValue::Null;
+    let mut v_reject = CoreValue::Null;
+    let mut v_requires_native = CoreValue::Null;
+    let mut v_role = CoreValue::Null;
+    let mut v_snake_prompt = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_source_type = CoreValue::Null;
+    let mut v_supports_native_documents = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_unsupported = CoreValue::Null;
+    let mut v_uploaded = CoreValue::Null;
+    let mut v_user = CoreValue::Null;
+    let mut v_vertex = CoreValue::Null;
+    v_supports_native_documents = core_eq(&[v_profile.clone(), CoreValue::from("anthropic")])?;
+    v_empty = CoreValue::new_list();
+    v_snake_prompt = core_get(&v_request, &CoreValue::from("chat_prompt"), v_empty.clone());
+    v_prompt = core_get(
+        &v_request,
+        &CoreValue::from("chatPrompt"),
+        v_snake_prompt.clone(),
+    );
+    v_any_enabled = CoreValue::Bool(false);
+    v_any_disabled = CoreValue::Bool(false);
+    for v_message in core_iter(&v_prompt)? {
+        let mut v_message = v_message;
+        v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::from(""));
+        v_user = core_eq(&[v_role.clone(), CoreValue::from("user")])?;
+        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
+        v_parts = core_type_is(&v_content, CoreValue::from("list"));
+        v_check = core_and(&[v_user.clone(), v_parts.clone()])?;
+        if core_truthy(&v_check) {
+            for v_part in core_iter(&v_content)? {
+                let mut v_part = v_part;
+                v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::from(""));
+                v_document = core_eq(&[v_type.clone(), CoreValue::from("document")])?;
+                v_file = core_eq(&[v_type.clone(), CoreValue::from("file")])?;
+                v_citations = core_get(&v_part, &CoreValue::from("citations"), CoreValue::Null);
+                v_enabled = core_get(
+                    &v_citations,
+                    &CoreValue::from("enabled"),
+                    CoreValue::Bool(false),
+                );
+                v_enabled = core_eq(&[v_enabled.clone(), CoreValue::Bool(true)])?;
+                v_cited_file = core_and(&[v_file.clone(), v_enabled.clone()])?;
+                v_requires_native = core_or(&[v_document.clone(), v_cited_file.clone()])?;
+                v_unsupported = core_not(&[v_supports_native_documents.clone()])?;
+                v_reject = core_and(&[v_requires_native.clone(), v_unsupported.clone()])?;
+                if core_truthy(&v_reject) {
+                    v_error = core_ai_error_unsupported(&[CoreValue::from(
+                        "Provider does not support native document inputs and citations",
+                    )])?;
+                    return Err(core_as_error(&v_error));
+                }
+                if core_truthy(&v_supports_native_documents) {
+                    v_doc = _anthropic_document_input(&[v_part.clone()])?;
+                    v_has_doc = core_is_not_none(&[v_doc.clone()])?;
+                    if core_truthy(&v_has_doc) {
+                        _validate_document_input(&[v_doc.clone()])?;
+                        v_source = core_get(&v_doc, &CoreValue::from("source"), CoreValue::Null);
+                        v_source_type =
+                            core_get(&v_source, &CoreValue::from("type"), CoreValue::Null);
+                        v_uploaded = core_eq(&[v_source_type.clone(), CoreValue::from("file")])?;
+                        if core_truthy(&v_uploaded) {
+                            v_descriptor = provider_resolve_descriptor(&[
+                                v_profile.clone(),
+                                v_options.clone(),
+                            ])?;
+                            v_vertex = core_get(
+                                &v_descriptor,
+                                &CoreValue::from("vertex"),
+                                CoreValue::Bool(false),
+                            );
+                            if core_truthy(&v_vertex) {
+                                v_error = core_runtime_error(&[CoreValue::from("Anthropic fileId document sources require the first-party Files API")])?;
+                                return Err(core_as_error(&v_error));
+                            }
+                        }
+                        if core_truthy(&v_enabled) {
+                            v_any_enabled = CoreValue::Bool(true);
+                        } else {
+                            v_any_disabled = CoreValue::Bool(true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if core_truthy(&v_any_enabled) {
+        if core_truthy(&v_any_disabled) {
+            v_error = core_runtime_error(&[CoreValue::from(
+                "Anthropic citations must be enabled on all documents in the request or none",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_format_snake = core_get(
+            &v_request,
+            &CoreValue::from("response_format"),
+            CoreValue::Null,
+        );
+        v_format = core_get(
+            &v_request,
+            &CoreValue::from("responseFormat"),
+            v_format_snake.clone(),
+        );
+        v_format_type = core_get(&v_format, &CoreValue::from("type"), CoreValue::Null);
+        v_json = core_eq(&[v_format_type.clone(), CoreValue::from("json_schema")])?;
+        if core_truthy(&v_json) {
+            v_error = core_runtime_error(&[CoreValue::from("Anthropic document citations cannot be combined with native structured outputs (output_config.format); use a text signature without .useStructured()")])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _anthropic_document_part(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_anthropic_document_part");
+    let mut v_doc = core_arg(args, 0);
+    let mut v_base64 = CoreValue::Null;
+    let mut v_block = CoreValue::Null;
+    let mut v_blocks = CoreValue::Null;
+    let mut v_cache = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_config = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_control = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_data_type = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_file = CoreValue::Null;
+    let mut v_has = CoreValue::Null;
+    let mut v_has_citations = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_mapped = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    _validate_document_input(&[v_doc.clone()])?;
+    v_input = core_get(&v_doc, &CoreValue::from("source"), CoreValue::Null);
+    v_type = core_get(&v_input, &CoreValue::from("type"), CoreValue::Null);
+    v_source = CoreValue::new_map();
+    core_set(&v_source, CoreValue::from("type"), v_type.clone())?;
+    v_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
+    v_base64 = core_eq(&[v_type.clone(), CoreValue::from("base64")])?;
+    v_data_type = core_or(&[v_text.clone(), v_base64.clone()])?;
+    if core_truthy(&v_data_type) {
+        v_data = core_get(&v_input, &CoreValue::from("data"), CoreValue::Null);
+        core_set(&v_source, CoreValue::from("data"), v_data.clone())?;
+        if core_truthy(&v_text) {
+            core_set(
+                &v_source,
+                CoreValue::from("media_type"),
+                CoreValue::from("text/plain"),
+            )?;
+        } else {
+            core_set(
+                &v_source,
+                CoreValue::from("media_type"),
+                CoreValue::from("application/pdf"),
+            )?;
+        }
+    }
+    v_url = core_eq(&[v_type.clone(), CoreValue::from("url")])?;
+    if core_truthy(&v_url) {
+        v_value = core_get(&v_input, &CoreValue::from("url"), CoreValue::Null);
+        core_set(&v_source, CoreValue::from("url"), v_value.clone())?;
+    }
+    v_file = core_eq(&[v_type.clone(), CoreValue::from("file")])?;
+    if core_truthy(&v_file) {
+        v_snake = core_get(&v_input, &CoreValue::from("file_id"), CoreValue::Null);
+        v_value = core_get(&v_input, &CoreValue::from("fileId"), v_snake.clone());
+        core_set(&v_source, CoreValue::from("file_id"), v_value.clone())?;
+    }
+    v_content = core_eq(&[v_type.clone(), CoreValue::from("content")])?;
+    if core_truthy(&v_content) {
+        v_blocks = core_get(&v_input, &CoreValue::from("content"), CoreValue::Null);
+        v_mapped = CoreValue::new_list();
+        for v_block in core_iter(&v_blocks)? {
+            let mut v_block = v_block;
+            v_text = core_get(&v_block, &CoreValue::from("text"), CoreValue::Null);
+            v_part = CoreValue::new_map();
+            core_set(&v_part, CoreValue::from("type"), CoreValue::from("text"))?;
+            core_set(&v_part, CoreValue::from("text"), v_text.clone())?;
+            core_append(&v_mapped, v_part.clone())?;
+        }
+        core_set(&v_source, CoreValue::from("content"), v_mapped.clone())?;
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("document"))?;
+    core_set(&v_out, CoreValue::from("source"), v_source.clone())?;
+    v_keys = core_json_parse(&[CoreValue::from("[\"title\",\"context\"]")])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_has = core_map_contains(&[v_doc.clone(), v_key.clone()])?;
+        if core_truthy(&v_has) {
+            v_value = core_get(&v_doc, &v_key.clone(), CoreValue::Null);
+            core_set(&v_out, v_key.clone(), v_value.clone())?;
+        }
+    }
+    v_has_citations = core_map_contains(&[v_doc.clone(), CoreValue::from("citations")])?;
+    if core_truthy(&v_has_citations) {
+        v_citations = core_get(&v_doc, &CoreValue::from("citations"), CoreValue::Null);
+        v_enabled = core_get(&v_citations, &CoreValue::from("enabled"), CoreValue::Null);
+        v_config = CoreValue::new_map();
+        core_set(&v_config, CoreValue::from("enabled"), v_enabled.clone())?;
+        core_set(&v_out, CoreValue::from("citations"), v_config.clone())?;
+    }
+    v_cache = core_get(&v_doc, &CoreValue::from("cache"), CoreValue::Bool(false));
+    if core_truthy(&v_cache) {
+        v_control = core_json_parse(&[CoreValue::from("{\"type\":\"ephemeral\"}")])?;
+        core_set(&v_out, CoreValue::from("cache_control"), v_control.clone())?;
+    }
     return Ok(v_out.clone());
 }
 
@@ -106757,6 +107587,84 @@ fn _stream_apply_structured_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _gen_citation_log_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gen_citation_log_metadata");
+    let mut v_entry = core_arg(args, 0);
+    let mut v_response = core_arg(args, 1);
+    let mut v_block = CoreValue::Null;
+    let mut v_blocks = CoreValue::Null;
+    let mut v_citation_holder = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_copy = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_fallback = CoreValue::Null;
+    let mut v_has_blocks = CoreValue::Null;
+    let mut v_has_citations = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_metadata = CoreValue::Null;
+    let mut v_position = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_result_blocks = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_seed = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_fallback = CoreValue::new_list();
+    core_append(&v_fallback, v_response.clone())?;
+    v_results = core_get(&v_response, &CoreValue::from("results"), v_fallback.clone());
+    v_blocks = CoreValue::new_list();
+    v_citation_holder = CoreValue::new_map();
+    v_position = CoreValue::Num(0f64);
+    for v_result in core_iter(&v_results)? {
+        let mut v_result = v_result;
+        v_index = core_get(&v_result, &CoreValue::from("index"), v_position.clone());
+        v_metadata = CoreValue::new_map();
+        _ai_merge_citation_metadata(&[v_metadata.clone(), v_result.clone()])?;
+        v_empty = CoreValue::new_list();
+        v_result_blocks = core_get(
+            &v_metadata,
+            &CoreValue::from("text_blocks"),
+            v_empty.clone(),
+        );
+        for v_block in core_iter(&v_result_blocks)? {
+            let mut v_block = v_block;
+            v_seed = CoreValue::new_map();
+            v_copy = core_map_merge(&[v_seed.clone(), v_block.clone()])?;
+            core_set(&v_copy, CoreValue::from("result_index"), v_index.clone())?;
+            core_append(&v_blocks, v_copy.clone())?;
+        }
+        _ai_merge_citation_metadata(&[v_citation_holder.clone(), v_result.clone()])?;
+        v_position = core_add(&[v_position.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_count = core_len(&[v_blocks.clone()])?;
+    v_has_blocks = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_blocks) {
+        core_set(&v_entry, CoreValue::from("text_blocks"), v_blocks.clone())?;
+    }
+    v_citations = core_get(
+        &v_citation_holder,
+        &CoreValue::from("citations"),
+        CoreValue::Null,
+    );
+    v_has_citations = core_type_is(&v_citations, CoreValue::from("list"));
+    if core_truthy(&v_has_citations) {
+        v_existing = core_get(&v_entry, &CoreValue::from("usage"), CoreValue::Null);
+        v_seed = CoreValue::new_map();
+        v_usage = core_map_merge(&[v_seed.clone(), v_existing.clone()])?;
+        core_set(&v_usage, CoreValue::from("citations"), v_citations.clone())?;
+        core_set(&v_entry, CoreValue::from("usage"), v_usage.clone())?;
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_feedback_text_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_feedback_text_impl");
     let mut v_result = core_arg(args, 0);
@@ -115788,10 +116696,92 @@ fn _agent_render_context_pressure(args: &[CoreValue]) -> Result<CoreValue, AxErr
     unreachable_code,
     clippy::all
 )]
+fn _agent_depth_limited_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_depth_limited_value");
+    let mut v_value = core_arg(args, 0);
+    let mut v_depth = core_arg(args, 1);
+    let mut v_ancestors = core_arg(args, 2);
+    let mut v_ancestor = CoreValue::Null;
+    let mut v_branch = CoreValue::Null;
+    let mut v_container = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_out_list = CoreValue::Null;
+    let mut v_placeholder = CoreValue::Null;
+    let mut v_processed = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_too_deep = CoreValue::Null;
+    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+    v_is_map = core_type_is(&v_value, CoreValue::from("object"));
+    v_container = core_or(&[v_is_list.clone(), v_is_map.clone()])?;
+    if core_truthy(&v_container) {
+    } else {
+        return Ok(v_value.clone());
+    }
+    for v_ancestor in core_iter(&v_ancestors)? {
+        let mut v_ancestor = v_ancestor;
+        v_same = core_same_reference(&[v_value.clone(), v_ancestor.clone()])?;
+        if core_truthy(&v_same) {
+            return Ok(CoreValue::from("[Circular]"));
+        }
+    }
+    v_too_deep = core_gte(&[v_depth.clone(), CoreValue::Num(3f64)])?;
+    if core_truthy(&v_too_deep) {
+        if core_truthy(&v_is_list) {
+            v_length = core_len(&[v_value.clone()])?;
+            v_placeholder =
+                core_string_format(&[CoreValue::from("[Array({})]"), v_length.clone()])?;
+            return Ok(v_placeholder.clone());
+        }
+        return Ok(CoreValue::from("[Object]"));
+    }
+    v_branch = CoreValue::new_list();
+    for v_ancestor in core_iter(&v_ancestors)? {
+        let mut v_ancestor = v_ancestor;
+        core_append(&v_branch, v_ancestor.clone())?;
+    }
+    core_append(&v_branch, v_value.clone())?;
+    v_next = core_add(&[v_depth.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_is_list) {
+        v_out_list = CoreValue::new_list();
+        for v_item in core_iter(&v_value)? {
+            let mut v_item = v_item;
+            v_processed =
+                _agent_depth_limited_value(&[v_item.clone(), v_next.clone(), v_branch.clone()])?;
+            core_append(&v_out_list, v_processed.clone())?;
+        }
+        return Ok(v_out_list.clone());
+    }
+    v_out = CoreValue::new_map();
+    v_keys = core_map_keys(&[v_value.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_item = core_get(&v_value, &v_key.clone(), CoreValue::Null);
+        v_processed =
+            _agent_depth_limited_value(&[v_item.clone(), v_next.clone(), v_branch.clone()])?;
+        core_set(&v_out, v_key.clone(), v_processed.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _agent_smart_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_smart_stringify");
     let mut v_value = core_arg(args, 0);
     let mut v_max_chars = core_arg(args, 1);
+    let mut v_ancestors = CoreValue::Null;
     let mut v_array_head_items = CoreValue::Null;
     let mut v_array_tail_items = CoreValue::Null;
     let mut v_array_threshold = CoreValue::Null;
@@ -115806,15 +116796,22 @@ fn _agent_smart_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_index = CoreValue::Null;
     let mut v_is_list = CoreValue::Null;
     let mut v_item = CoreValue::Null;
+    let mut v_item_length = CoreValue::Null;
     let mut v_item_text = CoreValue::Null;
     let mut v_json = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
     let mut v_large = CoreValue::Null;
     let mut v_negative_tail_items = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_per_item = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_processed = CoreValue::Null;
     let mut v_settings = CoreValue::Null;
+    let mut v_small_budget = CoreValue::Null;
     let mut v_tail = CoreValue::Null;
     let mut v_tail_start = CoreValue::Null;
     let mut v_tail_text = CoreValue::Null;
+    let mut v_too_long = CoreValue::Null;
     v_context_registry = _agent_context_policy_registry(&[])?;
     v_empty_map = CoreValue::new_map();
     v_settings = core_get(
@@ -115846,10 +116843,28 @@ fn _agent_smart_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_tail = CoreValue::new_list();
             v_negative_tail_items = core_mul(&[CoreValue::Num(-1f64), v_array_tail_items.clone()])?;
             v_tail_start = core_add(&[v_count.clone(), v_negative_tail_items.clone()])?;
+            v_per_item = core_div(&[v_max_chars.clone(), CoreValue::Num(6f64)])?;
+            v_per_item = core_math_floor(&[v_per_item.clone()])?;
+            v_small_budget = core_lt(&[v_per_item.clone(), CoreValue::Num(80f64)])?;
+            if core_truthy(&v_small_budget) {
+                v_per_item = CoreValue::Num(80f64);
+            }
             v_index = CoreValue::Num(0f64);
             for v_item in core_iter(&v_value)? {
                 let mut v_item = v_item;
                 v_item_text = core_json_stringify(&[v_item.clone()])?;
+                v_item_length = core_len(&[v_item_text.clone()])?;
+                v_too_long = core_gt(&[v_item_length.clone(), v_per_item.clone()])?;
+                if core_truthy(&v_too_long) {
+                    v_keep = core_add(&[v_per_item.clone(), CoreValue::Num(-3f64)])?;
+                    v_prefix = core_string_slice(&[
+                        v_item_text.clone(),
+                        CoreValue::Num(0f64),
+                        v_keep.clone(),
+                    ])?;
+                    v_item_text =
+                        core_string_format(&[CoreValue::from("{}..."), v_prefix.clone()])?;
+                }
                 v_in_head = core_lt(&[v_index.clone(), v_array_head_items.clone()])?;
                 if core_truthy(&v_in_head) {
                     core_append(&v_head, v_item_text.clone())?;
@@ -115872,7 +116887,10 @@ fn _agent_smart_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             return Ok(v_out.clone());
         }
     }
-    v_json = core_json_pretty(&[v_value.clone()])?;
+    v_ancestors = CoreValue::new_list();
+    v_processed =
+        _agent_depth_limited_value(&[v_value.clone(), CoreValue::Num(0f64), v_ancestors.clone()])?;
+    v_json = core_json_pretty(&[v_processed.clone()])?;
     return Ok(v_json.clone());
 }
 
@@ -118700,7 +119718,13 @@ fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_checkpoint_active = CoreValue::Null;
     let mut v_checkpoint_entries = CoreValue::Null;
     let mut v_checkpoint_turns = CoreValue::Null;
+    let mut v_child = CoreValue::Null;
+    let mut v_child_id = CoreValue::Null;
+    let mut v_descriptor = CoreValue::Null;
+    let mut v_descriptors = CoreValue::Null;
     let mut v_dynamic = CoreValue::Null;
+    let mut v_edge = CoreValue::Null;
+    let mut v_edges = CoreValue::Null;
     let mut v_effective = CoreValue::Null;
     let mut v_empty_actor_state = CoreValue::Null;
     let mut v_empty_entries = CoreValue::Null;
@@ -118718,20 +119742,31 @@ fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_fixture_provenance = CoreValue::Null;
     let mut v_fixture_restore_notice = CoreValue::Null;
     let mut v_fixture_session_state = CoreValue::Null;
+    let mut v_graph = CoreValue::Null;
     let mut v_has_fixture_action_log = CoreValue::Null;
     let mut v_has_fixture_checkpoint = CoreValue::Null;
     let mut v_has_fixture_provenance = CoreValue::Null;
     let mut v_has_fixture_restore_notice = CoreValue::Null;
+    let mut v_has_graph = CoreValue::Null;
     let mut v_has_session_state = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_array_node = CoreValue::Null;
     let mut v_is_budget = CoreValue::Null;
     let mut v_is_checkpoint_summary = CoreValue::Null;
     let mut v_is_executor_policy = CoreValue::Null;
     let mut v_is_manage_context = CoreValue::Null;
     let mut v_is_policy = CoreValue::Null;
     let mut v_is_smart = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
     let mut v_max_chars = CoreValue::Null;
     let mut v_max_runtime = CoreValue::Null;
     let mut v_mutable_prompt_chars = CoreValue::Null;
+    let mut v_node_key = CoreValue::Null;
+    let mut v_node_keys = CoreValue::Null;
+    let mut v_node_list = CoreValue::Null;
+    let mut v_node_map = CoreValue::Null;
+    let mut v_nodes = CoreValue::Null;
     let mut v_operation = CoreValue::Null;
     let mut v_options = CoreValue::Null;
     let mut v_options2 = CoreValue::Null;
@@ -118740,11 +119775,15 @@ fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_out_budget = CoreValue::Null;
     let mut v_out_smart = CoreValue::Null;
     let mut v_out_summary = CoreValue::Null;
+    let mut v_parent = CoreValue::Null;
+    let mut v_parent_id = CoreValue::Null;
     let mut v_policy = CoreValue::Null;
     let mut v_policy2 = CoreValue::Null;
     let mut v_prepared = CoreValue::Null;
     let mut v_pressure = CoreValue::Null;
     let mut v_pressure_text_budget = CoreValue::Null;
+    let mut v_root = CoreValue::Null;
+    let mut v_seed = CoreValue::Null;
     let mut v_selected = CoreValue::Null;
     let mut v_summary = CoreValue::Null;
     let mut v_text = CoreValue::Null;
@@ -118871,6 +119910,47 @@ fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
     v_is_smart = core_eq(&[v_operation.clone(), CoreValue::from("smart_stringify")])?;
     if core_truthy(&v_is_smart) {
         v_value = core_get(&v_fixture, &CoreValue::from("value"), CoreValue::Null);
+        v_graph = core_get(&v_fixture, &CoreValue::from("value_graph"), CoreValue::Null);
+        v_has_graph = core_type_is(&v_graph, CoreValue::from("object"));
+        if core_truthy(&v_has_graph) {
+            v_descriptors = core_get(&v_graph, &CoreValue::from("nodes"), CoreValue::Null);
+            v_nodes = CoreValue::new_map();
+            v_node_keys = core_map_keys(&[v_descriptors.clone()])?;
+            for v_node_key in core_iter(&v_node_keys)? {
+                let mut v_node_key = v_node_key;
+                v_descriptor = core_get(&v_descriptors, &v_node_key.clone(), CoreValue::Null);
+                v_is_array_node = core_type_is(&v_descriptor, CoreValue::from("list"));
+                if core_truthy(&v_is_array_node) {
+                    v_node_list = CoreValue::new_list();
+                    for v_item in core_iter(&v_descriptor)? {
+                        let mut v_item = v_item;
+                        core_append(&v_node_list, v_item.clone())?;
+                    }
+                    core_set(&v_nodes, v_node_key.clone(), v_node_list.clone())?;
+                } else {
+                    v_seed = CoreValue::new_map();
+                    v_node_map = core_map_merge(&[v_seed.clone(), v_descriptor.clone()])?;
+                    core_set(&v_nodes, v_node_key.clone(), v_node_map.clone())?;
+                }
+            }
+            v_edges = core_get(&v_graph, &CoreValue::from("edges"), CoreValue::Null);
+            for v_edge in core_iter(&v_edges)? {
+                let mut v_edge = v_edge;
+                v_parent_id = core_get(&v_edge, &CoreValue::from("from"), CoreValue::Null);
+                v_child_id = core_get(&v_edge, &CoreValue::from("to"), CoreValue::Null);
+                v_key = core_get(&v_edge, &CoreValue::from("key"), CoreValue::Null);
+                v_parent = core_get(&v_nodes, &v_parent_id.clone(), CoreValue::Null);
+                v_child = core_get(&v_nodes, &v_child_id.clone(), CoreValue::Null);
+                v_is_array = core_type_is(&v_parent, CoreValue::from("list"));
+                if core_truthy(&v_is_array) {
+                    core_append(&v_parent, v_child.clone())?;
+                } else {
+                    core_set(&v_parent, v_key.clone(), v_child.clone())?;
+                }
+            }
+            v_root = core_get(&v_graph, &CoreValue::from("root"), CoreValue::Null);
+            v_value = core_get(&v_nodes, &v_root.clone(), CoreValue::Null);
+        }
         v_max_chars = core_get(
             &v_fixture,
             &CoreValue::from("max_chars"),
@@ -123877,6 +124957,7 @@ fn _normalize_agent_runtime_step_result(args: &[CoreValue]) -> Result<CoreValue,
     let mut v_out = CoreValue::Null;
     let mut v_output = CoreValue::Null;
     let mut v_output_is_empty = CoreValue::Null;
+    let mut v_output_is_text = CoreValue::Null;
     let mut v_raw_is_map = CoreValue::Null;
     let mut v_raw_logs = CoreValue::Null;
     let mut v_raw_logs_is_list = CoreValue::Null;
@@ -123913,7 +124994,11 @@ fn _normalize_agent_runtime_step_result(args: &[CoreValue]) -> Result<CoreValue,
         v_is_error = core_get(&v_raw, &CoreValue::from("is_error"), CoreValue::Bool(false));
         v_result = core_get(&v_raw, &CoreValue::from("result"), v_raw.clone());
         v_output = core_get(&v_raw, &CoreValue::from("output"), CoreValue::from(""));
-        v_output_is_empty = core_eq(&[v_output.clone(), CoreValue::from("")])?;
+        v_output_is_text = core_type_is(&v_output, CoreValue::from("string"));
+        v_output_is_empty = CoreValue::Bool(false);
+        if core_truthy(&v_output_is_text) {
+            v_output_is_empty = core_eq(&[v_output.clone(), CoreValue::from("")])?;
+        }
         if core_truthy(&v_output_is_empty) {
             v_raw_logs = core_get(&v_raw, &CoreValue::from("logs"), CoreValue::Null);
             v_raw_logs_is_list = core_type_is(&v_raw_logs, CoreValue::from("list"));
@@ -124273,8 +125358,10 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_closed = CoreValue::Null;
     let mut v_completion_payload = CoreValue::Null;
     let mut v_completion_type = CoreValue::Null;
+    let mut v_context_policy = CoreValue::Null;
     let mut v_current_memories = CoreValue::Null;
     let mut v_discover_request = CoreValue::Null;
+    let mut v_dropped = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_globals = CoreValue::Null;
@@ -124289,20 +125376,28 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_is_clarification_completion = CoreValue::Null;
     let mut v_is_closed = CoreValue::Null;
     let mut v_is_final_completion = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_max_chars = CoreValue::Null;
     let mut v_memory_context = CoreValue::Null;
     let mut v_memory_globals = CoreValue::Null;
     let mut v_memory_inputs = CoreValue::Null;
     let mut v_memory_patch = CoreValue::Null;
     let mut v_missing_session = CoreValue::Null;
+    let mut v_negative_max = CoreValue::Null;
     let mut v_normalized = CoreValue::Null;
     let mut v_notice = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_is_string = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
     let mut v_raw = CoreValue::Null;
     let mut v_recall_request = CoreValue::Null;
+    let mut v_rendered = CoreValue::Null;
     let mut v_runtime_options = CoreValue::Null;
     let mut v_status = CoreValue::Null;
     let mut v_status_log = CoreValue::Null;
     let mut v_step_error = CoreValue::Null;
     let mut v_step_turn = CoreValue::Null;
+    let mut v_too_long = CoreValue::Null;
     let mut v_used_request = CoreValue::Null;
     v_runtime_options = _agent_runtime_execution_options(&[v_state.clone(), v_options.clone()])?;
     v_empty_map = CoreValue::new_map();
@@ -124364,6 +125459,39 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
         ])?;
         v_normalized = _normalize_agent_runtime_step_result(&[v_raw.clone(), v_code.clone()])?;
         _agent_attach_code_analysis(&[v_normalized.clone(), v_raw.clone()])?;
+    }
+    v_output = core_get(
+        &v_normalized,
+        &CoreValue::from("output"),
+        CoreValue::from(""),
+    );
+    v_output_is_string = core_type_is(&v_output, CoreValue::from("string"));
+    if core_truthy(&v_output_is_string) {
+    } else {
+        v_context_policy = _resolve_agent_context_policy(&[v_options.clone()])?;
+        v_max_chars = core_get(
+            &v_context_policy,
+            &CoreValue::from("maxRuntimeChars"),
+            CoreValue::Num(3000f64),
+        );
+        v_rendered = _agent_smart_stringify(&[v_output.clone(), v_max_chars.clone()])?;
+        v_length = core_len(&[v_rendered.clone()])?;
+        v_too_long = core_gt(&[v_length.clone(), v_max_chars.clone()])?;
+        if core_truthy(&v_too_long) {
+            v_prefix = core_string_slice(&[
+                v_rendered.clone(),
+                CoreValue::Num(0f64),
+                v_max_chars.clone(),
+            ])?;
+            v_negative_max = core_mul(&[v_max_chars.clone(), CoreValue::Num(-1f64)])?;
+            v_dropped = core_add(&[v_length.clone(), v_negative_max.clone()])?;
+            v_rendered = core_string_format(&[
+                CoreValue::from("{}\n...[truncated {} chars]"),
+                v_prefix.clone(),
+                v_dropped.clone(),
+            ])?;
+        }
+        core_set(&v_normalized, CoreValue::from("output"), v_rendered.clone())?;
     }
     _agent_runtime_append_action_log(&[v_state.clone(), v_normalized.clone()])?;
     _agent_record_trace_event(&[
@@ -149116,7 +150244,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (1117 of 1117 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (1126 of 1126 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

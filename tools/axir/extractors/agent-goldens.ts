@@ -70,6 +70,7 @@ function writeFixture(name: string, fixture: Fixture): void {
   if (
     parityContractsOnly &&
     !runtimeCodeNormalizationFixtures.has(name) &&
+    !name.startsWith('context-smart-stringify-') &&
     typeof fixture.parity_contract_id !== 'string' &&
     !Array.isArray(fixture.parity_contract_ids)
   ) {
@@ -5076,3 +5077,85 @@ writeFixture('actor-mode-invalid', {
   options: { actorMode: 'invalid' },
   expected_error_contains: "actorMode must be 'runtime' or 'completion'",
 });
+
+// Reconstruct reference graphs in each native target before invoking the same
+// formatter used by runtime outputs. JSON alone cannot represent these inputs.
+for (const [name, nodes, edges, root] of [
+  [
+    'shared-siblings',
+    { root: {}, shared: { value: 7 } },
+    [
+      { from: 'root', key: 'a', to: 'shared' },
+      { from: 'root', key: 'b', to: 'shared' },
+    ],
+    'root',
+  ],
+  [
+    'shared-array-elements',
+    { root: [], shared: { value: 7 } },
+    [
+      { from: 'root', to: 'shared' },
+      { from: 'root', to: 'shared' },
+    ],
+    'root',
+  ],
+  [
+    'self-cycle',
+    { root: { value: 7 } },
+    [{ from: 'root', key: 'self', to: 'root' }],
+    'root',
+  ],
+  [
+    'shared-nested-cycle',
+    { root: {}, shared: { value: 7 } },
+    [
+      { from: 'root', key: 'a', to: 'shared' },
+      { from: 'root', key: 'b', to: 'shared' },
+      { from: 'shared', key: 'self', to: 'shared' },
+    ],
+    'root',
+  ],
+  ['array-cycle', { root: [] }, [{ from: 'root', to: 'root' }], 'root'],
+  [
+    'equal-distinct-objects',
+    { root: {}, first: { value: 7 }, second: { value: 7 } },
+    [
+      { from: 'root', key: 'a', to: 'first' },
+      { from: 'root', key: 'b', to: 'second' },
+    ],
+    'root',
+  ],
+] as const) {
+  const graph: any = structuredClone(nodes);
+  for (const edge of edges) {
+    const parent = graph[edge.from];
+    const child = graph[edge.to];
+    if (Array.isArray(parent)) parent.push(child);
+    else parent[(edge as any).key] = child;
+  }
+  writeFixture(`context-smart-stringify-${name}`, {
+    kind: 'agent_runtime_policy',
+    signature: 'question:string -> answer:string',
+    context_operation: 'smart_stringify',
+    value_graph: { nodes, edges, root },
+    max_chars: 3000,
+    expected_context_result: { text: smartStringify(graph[root], 3000) },
+  } as any);
+}
+for (const [name, value, maxChars] of [
+  ['depth-boundary', { a: { b: { c: { value: 7 } } }, d: [[[1, 2]]] }, 3000],
+  [
+    'large-array-budget',
+    Array.from({ length: 12 }, () => ({ text: 'x'.repeat(200) })),
+    400,
+  ],
+] as const) {
+  writeFixture(`context-smart-stringify-${name}`, {
+    kind: 'agent_runtime_policy',
+    signature: 'question:string -> answer:string',
+    context_operation: 'smart_stringify',
+    value,
+    max_chars: maxChars,
+    expected_context_result: { text: smartStringify(value, maxChars) },
+  } as any);
+}

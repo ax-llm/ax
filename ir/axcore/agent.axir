@@ -2311,6 +2311,55 @@ module @ax.agent version "0.1" {
     }
   }
 
+  // Only ancestor identity indicates a cycle. Equal or shared sibling values
+  // are independently expanded, matching the TypeScript depth limiter.
+  op ax.agent.semantic @agent_depth_limited_value {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "src/ax/agent/truncate.ts"
+    type signature = "(json, number, list<json>) -> json"
+    body @entry(%value: json, %depth: number, %ancestors: json) {
+      %is_list = core.type_is %value type "list"
+      %is_map = core.type_is %value type "object"
+      %container = core.call intrinsic.or(%is_list, %is_map)
+      core.if %container {} else { core.return %value }
+      core.for %ancestor in %ancestors {
+        %same = core.call intrinsic.same_reference(%value, %ancestor)
+        core.if %same { core.return "[Circular]" }
+      }
+      %too_deep = core.call intrinsic.gte(%depth, 3)
+      core.if %too_deep {
+        core.if %is_list {
+          %length = core.call intrinsic.len(%value)
+          %placeholder = core.call intrinsic.string.format("[Array({})]", %length)
+          core.return %placeholder
+        }
+        core.return "[Object]"
+      }
+      %branch = core.list
+      core.for %ancestor in %ancestors { core.append %branch, %ancestor }
+      core.append %branch, %value
+      %next = core.call intrinsic.add(%depth, 1)
+      core.if %is_list {
+        %out_list = core.list
+        core.for %item in %value {
+          %processed = core.call @agent_depth_limited_value(%item, %next, %branch)
+          core.append %out_list, %processed
+        }
+        core.return %out_list
+      }
+      %out = core.map
+      %keys = core.call intrinsic.map.keys(%value)
+      core.for %key in %keys {
+        %item = core.get %value[%key]
+        %processed = core.call @agent_depth_limited_value(%item, %next, %branch)
+        core.set %out[%key] = %processed
+      }
+      core.return %out
+    }
+  }
+
   op ax.agent.semantic @agent_smart_stringify {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -2332,9 +2381,20 @@ module @ax.agent version "0.1" {
           %tail = core.list
           %negative_tail_items = core.call intrinsic.mul(-1, %array_tail_items)
           %tail_start = core.call intrinsic.add(%count, %negative_tail_items)
+          %per_item = core.call intrinsic.div(%max_chars, 6)
+          %per_item = core.call intrinsic.math.floor(%per_item)
+          %small_budget = core.call intrinsic.lt(%per_item, 80)
+          core.if %small_budget { %per_item = core.let 80 }
           %index = core.let 0
           core.for %item in %value {
             %item_text = core.call intrinsic.json.stringify(%item)
+            %item_length = core.call intrinsic.len(%item_text)
+            %too_long = core.call intrinsic.gt(%item_length, %per_item)
+            core.if %too_long {
+              %keep = core.call intrinsic.add(%per_item, -3)
+              %prefix = core.call intrinsic.string.slice(%item_text, 0, %keep)
+              %item_text = core.call intrinsic.string.format("{}...", %prefix)
+            }
             %in_head = core.call intrinsic.lt(%index, %array_head_items)
             core.if %in_head {
               core.append %head, %item_text
@@ -2352,7 +2412,9 @@ module @ax.agent version "0.1" {
           core.return %out
         }
       }
-      %json = core.call intrinsic.json.pretty(%value)
+      %ancestors = core.list
+      %processed = core.call @agent_depth_limited_value(%value, 0, %ancestors)
+      %json = core.call intrinsic.json.pretty(%processed)
       core.return %json
     }
   }
@@ -3700,6 +3762,41 @@ module @ax.agent version "0.1" {
       %is_smart = core.call intrinsic.eq(%operation, "smart_stringify")
       core.if %is_smart {
         %value = core.get %fixture["value"] default null
+        %graph = core.get %fixture["value_graph"] default null
+        %has_graph = core.type_is %graph type "object"
+        core.if %has_graph {
+          %descriptors = core.get %graph["nodes"]
+          %nodes = core.map
+          %node_keys = core.call intrinsic.map.keys(%descriptors)
+          core.for %node_key in %node_keys {
+            %descriptor = core.get %descriptors[%node_key]
+            %is_array_node = core.type_is %descriptor type "list"
+            core.if %is_array_node {
+              // Allocate mutable host lists, rather than mutating the JSON
+              // fixture's value arrays (which are immutable slices in Go).
+              %node_list = core.list
+              core.for %item in %descriptor { core.append %node_list, %item }
+              core.set %nodes[%node_key] = %node_list
+            } else {
+              %seed = core.map
+              %node_map = core.call intrinsic.map.merge(%seed, %descriptor)
+              core.set %nodes[%node_key] = %node_map
+            }
+          }
+          %edges = core.get %graph["edges"]
+          core.for %edge in %edges {
+            %parent_id = core.get %edge["from"]
+            %child_id = core.get %edge["to"]
+            %key = core.get %edge["key"]
+            %parent = core.get %nodes[%parent_id]
+            %child = core.get %nodes[%child_id]
+            %is_array = core.type_is %parent type "list"
+            core.if %is_array { core.append %parent, %child }
+            else { core.set %parent[%key] = %child }
+          }
+          %root = core.get %graph["root"]
+          %value = core.get %nodes[%root]
+        }
         %max_chars = core.get %fixture["max_chars"] default 400
         %text = core.call @agent_smart_stringify(%value, %max_chars)
         %out_smart = core.map
@@ -5978,7 +6075,9 @@ module @ax.agent version "0.1" {
         %is_error = core.get %raw["is_error"] default false
         %result = core.get %raw["result"] default %raw
         %output = core.get %raw["output"] default ""
-        %output_is_empty = core.call intrinsic.eq(%output, "")
+        %output_is_text = core.type_is %output type "string"
+        %output_is_empty = core.let false
+        core.if %output_is_text { %output_is_empty = core.call intrinsic.eq(%output, "") }
         core.if %output_is_empty {
           %raw_logs = core.get %raw["logs"] default null
           %raw_logs_is_list = core.type_is %raw_logs type "list"
@@ -6178,6 +6277,22 @@ module @ax.agent version "0.1" {
         %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
         %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
         core.call @agent_attach_code_analysis(%normalized, %raw)
+      }
+      %output = core.get %normalized["output"] default ""
+      %output_is_string = core.type_is %output type "string"
+      core.if %output_is_string {} else {
+        %context_policy = core.call @resolve_agent_context_policy(%options)
+        %max_chars = core.get %context_policy["maxRuntimeChars"] default 3000
+        %rendered = core.call @agent_smart_stringify(%output, %max_chars)
+        %length = core.call intrinsic.len(%rendered)
+        %too_long = core.call intrinsic.gt(%length, %max_chars)
+        core.if %too_long {
+          %prefix = core.call intrinsic.string.slice(%rendered, 0, %max_chars)
+          %negative_max = core.call intrinsic.mul(%max_chars, -1)
+          %dropped = core.call intrinsic.add(%length, %negative_max)
+          %rendered = core.call intrinsic.string.format("{}\n...[truncated {} chars]", %prefix, %dropped)
+        }
+        core.set %normalized["output"] = %rendered
       }
       core.call @agent_runtime_append_action_log(%state, %normalized)
       core.call @agent_record_trace_event(%state, "runtime_execute", %normalized)

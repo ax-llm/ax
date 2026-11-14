@@ -1,0 +1,29 @@
+{
+  "context_operation": "smart_stringify",
+  "expected_context_result": {
+    "text": "[\n  {\n    \"value\": 7\n  },\n  {\n    \"value\": 7\n  }\n]"
+  },
+  "kind": "agent_runtime_policy",
+  "max_chars": 3000,
+  "name": "context-smart-stringify-shared-array-elements",
+  "signature": "question:string -> answer:string",
+  "value_graph": {
+    "edges": [
+      {
+        "from": "root",
+        "to": "shared"
+      },
+      {
+        "from": "root",
+        "to": "shared"
+      }
+    ],
+    "nodes": {
+      "root": [],
+      "shared": {
+        "value": 7
+      }
+    },
+    "root": "root"
+  }
+}

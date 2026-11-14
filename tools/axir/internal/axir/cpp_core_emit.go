@@ -334,6 +334,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicNot:                       "Core::not_",
 	IntrinsicAnd:                       "Core::and_",
 	IntrinsicOr:                        "Core::or_",
+	IntrinsicSameReference:             "Core::same_reference",
 	IntrinsicEq:                        "Core::eq",
 	IntrinsicNe:                        "Core::ne",
 	IntrinsicLT:                        "Core::lt",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import json
 
 import copy
 import re
@@ -10,6 +11,11 @@ from .signature import _js_date_millis, _js_number_text, _js_format
 
 class AxValidationError(ValueError):
     pass
+
+
+def _core_json_parse(value): return json.loads(value)
+def _core_runtime_error(message): return RuntimeError(str(message))
+def _core_string_starts_with(value, prefix): return isinstance(value, str) and value.startswith(str(prefix))
 
 
 def _core_not(value):

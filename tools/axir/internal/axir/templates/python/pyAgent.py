@@ -2425,6 +2425,9 @@ def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_truthy(value): return bool(value)
+def _core_same_reference(left, right): return left is right
+
+
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_lt(left, right): return left < right

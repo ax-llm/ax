@@ -2015,8 +2015,12 @@ func _core_map_update(target Value, values Value) Value {
 	return out
 }
 func _core_map_keys(values Value) Value {
+    // Enumerating keys must not recursively copy values: a native map may
+    // contain shared references or cycles that Core is about to inspect.
+    m, ok := values.(map[string]Value)
+    if !ok { m = asMap(values) }
 	out := Array()
-	for _, k := range orderedKeys(asMap(values)) {
+	for _, k := range orderedKeys(m) {
 		out = append(out, k)
 	}
 	return out
@@ -2603,6 +2607,21 @@ func _core_sorted_strings(values Value) Value {
 	}
 	return out
 }
+// Reference identity is a host primitive; traversal and ancestor lifetime live in Core.
+func _core_same_reference(left, right Value) Value {
+    a, b := reflect.ValueOf(left), reflect.ValueOf(right)
+    if !a.IsValid() || !b.IsValid() || a.Type() != b.Type() { return false }
+    switch a.Kind() {
+    case reflect.Map, reflect.Ptr:
+        return a.Pointer() == b.Pointer()
+    case reflect.Slice:
+        // A shorter view can start at the same backing element without
+        // containing its parent (for example, a child with length zero).
+        return a.Pointer() == b.Pointer() && a.Len() == b.Len()
+    }
+    return false
+}
+
 func _core_json_pretty(value Value) Value {
 	return prettyJSONText(value)
 }
@@ -12372,6 +12391,7 @@ func _core_axgen_record_chat_log(target Value, values ...Value) Value {
 		"thought_blocks", coreGet(response, "thought_blocks", Array()),
 		"providerMetadata", coreGet(request, "provider_metadata", Object()),
 	)
+	if _, err := _gen_citation_log_metadata(entry, response); err != nil { panic(err) }
 	log = coreAppend(log, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.ChatLog = log
@@ -19567,6 +19587,9 @@ func goPromptAudioPart(value Value) Value {
 // goPromptFilePart is TS's file part: the mime type and either the data or
 // the fileUri.
 func goPromptFilePart(value Value) Value {
+    document, err := _prompt_document_part(value)
+    if err != nil { panic(err) }
+    if document != nil { return document }
 	file := goPromptMediaObject(value, "File", "mimeType")
 	data, hasData := file["data"]
 	fileURI, hasFileURI := file["fileUri"]
@@ -19580,7 +19603,7 @@ func goPromptFilePart(value Value) Value {
 	if hasFileURI {
 		part = Object("type", "file", "mimeType", file["mimeType"], "fileUri", fileURI)
 	}
-	return goPromptDeclaredKeys(part, file, "filename", "cache", "extractedText")
+	return goPromptDeclaredKeys(part, file, "filename", "cache", "extractedText", "title", "context", "citations")
 }
 
 // goPromptURLPart is TS's url part: the url, and the title and description

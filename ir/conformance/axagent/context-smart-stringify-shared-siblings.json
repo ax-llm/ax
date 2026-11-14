@@ -1,0 +1,31 @@
+{
+  "context_operation": "smart_stringify",
+  "expected_context_result": {
+    "text": "{\n  \"a\": {\n    \"value\": 7\n  },\n  \"b\": {\n    \"value\": 7\n  }\n}"
+  },
+  "kind": "agent_runtime_policy",
+  "max_chars": 3000,
+  "name": "context-smart-stringify-shared-siblings",
+  "signature": "question:string -> answer:string",
+  "value_graph": {
+    "edges": [
+      {
+        "from": "root",
+        "key": "a",
+        "to": "shared"
+      },
+      {
+        "from": "root",
+        "key": "b",
+        "to": "shared"
+      }
+    ],
+    "nodes": {
+      "root": {},
+      "shared": {
+        "value": 7
+      }
+    },
+    "root": "root"
+  }
+}

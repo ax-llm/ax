@@ -1,0 +1,27 @@
+{
+  "expected_error_contains": "Document base64 source requires PDF data and mediaType application/pdf",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-invalid-pdf",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "source": {
+              "data": "abc",
+              "mediaType": "text/plain",
+              "type": "base64"
+            },
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}
