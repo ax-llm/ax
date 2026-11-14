@@ -164,6 +164,26 @@ describe('smartStringify', () => {
     // Items should be individually truncated
     expect(result.length).toBeLessThan(2000);
   });
+
+  it('serializes a value that is shared by two siblings', () => {
+    const shared = { id: 'c1' };
+    const result = smartStringify({ before: shared, after: shared }, 3000);
+    expect(result).not.toContain('[Circular]');
+    expect(JSON.parse(result).after).toEqual({ id: 'c1' });
+  });
+
+  it('serializes a value shared by two arrays', () => {
+    const item = { k: 1 };
+    const result = smartStringify({ a: [item], b: [item] }, 3000);
+    expect(result).not.toContain('[Circular]');
+    expect(JSON.parse(result).b[0]).toEqual({ k: 1 });
+  });
+
+  it('still reports a genuine cycle', () => {
+    const cycle: Record<string, unknown> = {};
+    cycle.self = cycle;
+    expect(smartStringify(cycle, 3000)).toContain('[Circular]');
+  });
 });
 
 describe('truncateStackTrace', () => {
