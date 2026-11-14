@@ -1,0 +1,36 @@
+{
+  "expected_error_contains": "Anthropic fileId document sources require the first-party Files API",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-vertex-file-id",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "cache": true,
+            "citations": {
+              "enabled": true
+            },
+            "context": "Use as evidence.",
+            "source": {
+              "fileId": "file_report",
+              "type": "file"
+            },
+            "title": "Evidence",
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "projectId": "demo-project",
+    "region": "us"
+  }
+}

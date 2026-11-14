@@ -1,0 +1,33 @@
+{
+  "expected_error_contains": "native document",
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "anthropic-native-document-reject-unsupported-provider",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "cache": true,
+            "citations": {
+              "enabled": true
+            },
+            "context": "Use as evidence.",
+            "source": {
+              "data": "A passage.",
+              "type": "text"
+            },
+            "title": "Evidence",
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {}
+}

@@ -43,6 +43,7 @@ from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_
 from .signature import AxSignature, _core_string_replace, _js_date_prompt_text, _js_json_dumps, _js_number_text, _js_format, _js_text
 from .mcp import resolve_execution_context
 from .ai import (
+    _ai_merge_citation_metadata,
     _chat_result_function_call_problems,
 )
 from .schema import (
@@ -1725,6 +1726,7 @@ def _core_axgen_record_chat_log(gen, request, response):
         "thought_blocks": _core_get(response, "thought_blocks", []),
         "providerMetadata": _core_get(request, "provider_metadata", {}),
     }
+    _gen_citation_log_metadata(entry, response)
     chat_log.append(entry)
     return None
 
@@ -16282,6 +16284,46 @@ def _stream_apply_structured_impl(state: Any, fields: list[Any], parsed: Any, ma
     else:
         pass
     return deltas
+
+
+def _gen_citation_log_metadata(entry: Any, response: Any) -> None:
+    _core_coverage_mark("_gen_citation_log_metadata")
+    fallback = []
+    fallback.append(response)
+    results = _core_get(response, "results", fallback)
+    blocks = []
+    citation_holder = {}
+    position = 0
+    for result in results:
+        index = _core_get(result, "index", position)
+        metadata = {}
+        _ai_merge_citation_metadata(metadata, result)
+        empty = []
+        result_blocks = _core_get(metadata, "text_blocks", empty)
+        for block in result_blocks:
+            seed = {}
+            copy = _core_map_merge(seed, block)
+            copy["result_index"] = index
+            blocks.append(copy)
+        _ai_merge_citation_metadata(citation_holder, result)
+        position = _core_add(position, 1)
+    count = _core_len(blocks)
+    has_blocks = _core_gt(count, 0)
+    if has_blocks:
+        entry["text_blocks"] = blocks
+    else:
+        pass
+    citations = _core_get(citation_holder, "citations", None)
+    has_citations = _core_type_is(citations, "list")
+    if has_citations:
+        existing = _core_get(entry, "usage", None)
+        seed = {}
+        usage = _core_map_merge(seed, existing)
+        usage["citations"] = citations
+        entry["usage"] = usage
+    else:
+        pass
+    return None
 
 
 def _stream_feedback_text_impl(result: Any) -> Any:

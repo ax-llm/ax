@@ -22532,6 +22532,8 @@ fn core_prompt_image_part(value: &CoreValue) -> Result<CoreValue, AxError> {
 // data or its fileUri.
 #[allow(dead_code)]
 fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    let document = _prompt_document_part(&[value.clone()])?;
+    if !document.is_null() { return Ok(document); }
     core_prompt_media_object(value, "File", "mimeType")?;
     let has_data = core_prompt_has_key(value, "data");
     let has_file_uri = core_prompt_has_key(value, "fileUri");
@@ -22546,7 +22548,7 @@ fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
     core_set(&part, CoreValue::from("mimeType"), core_get(value, &CoreValue::from("mimeType"), CoreValue::Null))?;
     let key = if has_file_uri { "fileUri" } else { "data" };
     core_set(&part, CoreValue::from(key), core_get(value, &CoreValue::from(key), CoreValue::Null))?;
-    core_prompt_declared_keys(part, value, &["filename", "cache", "extractedText"])
+    core_prompt_declared_keys(part, value, &["filename", "cache", "extractedText", "title", "context", "citations"])
 }
 
 // TS defaultRenderInField: a url part carries the url, and the title and
@@ -25651,6 +25653,7 @@ fn core_axgen_record_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             ),
         ),
     ])?;
+    _gen_citation_log_metadata(&[entry.clone(), response])?;
     core_append(&chat_log, entry)?;
     Ok(CoreValue::Null)
 }
@@ -27374,6 +27377,15 @@ fn core_regex_replace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 // JSON.stringify(value, null, 2)
 #[allow(dead_code)]
+fn core_same_reference(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let same = match (core_arg(args, 0), core_arg(args, 1)) {
+        (CoreValue::List(a), CoreValue::List(b)) => Rc::ptr_eq(&a, &b),
+        (CoreValue::Map(a), CoreValue::Map(b)) => Rc::ptr_eq(&a, &b),
+        _ => false,
+    };
+    Ok(CoreValue::Bool(same))
+}
+
 fn core_json_pretty(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::from_string(js_json_pretty(&core_value_to_json(&core_arg(args, 0)))))
 }

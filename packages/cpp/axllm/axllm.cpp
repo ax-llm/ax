@@ -1964,6 +1964,11 @@ Value Core::json_parse_strict(Value value) {
 }
 Value Core::json_stringify(Value value) { return Value(stringify(value)); }
 Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(value)); }
+Value Core::same_reference(Value left, Value right) {
+  if (left.is_array() && right.is_array()) return std::get<std::shared_ptr<Array>>(left.data) == std::get<std::shared_ptr<Array>>(right.data);
+  if (left.is_object() && right.is_object()) return std::get<std::shared_ptr<Object>>(left.data) == std::get<std::shared_ptr<Object>>(right.data);
+  return false;
+}
 Value Core::json_pretty(Value value) { return Value(pretty_stringify(value)); }
 Value Core::signature_error(Value message) { return Value(Object{{"__error", "signature"}, {"message", str(message)}}); }
 Value Core::validation_error(Value message) { return Value(Object{{"__error", "validation"}, {"message", str(message)}}); }
@@ -3192,6 +3197,8 @@ static Value prompt_audio_part(const Value& value) {
 }
 // TS's file part: the mime type and either the data or the fileUri.
 static Value prompt_file_part(const Value& value) {
+  Value document = Core::_prompt_document_part(value);
+  if (!document.is_null()) return document;
   prompt_media_object(value, "File", "mimeType");
   bool has_data = object_ref(value).count("data") > 0;
   bool has_file_uri = object_ref(value).count("fileUri") > 0;
@@ -3200,7 +3207,7 @@ static Value prompt_file_part(const Value& value) {
   Value part = has_file_uri
       ? Value(Object{{"type", "file"}, {"mimeType", get_key(value, "mimeType")}, {"fileUri", get_key(value, "fileUri")}})
       : Value(Object{{"type", "file"}, {"mimeType", get_key(value, "mimeType")}, {"data", get_key(value, "data")}});
-  return prompt_declared_keys(part, value, {"filename", "cache", "extractedText"});
+  return prompt_declared_keys(part, value, {"filename", "cache", "extractedText", "title", "context", "citations"});
 }
 // TS's url part: the url, and the title and description when they are set; a
 // plain string is the url.
@@ -3586,6 +3593,7 @@ Value Core::axgen_record_chat_log(Value gen, Value request, Value response) {
       {"thought_blocks", get_key(response, "thought_blocks", Value::array())},
       {"providerMetadata", get_key(request, "provider_metadata", Value::object())},
   });
+  _gen_citation_log_metadata(entry, response);
   append(chat_log, entry);
   set(gen, "chat_log", chat_log);
   return Value();
@@ -6108,6 +6116,11 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
   }
   Value is_file = Core::eq(type_name, Value("file"));
   if (Core::truthy(is_file)) {
+    Value has_source = Core::map_contains(value, Value("source"));
+    if (Core::truthy(has_source)) {
+      Core::_validate_document_input(value);
+      return Value();
+    }
     Value valid_file = Core::valid_file(value);
     Value invalid_file = Core::not_(valid_file);
     if (Core::truthy(invalid_file)) {
@@ -6651,6 +6664,17 @@ Value Core::_validate_keyed_fields_impl(Value fields_map) {
   return out;
 }
 
+Value Core::_document_nonempty_string(Value value) {
+  axir_coverage_mark("_document_nonempty_string");
+  Value is_string = Core::type_is(value, Value("string"));
+  if (Core::truthy(is_string)) {
+    Value trimmed = Core::string_trim(value);
+    Value nonempty = Core::ne(trimmed, Value(""));
+    return nonempty;
+  }
+  return Value(false);
+}
+
 Value Core::_schema_to_json_schema_impl(Value fields, Value schema_title, Value options) {
   axir_coverage_mark("_schema_to_json_schema_impl");
   Value schema = Value::object();
@@ -6675,6 +6699,133 @@ Value Core::_schema_to_json_schema_impl(Value fields, Value schema_title, Value 
     }
   }
   return schema;
+}
+
+Value Core::_validate_document_input(Value doc) {
+  axir_coverage_mark("_validate_document_input");
+  Value source = Core::get(doc, Value("source"), Value());
+  Value has_source = Core::map_contains(doc, Value("source"));
+  if (Core::truthy(has_source)) {
+    // empty
+  }
+  if (!Core::truthy(has_source)) {
+    Value error = Core::runtime_error(Value("Document input must contain a source"));
+    Core::raise_error(error);
+  }
+  Value metadata = Core::json_parse(Value("[\"title\",\"context\"]"));
+  for (auto key : Core::iter(metadata)) {
+    Value has = Core::map_contains(doc, key);
+    if (Core::truthy(has)) {
+      Value value = Core::get(doc, key, Value());
+      Value is_string = Core::type_is(value, Value("string"));
+      if (Core::truthy(is_string)) {
+        // empty
+      }
+      if (!Core::truthy(is_string)) {
+        Value message = Core::string_format(Value("Document {} must be a string"), key);
+        Value error = Core::runtime_error(message);
+        Core::raise_error(error);
+      }
+    }
+  }
+  Value has_citations = Core::map_contains(doc, Value("citations"));
+  if (Core::truthy(has_citations)) {
+    Value citations = Core::get(doc, Value("citations"), Value());
+    Value enabled = Core::get(citations, Value("enabled"), Value());
+    Value is_bool = Core::type_is(enabled, Value("boolean"));
+    if (Core::truthy(is_bool)) {
+      // empty
+    }
+    if (!Core::truthy(is_bool)) {
+      Value error = Core::runtime_error(Value("Document citations.enabled must be a boolean"));
+      Core::raise_error(error);
+    }
+  }
+  Value source_is_object = Core::type_is(source, Value("object"));
+  if (Core::truthy(source_is_object)) {
+    // empty
+  }
+  if (!Core::truthy(source_is_object)) {
+    Value error = Core::runtime_error(Value("Document source must be an object"));
+    Core::raise_error(error);
+  }
+  Value type = Core::get(source, Value("type"), Value(""));
+  Value is_text = Core::eq(type, Value("text"));
+  if (Core::truthy(is_text)) {
+    Value data = Core::get(source, Value("data"), Value());
+    Value valid = Core::_document_nonempty_string(data);
+    if (Core::truthy(valid)) {
+      return Value();
+    }
+    Value error = Core::runtime_error(Value("Document text must not be empty"));
+    Core::raise_error(error);
+  }
+  Value is_base64 = Core::eq(type, Value("base64"));
+  if (Core::truthy(is_base64)) {
+    Value data = Core::get(source, Value("data"), Value());
+    Value media_snake = Core::get(source, Value("media_type"), Value());
+    Value media = Core::get(source, Value("mediaType"), media_snake);
+    Value pdf = Core::eq(media, Value("application/pdf"));
+    Value nonempty = Core::_document_nonempty_string(data);
+    Value valid = Core::and_(pdf, nonempty);
+    if (Core::truthy(valid)) {
+      return Value();
+    }
+    Value error = Core::runtime_error(Value("Document base64 source requires PDF data and mediaType application/pdf"));
+    Core::raise_error(error);
+  }
+  Value is_url = Core::eq(type, Value("url"));
+  if (Core::truthy(is_url)) {
+    Value url = Core::get(source, Value("url"), Value());
+    Value nonempty = Core::_document_nonempty_string(url);
+    if (Core::truthy(nonempty)) {
+      Value lower = Core::string_lower(url);
+      Value http = Core::string_starts_with(lower, Value("http://"));
+      Value https = Core::string_starts_with(lower, Value("https://"));
+      Value valid = Core::or_(http, https);
+      if (Core::truthy(valid)) {
+        return Value();
+      }
+    }
+    Value error = Core::runtime_error(Value("Document URL must use http or https"));
+    Core::raise_error(error);
+  }
+  Value is_file = Core::eq(type, Value("file"));
+  if (Core::truthy(is_file)) {
+    Value file_snake = Core::get(source, Value("file_id"), Value());
+    Value file = Core::get(source, Value("fileId"), file_snake);
+    Value valid = Core::_document_nonempty_string(file);
+    if (Core::truthy(valid)) {
+      return Value();
+    }
+    Value error = Core::runtime_error(Value("Document fileId must not be empty"));
+    Core::raise_error(error);
+  }
+  Value is_content = Core::eq(type, Value("content"));
+  if (Core::truthy(is_content)) {
+    Value content = Core::get(source, Value("content"), Value());
+    Value is_list = Core::type_is(content, Value("list"));
+    Value valid = Value(false);
+    if (Core::truthy(is_list)) {
+      Value length = Core::len(content);
+      valid = Core::gt(length, Value(0));
+      for (auto block : Core::iter(content)) {
+        Value block_type = Core::get(block, Value("type"), Value());
+        Value text = Core::get(block, Value("text"), Value());
+        is_text = Core::eq(block_type, Value("text"));
+        Value nonempty = Core::_document_nonempty_string(text);
+        Value block_valid = Core::and_(is_text, nonempty);
+        valid = Core::and_(valid, block_valid);
+      }
+    }
+    if (Core::truthy(valid)) {
+      return Value();
+    }
+    Value error = Core::runtime_error(Value("Document custom content must contain nonempty text blocks"));
+    Core::raise_error(error);
+  }
+  Value error = Core::runtime_error(Value("Unsupported document source type"));
+  Core::raise_error(error);
 }
 
 Value Core::_evidence_result_schema_impl(Value typ) {
@@ -6978,6 +7129,31 @@ Value Core::_prompt_messages_impl(Value system, Value user) {
   Core::append(messages, system_message);
   Core::append(messages, user_message);
   return messages;
+}
+
+Value Core::_prompt_document_part(Value value) {
+  axir_coverage_mark("_prompt_document_part");
+  Value has_source = Core::map_contains(value, Value("source"));
+  if (Core::truthy(has_source)) {
+    Core::_validate_document_input(value);
+    Value part = Value::object();
+    Core::set(part, Value("type"), Value("document"));
+    Value keys = Value::array();
+    Core::append(keys, Value("source"));
+    Core::append(keys, Value("title"));
+    Core::append(keys, Value("context"));
+    Core::append(keys, Value("citations"));
+    Core::append(keys, Value("cache"));
+    for (auto key : Core::iter(keys)) {
+      Value present = Core::map_contains(value, key);
+      if (Core::truthy(present)) {
+        Value item = Core::get(value, key, Value());
+        Core::set(part, key, item);
+      }
+    }
+    return part;
+  }
+  return Value();
 }
 
 Value Core::decisions_require_object(Value value, Value context) {
@@ -8603,6 +8779,10 @@ Value Core::validate_chat_request(Value request) {
           Value type_text = Core::string_format(Value("User message content item at index {} must have a type, received: {}"), item_index, received_type);
           Value type_error = Core::ai_error_response(type_text);
           Core::raise_error(type_error);
+        }
+        Value is_document = Core::eq(item_type, Value("document"));
+        if (Core::truthy(is_document)) {
+          Core::_validate_document_input(item);
         }
         Value next_item_index = Core::add(item_index, Value(1));
         item_index = next_item_index;
@@ -11162,6 +11342,7 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   if (Core::truthy(has_trusted)) {
     Core::set(completion, Value("decisionContext"), trusted);
   }
+  Core::_ai_merge_citation_metadata(completion, result);
   return completion;
 }
 
@@ -11360,6 +11541,7 @@ Value Core::chat_response_to_completion(Value response) {
   if (Core::truthy(has_finish)) {
     Core::set(out, Value("finish_reason"), finish);
   }
+  Core::_ai_merge_citation_metadata(out, first);
   return out;
 }
 
@@ -11446,6 +11628,7 @@ Value Core::google_decisions_media(Value kind, Value mime, Value data, Value uri
 Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
   axir_coverage_mark("provider_validate_chat_request");
   Value canonical = Core::provider_normalize_profile(profile);
+  Core::_provider_validate_documents(canonical, request, options);
   Value is_google_decisions = Core::eq(canonical, Value("google-gemini-decisions"));
   if (Core::truthy(is_google_decisions)) {
     Value model = Core::get(request, Value("model"), Value("gemini-decision-1"));
@@ -12172,6 +12355,7 @@ Value Core::provider_model_catalog(Value options) {
 
 Value Core::_fold_chat_stream_chunk_impl(Value target, Value chunk) {
   axir_coverage_mark("_fold_chat_stream_chunk_impl");
+  Core::_ai_merge_citation_metadata(target, chunk);
   Value trusted = Core::get(chunk, Value("decisionContext"), Value());
   Value has_trusted = Core::is_not_none(trusted);
   if (Core::truthy(has_trusted)) {
@@ -12584,6 +12768,8 @@ Value Core::provider_route_request_requirements(Value request) {
           }
         }
         Value is_file = Core::eq(part_type, Value("file"));
+        Value is_document = Core::eq(part_type, Value("document"));
+        is_file = Core::or_(is_file, is_document);
         if (Core::truthy(is_file)) {
           Core::set(requirements, Value("hasFiles"), Value(true));
           Value cached_file = Core::get(part, Value("cache"), Value(false));
@@ -12974,6 +13160,24 @@ Value Core::provider_route_preprocess_request(Value features, Value request, Val
       Value part_index = Value(0);
       for (auto part : Core::iter(content)) {
         Value part_type = Core::get(part, Value("type"), Value("text"));
+        Value is_document = Core::eq(part_type, Value("document"));
+        Value citation_config = Core::get(part, Value("citations"), Value());
+        Value cited = Core::get(citation_config, Value("enabled"), Value(false));
+        Value needs_documents = Core::or_(is_document, cited);
+        if (Core::truthy(needs_documents)) {
+          Value media = Core::get(features, Value("media"), Value());
+          Value documents = Core::get(media, Value("documents"), Value());
+          Value supported = Core::get(documents, Value("supported"), Value(false));
+          Value supports_citations = Core::get(documents, Value("citations"), Value(false));
+          Value no_citations = Core::not_(cited);
+          Value citing_supported = Core::or_(no_citations, supports_citations);
+          Value can_preserve = Core::and_(supported, citing_supported);
+          Value cannot_preserve = Core::not_(can_preserve);
+          if (Core::truthy(cannot_preserve)) {
+            Value error = Core::runtime_error(Value("Document inputs and citations require native document support"));
+            Core::raise_error(error);
+          }
+        }
         Value is_file = Core::eq(part_type, Value("file"));
         if (Core::truthy(is_file)) {
           Value slot = Core::string_format(Value("{}:{}"), message_index, part_index);
@@ -13018,8 +13222,30 @@ Value Core::provider_route_preprocess_request(Value features, Value request, Val
   return out;
 }
 
+Value Core::router_embed_request(Value request, Value model, Value embed_model) {
+  axir_coverage_mark("router_embed_request");
+  Value empty = Value::object();
+  Value out = Core::map_merge(empty, request);
+  Value chat_key = Core::truthy_value(model);
+  Value embed_key = Core::truthy_value(embed_model);
+  Value service_key = Core::or_(chat_key, embed_key);
+  if (Core::truthy(service_key)) {
+    // empty
+  }
+  if (!Core::truthy(service_key)) {
+    Core::map_delete(out, Value("embedModel"));
+    Core::map_delete(out, Value("embed_model"));
+  }
+  return out;
+}
+
 Value Core::_provider_route_file_content(Value features, Value part, Value processing, Value slot) {
   axir_coverage_mark("_provider_route_file_content");
+  Value citation_config = Core::get(part, Value("citations"), Value());
+  Value cited = Core::get(citation_config, Value("enabled"), Value(false));
+  if (Core::truthy(cited)) {
+    return part;
+  }
   Value supports_files = Core::_provider_features_support(features, Value("files"));
   if (Core::truthy(supports_files)) {
     Value empty = Value::object();
@@ -13056,23 +13282,6 @@ Value Core::_provider_route_file_content(Value features, Value part, Value proce
   Value out = Value::object();
   Core::set(out, Value("type"), Value("text"));
   Core::set(out, Value("text"), text);
-  return out;
-}
-
-Value Core::router_embed_request(Value request, Value model, Value embed_model) {
-  axir_coverage_mark("router_embed_request");
-  Value empty = Value::object();
-  Value out = Core::map_merge(empty, request);
-  Value chat_key = Core::truthy_value(model);
-  Value embed_key = Core::truthy_value(embed_model);
-  Value service_key = Core::or_(chat_key, embed_key);
-  if (Core::truthy(service_key)) {
-    // empty
-  }
-  if (!Core::truthy(service_key)) {
-    Core::map_delete(out, Value("embedModel"));
-    Core::map_delete(out, Value("embed_model"));
-  }
   return out;
 }
 
@@ -13168,6 +13377,67 @@ Value Core::provider_route_file_extractions(Value features, Value request) {
     message_index = Core::add(message_index, Value(1));
   }
   return tasks;
+}
+
+Value Core::_ai_merge_citation_metadata(Value target, Value incoming) {
+  axir_coverage_mark("_ai_merge_citation_metadata");
+  Value empty = Value::array();
+  Value snake = Core::get(incoming, Value("text_blocks"), Value());
+  Value updates = Core::get(incoming, Value("textBlocks"), snake);
+  Value has_blocks = Core::type_is(updates, Value("list"));
+  if (Core::truthy(has_blocks)) {
+    Value blocks = Core::get(target, Value("text_blocks"), empty);
+    for (auto update : Core::iter(updates)) {
+      Value index = Core::get(update, Value("index"), Value(0));
+      Value next = Value::array();
+      Value found = Value(false);
+      for (auto block : Core::iter(blocks)) {
+        Value old_index = Core::get(block, Value("index"), Value(0));
+        Value same = Core::eq(index, old_index);
+        if (Core::truthy(same)) {
+          Core::append(next, update);
+          found = Value(true);
+        }
+        if (!Core::truthy(same)) {
+          Core::append(next, block);
+        }
+      }
+      if (Core::truthy(found)) {
+        // empty
+      }
+      if (!Core::truthy(found)) {
+        Core::append(next, update);
+      }
+      blocks = next;
+    }
+    Core::set(target, Value("text_blocks"), blocks);
+  }
+  updates = Core::get(incoming, Value("citations"), Value());
+  Value has_citations = Core::type_is(updates, Value("list"));
+  if (Core::truthy(has_citations)) {
+    Value citations = Value::array();
+    Value previous = Core::get(target, Value("citations"), empty);
+    for (auto citation : Core::iter(previous)) {
+      Core::append(citations, citation);
+    }
+    for (auto citation : Core::iter(updates)) {
+      Value found = Value(false);
+      for (auto existing : Core::iter(citations)) {
+        Value same = Core::eq(citation, existing);
+        if (Core::truthy(same)) {
+          found = Value(true);
+        }
+      }
+      if (Core::truthy(found)) {
+        // empty
+      }
+      if (!Core::truthy(found)) {
+        Core::append(citations, citation);
+      }
+    }
+    Core::set(target, Value("citations"), citations);
+  }
+  return Value();
 }
 
 Value Core::_provider_route_score(Value provider, Value requirements) {
@@ -15218,6 +15488,17 @@ Value Core::provider_resolve_features(Value profile, Value model, Value options)
     Core::set(cache_features, Value("types"), cache_types);
     Core::set(features, Value("caching"), cache_features);
   }
+  Value anthropic = Core::eq(profile, Value("anthropic"));
+  if (Core::truthy(anthropic)) {
+    Value empty_media = Value::object();
+    Value base_media = Core::get(features, Value("media"), empty_media);
+    Value media = Core::map_merge(empty_media, base_media);
+    Value documents = Core::json_parse(Value("{\"supported\":true,\"citations\":true}"));
+    Value files = Core::json_parse(Value("{\"supported\":true,\"formats\":[\"application/pdf\"],\"uploadMethod\":\"inline\"}"));
+    Core::set(media, Value("documents"), documents);
+    Core::set(media, Value("files"), files);
+    Core::set(features, Value("media"), media);
+  }
   return features;
 }
 
@@ -15605,6 +15886,7 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
   axir_coverage_mark("provider_build_chat_request");
   Value model = Core::get(request, Value("model"), Value(""));
   Value provider_id = Core::provider_chat_profile(profile, model);
+  Core::_provider_validate_documents(provider_id, request, options);
   Value descriptor = Core::provider_resolve_descriptor(provider_id, options);
   Value transport = Core::get(descriptor, Value("transport"), Value("openai-chat"));
   Value is_google_decisions = Core::eq(transport, Value("google-gemini-decisions"));
@@ -20545,6 +20827,12 @@ Value Core::_anthropic_content_parts_impl(Value content) {
 
 Value Core::_anthropic_content_part_impl(Value part) {
   axir_coverage_mark("_anthropic_content_part_impl");
+  Value doc = Core::_anthropic_document_input(part);
+  Value has_doc = Core::is_not_none(doc);
+  if (Core::truthy(has_doc)) {
+    Value mapped = Core::_anthropic_document_part(doc);
+    return mapped;
+  }
   Value type = Core::get(part, Value("type"), Value("text"));
   Value is_text = Core::eq(type, Value("text"));
   if (Core::truthy(is_text)) {
@@ -23025,6 +23313,207 @@ Value Core::provider_compatibility_report(Value providers, Value request) {
   Core::set(out, Value("providerScores"), scores);
   Core::set(out, Value("recommendedProvider"), recommended);
   Core::set(out, Value("summary"), summary);
+  return out;
+}
+
+Value Core::_anthropic_document_input(Value part) {
+  axir_coverage_mark("_anthropic_document_input");
+  Value type = Core::get(part, Value("type"), Value(""));
+  Value supports_native_documents = Core::eq(type, Value("document"));
+  if (Core::truthy(supports_native_documents)) {
+    return part;
+  }
+  Value file = Core::eq(type, Value("file"));
+  if (Core::truthy(file)) {
+    // empty
+  }
+  if (!Core::truthy(file)) {
+    return Value();
+  }
+  Value mime_snake = Core::get(part, Value("mime_type"), Value());
+  Value mime = Core::get(part, Value("mimeType"), mime_snake);
+  Value pdf = Core::eq(mime, Value("application/pdf"));
+  if (Core::truthy(pdf)) {
+    // empty
+  }
+  if (!Core::truthy(pdf)) {
+    Value citations = Core::get(part, Value("citations"), Value());
+    Value enabled = Core::get(citations, Value("enabled"), Value(false));
+    if (Core::truthy(enabled)) {
+      Value error = Core::runtime_error(Value("Anthropic file citations require a PDF; use a document text source for plain text"));
+      Core::raise_error(error);
+    }
+    return Value();
+  }
+  Value doc = Value::object();
+  Value source = Value::object();
+  Value uri_snake = Core::get(part, Value("file_uri"), Value());
+  Value uri = Core::get(part, Value("fileUri"), uri_snake);
+  Value has_uri = Core::is_not_none(uri);
+  if (Core::truthy(has_uri)) {
+    Core::set(source, Value("type"), Value("url"));
+    Core::set(source, Value("url"), uri);
+  }
+  if (!Core::truthy(has_uri)) {
+    Core::set(source, Value("type"), Value("base64"));
+    Core::set(source, Value("mediaType"), Value("application/pdf"));
+    Value data = Core::get(part, Value("data"), Value());
+    Core::set(source, Value("data"), data);
+  }
+  Core::set(doc, Value("source"), source);
+  Value keys = Core::json_parse(Value("[\"title\",\"context\",\"citations\",\"cache\"]"));
+  for (auto key : Core::iter(keys)) {
+    Value has = Core::map_contains(part, key);
+    if (Core::truthy(has)) {
+      Value value = Core::get(part, key, Value());
+      Core::set(doc, key, value);
+    }
+  }
+  return doc;
+}
+
+Value Core::_provider_validate_documents(Value profile, Value request, Value options) {
+  axir_coverage_mark("_provider_validate_documents");
+  Value supports_native_documents = Core::eq(profile, Value("anthropic"));
+  Value empty = Value::array();
+  Value snake_prompt = Core::get(request, Value("chat_prompt"), empty);
+  Value prompt = Core::get(request, Value("chatPrompt"), snake_prompt);
+  Value any_enabled = Value(false);
+  Value any_disabled = Value(false);
+  for (auto message : Core::iter(prompt)) {
+    Value role = Core::get(message, Value("role"), Value(""));
+    Value user = Core::eq(role, Value("user"));
+    Value content = Core::get(message, Value("content"), Value());
+    Value parts = Core::type_is(content, Value("list"));
+    Value check = Core::and_(user, parts);
+    if (Core::truthy(check)) {
+      for (auto part : Core::iter(content)) {
+        Value type = Core::get(part, Value("type"), Value(""));
+        Value document = Core::eq(type, Value("document"));
+        Value file = Core::eq(type, Value("file"));
+        Value citations = Core::get(part, Value("citations"), Value());
+        Value enabled = Core::get(citations, Value("enabled"), Value(false));
+        enabled = Core::eq(enabled, Value(true));
+        Value cited_file = Core::and_(file, enabled);
+        Value requires_native = Core::or_(document, cited_file);
+        Value unsupported = Core::not_(supports_native_documents);
+        Value reject = Core::and_(requires_native, unsupported);
+        if (Core::truthy(reject)) {
+          Value error = Core::ai_error_unsupported(Value("Provider does not support native document inputs and citations"));
+          Core::raise_error(error);
+        }
+        if (Core::truthy(supports_native_documents)) {
+          Value doc = Core::_anthropic_document_input(part);
+          Value has_doc = Core::is_not_none(doc);
+          if (Core::truthy(has_doc)) {
+            Core::_validate_document_input(doc);
+            Value source = Core::get(doc, Value("source"), Value());
+            Value source_type = Core::get(source, Value("type"), Value());
+            Value uploaded = Core::eq(source_type, Value("file"));
+            if (Core::truthy(uploaded)) {
+              Value descriptor = Core::provider_resolve_descriptor(profile, options);
+              Value vertex = Core::get(descriptor, Value("vertex"), Value(false));
+              if (Core::truthy(vertex)) {
+                Value error = Core::runtime_error(Value("Anthropic fileId document sources require the first-party Files API"));
+                Core::raise_error(error);
+              }
+            }
+            if (Core::truthy(enabled)) {
+              any_enabled = Value(true);
+            }
+            if (!Core::truthy(enabled)) {
+              any_disabled = Value(true);
+            }
+          }
+        }
+      }
+    }
+  }
+  if (Core::truthy(any_enabled)) {
+    if (Core::truthy(any_disabled)) {
+      Value error = Core::runtime_error(Value("Anthropic citations must be enabled on all documents in the request or none"));
+      Core::raise_error(error);
+    }
+    Value format_snake = Core::get(request, Value("response_format"), Value());
+    Value format = Core::get(request, Value("responseFormat"), format_snake);
+    Value format_type = Core::get(format, Value("type"), Value());
+    Value json = Core::eq(format_type, Value("json_schema"));
+    if (Core::truthy(json)) {
+      Value error = Core::runtime_error(Value("Anthropic document citations cannot be combined with native structured outputs (output_config.format); use a text signature without .useStructured()"));
+      Core::raise_error(error);
+    }
+  }
+  return Value();
+}
+
+Value Core::_anthropic_document_part(Value doc) {
+  axir_coverage_mark("_anthropic_document_part");
+  Core::_validate_document_input(doc);
+  Value input = Core::get(doc, Value("source"), Value());
+  Value type = Core::get(input, Value("type"), Value());
+  Value source = Value::object();
+  Core::set(source, Value("type"), type);
+  Value text = Core::eq(type, Value("text"));
+  Value base64 = Core::eq(type, Value("base64"));
+  Value data_type = Core::or_(text, base64);
+  if (Core::truthy(data_type)) {
+    Value data = Core::get(input, Value("data"), Value());
+    Core::set(source, Value("data"), data);
+    if (Core::truthy(text)) {
+      Core::set(source, Value("media_type"), Value("text/plain"));
+    }
+    if (!Core::truthy(text)) {
+      Core::set(source, Value("media_type"), Value("application/pdf"));
+    }
+  }
+  Value url = Core::eq(type, Value("url"));
+  if (Core::truthy(url)) {
+    Value value = Core::get(input, Value("url"), Value());
+    Core::set(source, Value("url"), value);
+  }
+  Value file = Core::eq(type, Value("file"));
+  if (Core::truthy(file)) {
+    Value snake = Core::get(input, Value("file_id"), Value());
+    Value value = Core::get(input, Value("fileId"), snake);
+    Core::set(source, Value("file_id"), value);
+  }
+  Value content = Core::eq(type, Value("content"));
+  if (Core::truthy(content)) {
+    Value blocks = Core::get(input, Value("content"), Value());
+    Value mapped = Value::array();
+    for (auto block : Core::iter(blocks)) {
+      text = Core::get(block, Value("text"), Value());
+      Value part = Value::object();
+      Core::set(part, Value("type"), Value("text"));
+      Core::set(part, Value("text"), text);
+      Core::append(mapped, part);
+    }
+    Core::set(source, Value("content"), mapped);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("type"), Value("document"));
+  Core::set(out, Value("source"), source);
+  Value keys = Core::json_parse(Value("[\"title\",\"context\"]"));
+  for (auto key : Core::iter(keys)) {
+    Value has = Core::map_contains(doc, key);
+    if (Core::truthy(has)) {
+      Value value = Core::get(doc, key, Value());
+      Core::set(out, key, value);
+    }
+  }
+  Value has_citations = Core::map_contains(doc, Value("citations"));
+  if (Core::truthy(has_citations)) {
+    Value citations = Core::get(doc, Value("citations"), Value());
+    Value enabled = Core::get(citations, Value("enabled"), Value());
+    Value config = Value::object();
+    Core::set(config, Value("enabled"), enabled);
+    Core::set(out, Value("citations"), config);
+  }
+  Value cache = Core::get(doc, Value("cache"), Value(false));
+  if (Core::truthy(cache)) {
+    Value control = Core::json_parse(Value("{\"type\":\"ephemeral\"}"));
+    Core::set(out, Value("cache_control"), control);
+  }
   return out;
 }
 
@@ -36882,6 +37371,46 @@ Value Core::_stream_apply_structured_impl(Value state, Value fields, Value parse
   return deltas;
 }
 
+Value Core::_gen_citation_log_metadata(Value entry, Value response) {
+  axir_coverage_mark("_gen_citation_log_metadata");
+  Value fallback = Value::array();
+  Core::append(fallback, response);
+  Value results = Core::get(response, Value("results"), fallback);
+  Value blocks = Value::array();
+  Value citation_holder = Value::object();
+  Value position = Value(0);
+  for (auto result : Core::iter(results)) {
+    Value index = Core::get(result, Value("index"), position);
+    Value metadata = Value::object();
+    Core::_ai_merge_citation_metadata(metadata, result);
+    Value empty = Value::array();
+    Value result_blocks = Core::get(metadata, Value("text_blocks"), empty);
+    for (auto block : Core::iter(result_blocks)) {
+      Value seed = Value::object();
+      Value copy = Core::map_merge(seed, block);
+      Core::set(copy, Value("result_index"), index);
+      Core::append(blocks, copy);
+    }
+    Core::_ai_merge_citation_metadata(citation_holder, result);
+    position = Core::add(position, Value(1));
+  }
+  Value count = Core::len(blocks);
+  Value has_blocks = Core::gt(count, Value(0));
+  if (Core::truthy(has_blocks)) {
+    Core::set(entry, Value("text_blocks"), blocks);
+  }
+  Value citations = Core::get(citation_holder, Value("citations"), Value());
+  Value has_citations = Core::type_is(citations, Value("list"));
+  if (Core::truthy(has_citations)) {
+    Value existing = Core::get(entry, Value("usage"), Value());
+    Value seed = Value::object();
+    Value usage = Core::map_merge(seed, existing);
+    Core::set(usage, Value("citations"), citations);
+    Core::set(entry, Value("usage"), usage);
+  }
+  return Value();
+}
+
 Value Core::_stream_feedback_text_impl(Value result) {
   axir_coverage_mark("_stream_feedback_text_impl");
   Value none = Core::none();
@@ -40225,6 +40754,56 @@ Value Core::_agent_render_context_pressure(Value pressure) {
   return text;
 }
 
+Value Core::_agent_depth_limited_value(Value value, Value depth, Value ancestors) {
+  axir_coverage_mark("_agent_depth_limited_value");
+  Value is_list = Core::type_is(value, Value("list"));
+  Value is_map = Core::type_is(value, Value("object"));
+  Value container = Core::or_(is_list, is_map);
+  if (Core::truthy(container)) {
+    // empty
+  }
+  if (!Core::truthy(container)) {
+    return value;
+  }
+  for (auto ancestor : Core::iter(ancestors)) {
+    Value same = Core::same_reference(value, ancestor);
+    if (Core::truthy(same)) {
+      return Value("[Circular]");
+    }
+  }
+  Value too_deep = Core::gte(depth, Value(3));
+  if (Core::truthy(too_deep)) {
+    if (Core::truthy(is_list)) {
+      Value length = Core::len(value);
+      Value placeholder = Core::string_format(Value("[Array({})]"), length);
+      return placeholder;
+    }
+    return Value("[Object]");
+  }
+  Value branch = Value::array();
+  for (auto ancestor : Core::iter(ancestors)) {
+    Core::append(branch, ancestor);
+  }
+  Core::append(branch, value);
+  Value next = Core::add(depth, Value(1));
+  if (Core::truthy(is_list)) {
+    Value out_list = Value::array();
+    for (auto item : Core::iter(value)) {
+      Value processed = Core::_agent_depth_limited_value(item, next, branch);
+      Core::append(out_list, processed);
+    }
+    return out_list;
+  }
+  Value out = Value::object();
+  Value keys = Core::map_keys(value);
+  for (auto key : Core::iter(keys)) {
+    Value item = Core::get(value, key, Value());
+    Value processed = Core::_agent_depth_limited_value(item, next, branch);
+    Core::set(out, key, processed);
+  }
+  return out;
+}
+
 Value Core::_agent_smart_stringify(Value value, Value max_chars) {
   axir_coverage_mark("_agent_smart_stringify");
   Value context_registry = Core::_agent_context_policy_registry();
@@ -40242,9 +40821,22 @@ Value Core::_agent_smart_stringify(Value value, Value max_chars) {
       Value tail = Value::array();
       Value negative_tail_items = Core::mul(Value(-1), array_tail_items);
       Value tail_start = Core::add(count, negative_tail_items);
+      Value per_item = Core::div(max_chars, Value(6));
+      per_item = Core::math_floor(per_item);
+      Value small_budget = Core::lt(per_item, Value(80));
+      if (Core::truthy(small_budget)) {
+        per_item = Value(80);
+      }
       Value index = Value(0);
       for (auto item : Core::iter(value)) {
         Value item_text = Core::json_stringify(item);
+        Value item_length = Core::len(item_text);
+        Value too_long = Core::gt(item_length, per_item);
+        if (Core::truthy(too_long)) {
+          Value keep = Core::add(per_item, Value(-3));
+          Value prefix = Core::string_slice(item_text, Value(0), keep);
+          item_text = Core::string_format(Value("{}..."), prefix);
+        }
         Value in_head = Core::lt(index, array_head_items);
         if (Core::truthy(in_head)) {
           Core::append(head, item_text);
@@ -40262,7 +40854,9 @@ Value Core::_agent_smart_stringify(Value value, Value max_chars) {
       return out;
     }
   }
-  Value json = Core::json_pretty(value);
+  Value ancestors = Value::array();
+  Value processed = Core::_agent_depth_limited_value(value, Value(0), ancestors);
+  Value json = Core::json_pretty(processed);
   return json;
 }
 
@@ -41536,6 +42130,46 @@ Value Core::_agent_context_fixture_result(Value state, Value fixture) {
   Value is_smart = Core::eq(operation, Value("smart_stringify"));
   if (Core::truthy(is_smart)) {
     Value value = Core::get(fixture, Value("value"), Value());
+    Value graph = Core::get(fixture, Value("value_graph"), Value());
+    Value has_graph = Core::type_is(graph, Value("object"));
+    if (Core::truthy(has_graph)) {
+      Value descriptors = Core::get(graph, Value("nodes"), Value());
+      Value nodes = Value::object();
+      Value node_keys = Core::map_keys(descriptors);
+      for (auto node_key : Core::iter(node_keys)) {
+        Value descriptor = Core::get(descriptors, node_key, Value());
+        Value is_array_node = Core::type_is(descriptor, Value("list"));
+        if (Core::truthy(is_array_node)) {
+          Value node_list = Value::array();
+          for (auto item : Core::iter(descriptor)) {
+            Core::append(node_list, item);
+          }
+          Core::set(nodes, node_key, node_list);
+        }
+        if (!Core::truthy(is_array_node)) {
+          Value seed = Value::object();
+          Value node_map = Core::map_merge(seed, descriptor);
+          Core::set(nodes, node_key, node_map);
+        }
+      }
+      Value edges = Core::get(graph, Value("edges"), Value());
+      for (auto edge : Core::iter(edges)) {
+        Value parent_id = Core::get(edge, Value("from"), Value());
+        Value child_id = Core::get(edge, Value("to"), Value());
+        Value key = Core::get(edge, Value("key"), Value());
+        Value parent = Core::get(nodes, parent_id, Value());
+        Value child = Core::get(nodes, child_id, Value());
+        Value is_array = Core::type_is(parent, Value("list"));
+        if (Core::truthy(is_array)) {
+          Core::append(parent, child);
+        }
+        if (!Core::truthy(is_array)) {
+          Core::set(parent, key, child);
+        }
+      }
+      Value root = Core::get(graph, Value("root"), Value());
+      value = Core::get(nodes, root, Value());
+    }
     Value max_chars = Core::get(fixture, Value("max_chars"), Value(400));
     Value text = Core::_agent_smart_stringify(value, max_chars);
     Value out_smart = Value::object();
@@ -43605,7 +44239,11 @@ Value Core::_normalize_agent_runtime_step_result(Value raw, Value code) {
     is_error = Core::get(raw, Value("is_error"), Value(false));
     result = Core::get(raw, Value("result"), raw);
     output = Core::get(raw, Value("output"), Value(""));
-    Value output_is_empty = Core::eq(output, Value(""));
+    Value output_is_text = Core::type_is(output, Value("string"));
+    Value output_is_empty = Value(false);
+    if (Core::truthy(output_is_text)) {
+      output_is_empty = Core::eq(output, Value(""));
+    }
     if (Core::truthy(output_is_empty)) {
       Value raw_logs = Core::get(raw, Value("logs"), Value());
       Value raw_logs_is_list = Core::type_is(raw_logs, Value("list"));
@@ -43787,6 +44425,25 @@ Value Core::_agent_runtime_execute_step(Value state, Value runtime, Value sessio
     raw = Core::agent_runtime_execute(session, code, runtime_options);
     normalized = Core::_normalize_agent_runtime_step_result(raw, code);
     Core::_agent_attach_code_analysis(normalized, raw);
+  }
+  Value output = Core::get(normalized, Value("output"), Value(""));
+  Value output_is_string = Core::type_is(output, Value("string"));
+  if (Core::truthy(output_is_string)) {
+    // empty
+  }
+  if (!Core::truthy(output_is_string)) {
+    Value context_policy = Core::_resolve_agent_context_policy(options);
+    Value max_chars = Core::get(context_policy, Value("maxRuntimeChars"), Value(3000));
+    Value rendered = Core::_agent_smart_stringify(output, max_chars);
+    Value length = Core::len(rendered);
+    Value too_long = Core::gt(length, max_chars);
+    if (Core::truthy(too_long)) {
+      Value prefix = Core::string_slice(rendered, Value(0), max_chars);
+      Value negative_max = Core::mul(max_chars, Value(-1));
+      Value dropped = Core::add(length, negative_max);
+      rendered = Core::string_format(Value("{}\n...[truncated {} chars]"), prefix, dropped);
+    }
+    Core::set(normalized, Value("output"), rendered);
   }
   Core::_agent_runtime_append_action_log(state, normalized);
   Core::_agent_record_trace_event(state, Value("runtime_execute"), normalized);

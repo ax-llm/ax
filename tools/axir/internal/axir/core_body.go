@@ -41,6 +41,7 @@ const (
 	IntrinsicNot                       CoreIntrinsic = "intrinsic.not"
 	IntrinsicAnd                       CoreIntrinsic = "intrinsic.and"
 	IntrinsicOr                        CoreIntrinsic = "intrinsic.or"
+	IntrinsicSameReference             CoreIntrinsic = "intrinsic.same_reference"
 	IntrinsicEq                        CoreIntrinsic = "intrinsic.eq"
 	IntrinsicNe                        CoreIntrinsic = "intrinsic.ne"
 	IntrinsicLT                        CoreIntrinsic = "intrinsic.lt"
@@ -214,6 +215,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicNot:                       "_core_not",
 	IntrinsicAnd:                       "_core_and",
 	IntrinsicOr:                        "_core_or",
+	IntrinsicSameReference:             "_core_same_reference",
 	IntrinsicEq:                        "_core_eq",
 	IntrinsicNe:                        "_core_ne",
 	IntrinsicLT:                        "_core_lt",
@@ -384,6 +386,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 }
 
 var knownCoreIntrinsics = map[string]bool{
+	"intrinsic.same_reference":                        true,
 	"intrinsic.eq":                                    true,
 	"intrinsic.ne":                                    true,
 	"intrinsic.not":                                   true,
@@ -796,6 +799,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.not":                                 intrinsicInfo("intrinsic.not", 1, 1, false, "bool"),
 	"intrinsic.and":                                 intrinsicInfo("intrinsic.and", 2, 2, false, "bool"),
 	"intrinsic.or":                                  intrinsicInfo("intrinsic.or", 2, 2, false, "bool"),
+	"intrinsic.same_reference":                      intrinsicInfo("intrinsic.same_reference", 2, 2, false, "bool"),
 	"intrinsic.eq":                                  intrinsicInfo("intrinsic.eq", 2, 2, false, "bool"),
 	"intrinsic.ne":                                  intrinsicInfo("intrinsic.ne", 2, 2, false, "bool"),
 	"intrinsic.lt":                                  intrinsicInfo("intrinsic.lt", 2, 2, false, "bool"),

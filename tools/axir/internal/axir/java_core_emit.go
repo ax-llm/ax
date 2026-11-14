@@ -296,6 +296,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicNot:                       "Core.not",
 	IntrinsicAnd:                       "Core.and",
 	IntrinsicOr:                        "Core.or",
+	IntrinsicSameReference:             "Core.sameReference",
 	IntrinsicEq:                        "Core.eq",
 	IntrinsicNe:                        "Core.ne",
 	IntrinsicLT:                        "Core.lt",

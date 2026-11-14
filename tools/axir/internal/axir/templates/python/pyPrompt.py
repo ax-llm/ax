@@ -61,6 +61,9 @@ def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_truthy(value): return bool(value)
+def _core_map_contains(value, key): return isinstance(value, dict) and key in value
+
+
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_add(left, right): return left + right
@@ -631,6 +634,9 @@ def _core_prompt_image_part(value):
 
 
 def _core_prompt_file_part(value):
+    document = _prompt_document_part(value)
+    if document is not None:
+        return document
     # TS defaultRenderInField: a file part carries the mime type and either its
     # data or its fileUri.
     value = _core_prompt_media_aliases(value, "file")
@@ -650,7 +656,7 @@ def _core_prompt_file_part(value):
         part = {"type": "file", "mimeType": value["mimeType"], "fileUri": value["fileUri"]}
     else:
         part = {"type": "file", "mimeType": value["mimeType"], "data": value["data"]}
-    return _core_prompt_declared_keys(part, value, ("filename", "cache", "extractedText"))
+    return _core_prompt_declared_keys(part, value, ("filename", "cache", "extractedText", "title", "context", "citations"))
 
 
 def _core_prompt_url_part(value):

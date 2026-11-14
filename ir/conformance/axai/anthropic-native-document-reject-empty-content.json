@@ -1,0 +1,26 @@
+{
+  "expected_error_contains": "Document custom content must contain nonempty text blocks",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-empty-content",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "source": {
+              "content": [],
+              "type": "content"
+            },
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

@@ -2015,8 +2015,12 @@ func _core_map_update(target Value, values Value) Value {
 	return out
 }
 func _core_map_keys(values Value) Value {
+    // Enumerating keys must not recursively copy values: a native map may
+    // contain shared references or cycles that Core is about to inspect.
+    m, ok := values.(map[string]Value)
+    if !ok { m = asMap(values) }
 	out := Array()
-	for _, k := range orderedKeys(asMap(values)) {
+	for _, k := range orderedKeys(m) {
 		out = append(out, k)
 	}
 	return out
@@ -2603,6 +2607,17 @@ func _core_sorted_strings(values Value) Value {
 	}
 	return out
 }
+// Reference identity is a host primitive; traversal and ancestor lifetime live in Core.
+func _core_same_reference(left, right Value) Value {
+    a, b := reflect.ValueOf(left), reflect.ValueOf(right)
+    if !a.IsValid() || !b.IsValid() || a.Type() != b.Type() { return false }
+    switch a.Kind() {
+    case reflect.Map, reflect.Slice, reflect.Ptr:
+        return a.Pointer() == b.Pointer()
+    }
+    return false
+}
+
 func _core_json_pretty(value Value) Value {
 	return prettyJSONText(value)
 }
@@ -8025,6 +8040,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_has_end Value
 	var v_has_nested Value
 	var v_has_options Value
+	var v_has_source Value
 	var v_has_start Value
 	var v_invalid_audio Value
 	var v_invalid_file Value
@@ -8105,6 +8121,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	_ = v_has_end
 	_ = v_has_nested
 	_ = v_has_options
+	_ = v_has_source
 	_ = v_has_start
 	_ = v_invalid_audio
 	_ = v_invalid_file
@@ -8252,6 +8269,13 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	}
 	v_is_file = _core_eq(v_type_name, "file")
 	if coreTruthy(v_is_file) {
+		v_has_source = _core_map_contains(v_value, "source")
+		if coreTruthy(v_has_source) {
+			if _, err := _validate_document_input(v_value); err != nil { return nil, err }
+			return nil, nil
+		} else {
+		// empty
+		}
 		v_valid_file = _valid_file(v_value)
 		v_invalid_file = _core_not(v_valid_file)
 		if coreTruthy(v_invalid_file) {
@@ -9202,6 +9226,28 @@ func _validate_keyed_fields_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _document_nonempty_string(args ...Value) (Value, error) {
+	axirCoverageMark("_document_nonempty_string")
+	var v_value Value
+	var v_is_string Value
+	var v_nonempty Value
+	var v_trimmed Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_string
+	_ = v_nonempty
+	_ = v_trimmed
+	v_is_string = coreTypeIs(v_value, "string")
+	if coreTruthy(v_is_string) {
+		v_trimmed = coreStringTrim(v_value)
+		v_nonempty = _core_ne(v_trimmed, "")
+		return v_nonempty, nil
+	} else {
+	// empty
+	}
+	return false, nil
+}
+
 func _schema_to_json_schema_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_schema_to_json_schema_impl")
 	var v_fields Value
@@ -9257,6 +9303,238 @@ func _schema_to_json_schema_impl(args ...Value) (Value, error) {
 		}
 	}
 	return v_schema, nil
+}
+
+func _validate_document_input(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_document_input")
+	var v_doc Value
+	var v_block Value
+	var v_block_type Value
+	var v_block_valid Value
+	var v_citations Value
+	var v_content Value
+	var v_data Value
+	var v_enabled Value
+	var v_error Value
+	var v_file Value
+	var v_file_snake Value
+	var v_has Value
+	var v_has_citations Value
+	var v_has_source Value
+	var v_http Value
+	var v_https Value
+	var v_is_base64 Value
+	var v_is_bool Value
+	var v_is_content Value
+	var v_is_file Value
+	var v_is_list Value
+	var v_is_string Value
+	var v_is_text Value
+	var v_is_url Value
+	var v_key Value
+	var v_length Value
+	var v_lower Value
+	var v_media Value
+	var v_media_snake Value
+	var v_message Value
+	var v_metadata Value
+	var v_nonempty Value
+	var v_pdf Value
+	var v_source Value
+	var v_source_is_object Value
+	var v_text Value
+	var v_type Value
+	var v_url Value
+	var v_valid Value
+	var v_value Value
+	if len(args) > 0 { v_doc = args[0] }
+	_ = v_doc
+	_ = v_block
+	_ = v_block_type
+	_ = v_block_valid
+	_ = v_citations
+	_ = v_content
+	_ = v_data
+	_ = v_enabled
+	_ = v_error
+	_ = v_file
+	_ = v_file_snake
+	_ = v_has
+	_ = v_has_citations
+	_ = v_has_source
+	_ = v_http
+	_ = v_https
+	_ = v_is_base64
+	_ = v_is_bool
+	_ = v_is_content
+	_ = v_is_file
+	_ = v_is_list
+	_ = v_is_string
+	_ = v_is_text
+	_ = v_is_url
+	_ = v_key
+	_ = v_length
+	_ = v_lower
+	_ = v_media
+	_ = v_media_snake
+	_ = v_message
+	_ = v_metadata
+	_ = v_nonempty
+	_ = v_pdf
+	_ = v_source
+	_ = v_source_is_object
+	_ = v_text
+	_ = v_type
+	_ = v_url
+	_ = v_valid
+	_ = v_value
+	v_source = coreGet(v_doc, "source", nil)
+	v_has_source = _core_map_contains(v_doc, "source")
+	if coreTruthy(v_has_source) {
+	// empty
+	} else {
+		v_error = _core_runtime_error("Document input must contain a source")
+		return nil, asError(v_error)
+	}
+	{ v, err := _core_json_parse("[\"title\",\"context\"]"); if err != nil { return nil, err }; v_metadata = v }
+	for _, v_key = range coreIter(v_metadata) {
+		v_has = _core_map_contains(v_doc, v_key)
+		if coreTruthy(v_has) {
+			v_value = coreGet(v_doc, v_key, nil)
+			v_is_string = coreTypeIs(v_value, "string")
+			if coreTruthy(v_is_string) {
+			// empty
+			} else {
+				v_message = _core_string_format("Document {} must be a string", v_key)
+				v_error = _core_runtime_error(v_message)
+				return nil, asError(v_error)
+			}
+		} else {
+		// empty
+		}
+	}
+	v_has_citations = _core_map_contains(v_doc, "citations")
+	if coreTruthy(v_has_citations) {
+		v_citations = coreGet(v_doc, "citations", nil)
+		v_enabled = coreGet(v_citations, "enabled", nil)
+		v_is_bool = coreTypeIs(v_enabled, "boolean")
+		if coreTruthy(v_is_bool) {
+		// empty
+		} else {
+			v_error = _core_runtime_error("Document citations.enabled must be a boolean")
+			return nil, asError(v_error)
+		}
+	} else {
+	// empty
+	}
+	v_source_is_object = coreTypeIs(v_source, "object")
+	if coreTruthy(v_source_is_object) {
+	// empty
+	} else {
+		v_error = _core_runtime_error("Document source must be an object")
+		return nil, asError(v_error)
+	}
+	v_type = coreGet(v_source, "type", "")
+	v_is_text = _core_eq(v_type, "text")
+	if coreTruthy(v_is_text) {
+		v_data = coreGet(v_source, "data", nil)
+		{ v, err := _document_nonempty_string(v_data); if err != nil { return nil, err }; v_valid = v }
+		if coreTruthy(v_valid) {
+			return nil, nil
+		} else {
+		// empty
+		}
+		v_error = _core_runtime_error("Document text must not be empty")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_is_base64 = _core_eq(v_type, "base64")
+	if coreTruthy(v_is_base64) {
+		v_data = coreGet(v_source, "data", nil)
+		v_media_snake = coreGet(v_source, "media_type", nil)
+		v_media = coreGet(v_source, "mediaType", v_media_snake)
+		v_pdf = _core_eq(v_media, "application/pdf")
+		{ v, err := _document_nonempty_string(v_data); if err != nil { return nil, err }; v_nonempty = v }
+		v_valid = _core_and(v_pdf, v_nonempty)
+		if coreTruthy(v_valid) {
+			return nil, nil
+		} else {
+		// empty
+		}
+		v_error = _core_runtime_error("Document base64 source requires PDF data and mediaType application/pdf")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_is_url = _core_eq(v_type, "url")
+	if coreTruthy(v_is_url) {
+		v_url = coreGet(v_source, "url", nil)
+		{ v, err := _document_nonempty_string(v_url); if err != nil { return nil, err }; v_nonempty = v }
+		if coreTruthy(v_nonempty) {
+			v_lower = _core_string_lower(v_url)
+			v_http = _core_string_starts_with(v_lower, "http://")
+			v_https = _core_string_starts_with(v_lower, "https://")
+			v_valid = _core_or(v_http, v_https)
+			if coreTruthy(v_valid) {
+				return nil, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_error = _core_runtime_error("Document URL must use http or https")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_is_file = _core_eq(v_type, "file")
+	if coreTruthy(v_is_file) {
+		v_file_snake = coreGet(v_source, "file_id", nil)
+		v_file = coreGet(v_source, "fileId", v_file_snake)
+		{ v, err := _document_nonempty_string(v_file); if err != nil { return nil, err }; v_valid = v }
+		if coreTruthy(v_valid) {
+			return nil, nil
+		} else {
+		// empty
+		}
+		v_error = _core_runtime_error("Document fileId must not be empty")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_is_content = _core_eq(v_type, "content")
+	if coreTruthy(v_is_content) {
+		v_content = coreGet(v_source, "content", nil)
+		v_is_list = coreTypeIs(v_content, "list")
+		v_valid = false
+		if coreTruthy(v_is_list) {
+			v_length = _core_len(v_content)
+			v_valid = _core_gt(v_length, 0)
+			for _, v_block = range coreIter(v_content) {
+				v_block_type = coreGet(v_block, "type", nil)
+				v_text = coreGet(v_block, "text", nil)
+				v_is_text = _core_eq(v_block_type, "text")
+				{ v, err := _document_nonempty_string(v_text); if err != nil { return nil, err }; v_nonempty = v }
+				v_block_valid = _core_and(v_is_text, v_nonempty)
+				v_valid = _core_and(v_valid, v_block_valid)
+			}
+		} else {
+		// empty
+		}
+		if coreTruthy(v_valid) {
+			return nil, nil
+		} else {
+		// empty
+		}
+		v_error = _core_runtime_error("Document custom content must contain nonempty text blocks")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_error = _core_runtime_error("Unsupported document source type")
+	return nil, asError(v_error)
 }
 
 func _evidence_result_schema_impl(args ...Value) (Value, error) {
@@ -9869,6 +10147,50 @@ func _prompt_messages_impl(args ...Value) (Value, error) {
 	v_messages = coreAppend(v_messages, v_system_message)
 	v_messages = coreAppend(v_messages, v_user_message)
 	return v_messages, nil
+}
+
+func _prompt_document_part(args ...Value) (Value, error) {
+	axirCoverageMark("_prompt_document_part")
+	var v_value Value
+	var v_has_source Value
+	var v_item Value
+	var v_key Value
+	var v_keys Value
+	var v_part Value
+	var v_present Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_has_source
+	_ = v_item
+	_ = v_key
+	_ = v_keys
+	_ = v_part
+	_ = v_present
+	v_has_source = _core_map_contains(v_value, "source")
+	if coreTruthy(v_has_source) {
+		if _, err := _validate_document_input(v_value); err != nil { return nil, err }
+		v_part = Object()
+		if err := coreSet(v_part, "type", "document"); err != nil { return nil, err }
+		v_keys = MutableArray()
+		v_keys = coreAppend(v_keys, "source")
+		v_keys = coreAppend(v_keys, "title")
+		v_keys = coreAppend(v_keys, "context")
+		v_keys = coreAppend(v_keys, "citations")
+		v_keys = coreAppend(v_keys, "cache")
+		for _, v_key = range coreIter(v_keys) {
+			v_present = _core_map_contains(v_value, v_key)
+			if coreTruthy(v_present) {
+				v_item = coreGet(v_value, v_key, nil)
+				if err := coreSet(v_part, v_key, v_item); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+		return v_part, nil
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func decisions_require_object(args ...Value) (Value, error) {
@@ -13057,6 +13379,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 	var v_images Value
 	var v_invalid_role Value
 	var v_is_assistant Value
+	var v_is_document Value
 	var v_is_function Value
 	var v_is_system Value
 	var v_is_user Value
@@ -13121,6 +13444,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 	_ = v_images
 	_ = v_invalid_role
 	_ = v_is_assistant
+	_ = v_is_document
 	_ = v_is_function
 	_ = v_is_system
 	_ = v_is_user
@@ -13261,6 +13585,12 @@ func validate_chat_request(args ...Value) (Value, error) {
 					v_type_text = _core_string_format("User message content item at index {} must have a type, received: {}", v_item_index, v_received_type)
 					v_type_error = _core_ai_error_response(v_type_text)
 					return nil, asError(v_type_error)
+				} else {
+				// empty
+				}
+				v_is_document = _core_eq(v_item_type, "document")
+				if coreTruthy(v_is_document) {
+					if _, err := _validate_document_input(v_item); err != nil { return nil, err }
 				} else {
 				// empty
 				}
@@ -18424,6 +18754,7 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	if _, err := _ai_merge_citation_metadata(v_completion, v_result); err != nil { return nil, err }
 	return v_completion, nil
 }
 
@@ -18838,6 +19169,7 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	if _, err := _ai_merge_citation_metadata(v_out, v_first); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -19044,6 +19376,7 @@ func provider_validate_chat_request(args ...Value) (Value, error) {
 	_ = v_prepared
 	_ = v_sampled
 	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
+	if _, err := _provider_validate_documents(v_canonical, v_request, v_options); err != nil { return nil, err }
 	v_is_google_decisions = _core_eq(v_canonical, "google-gemini-decisions")
 	if coreTruthy(v_is_google_decisions) {
 		v_model = coreGet(v_request, "model", "gemini-decision-1")
@@ -20726,6 +21059,7 @@ func _fold_chat_stream_chunk_impl(args ...Value) (Value, error) {
 	_ = v_visible
 	_ = v_visible_parts
 	_ = v_visible_text
+	if _, err := _ai_merge_citation_metadata(v_target, v_chunk); err != nil { return nil, err }
 	v_trusted = coreGet(v_chunk, "decisionContext", nil)
 	v_has_trusted = _core_is_not_none(v_trusted)
 	if coreTruthy(v_has_trusted) {
@@ -21408,6 +21742,7 @@ func provider_route_request_requirements(args ...Value) (Value, error) {
 	var v_functions_count Value
 	var v_has_functions Value
 	var v_is_audio Value
+	var v_is_document Value
 	var v_is_file Value
 	var v_is_image Value
 	var v_is_url Value
@@ -21448,6 +21783,7 @@ func provider_route_request_requirements(args ...Value) (Value, error) {
 	_ = v_functions_count
 	_ = v_has_functions
 	_ = v_is_audio
+	_ = v_is_document
 	_ = v_is_file
 	_ = v_is_image
 	_ = v_is_url
@@ -21528,6 +21864,8 @@ func provider_route_request_requirements(args ...Value) (Value, error) {
 				// empty
 				}
 				v_is_file = _core_eq(v_part_type, "file")
+				v_is_document = _core_eq(v_part_type, "document")
+				v_is_file = _core_or(v_is_file, v_is_document)
 				if coreTruthy(v_is_file) {
 					if err := coreSet(v_requirements, "hasFiles", true); err != nil { return nil, err }
 					v_cached_file = coreGet(v_part, "cache", false)
@@ -22200,25 +22538,36 @@ func provider_route_preprocess_request(args ...Value) (Value, error) {
 	var v_features Value
 	var v_request Value
 	var v_processing Value
+	var v_can_preserve Value
+	var v_cannot_preserve Value
+	var v_citation_config Value
+	var v_cited Value
+	var v_citing_supported Value
 	var v_content Value
 	var v_content_count Value
 	var v_content_is_list Value
+	var v_documents Value
+	var v_error Value
 	var v_file_part Value
 	var v_has_any_prompt Value
 	var v_has_camel_prompt Value
 	var v_has_snake_prompt Value
 	var v_image_copy Value
 	var v_image_seed Value
+	var v_is_document Value
 	var v_is_file Value
 	var v_is_image Value
 	var v_is_user Value
 	var v_keep_file Value
+	var v_media Value
 	var v_message Value
 	var v_message_copy Value
 	var v_message_index Value
 	var v_message_seed Value
 	var v_missing_camel_prompt Value
 	var v_missing_prompt Value
+	var v_needs_documents Value
+	var v_no_citations Value
 	var v_only Value
 	var v_only_text Value
 	var v_only_type Value
@@ -22237,6 +22586,8 @@ func provider_route_preprocess_request(args ...Value) (Value, error) {
 	var v_role Value
 	var v_single Value
 	var v_slot Value
+	var v_supported Value
+	var v_supports_citations Value
 	var v_text Value
 	if len(args) > 0 { v_features = args[0] }
 	_ = v_features
@@ -22244,25 +22595,36 @@ func provider_route_preprocess_request(args ...Value) (Value, error) {
 	_ = v_request
 	if len(args) > 2 { v_processing = args[2] }
 	_ = v_processing
+	_ = v_can_preserve
+	_ = v_cannot_preserve
+	_ = v_citation_config
+	_ = v_cited
+	_ = v_citing_supported
 	_ = v_content
 	_ = v_content_count
 	_ = v_content_is_list
+	_ = v_documents
+	_ = v_error
 	_ = v_file_part
 	_ = v_has_any_prompt
 	_ = v_has_camel_prompt
 	_ = v_has_snake_prompt
 	_ = v_image_copy
 	_ = v_image_seed
+	_ = v_is_document
 	_ = v_is_file
 	_ = v_is_image
 	_ = v_is_user
 	_ = v_keep_file
+	_ = v_media
 	_ = v_message
 	_ = v_message_copy
 	_ = v_message_index
 	_ = v_message_seed
 	_ = v_missing_camel_prompt
 	_ = v_missing_prompt
+	_ = v_needs_documents
+	_ = v_no_citations
 	_ = v_only
 	_ = v_only_text
 	_ = v_only_type
@@ -22281,6 +22643,8 @@ func provider_route_preprocess_request(args ...Value) (Value, error) {
 	_ = v_role
 	_ = v_single
 	_ = v_slot
+	_ = v_supported
+	_ = v_supports_citations
 	_ = v_text
 	v_has_camel_prompt = _core_map_contains(v_request, "chatPrompt")
 	v_has_snake_prompt = _core_map_contains(v_request, "chat_prompt")
@@ -22322,6 +22686,28 @@ func provider_route_preprocess_request(args ...Value) (Value, error) {
 			v_part_index = 0
 			for _, v_part = range coreIter(v_content) {
 				v_part_type = coreGet(v_part, "type", "text")
+				v_is_document = _core_eq(v_part_type, "document")
+				v_citation_config = coreGet(v_part, "citations", nil)
+				v_cited = coreGet(v_citation_config, "enabled", false)
+				v_needs_documents = _core_or(v_is_document, v_cited)
+				if coreTruthy(v_needs_documents) {
+					v_media = coreGet(v_features, "media", nil)
+					v_documents = coreGet(v_media, "documents", nil)
+					v_supported = coreGet(v_documents, "supported", false)
+					v_supports_citations = coreGet(v_documents, "citations", false)
+					v_no_citations = _core_not(v_cited)
+					v_citing_supported = _core_or(v_no_citations, v_supports_citations)
+					v_can_preserve = _core_and(v_supported, v_citing_supported)
+					v_cannot_preserve = _core_not(v_can_preserve)
+					if coreTruthy(v_cannot_preserve) {
+						v_error = _core_runtime_error("Document inputs and citations require native document support")
+						return nil, asError(v_error)
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
 				v_is_file = _core_eq(v_part_type, "file")
 				if coreTruthy(v_is_file) {
 					v_slot = _core_string_format("{}:{}", v_message_index, v_part_index)
@@ -22372,12 +22758,49 @@ func provider_route_preprocess_request(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func router_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("router_embed_request")
+	var v_request Value
+	var v_model Value
+	var v_embed_model Value
+	var v_chat_key Value
+	var v_embed_key Value
+	var v_empty Value
+	var v_out Value
+	var v_service_key Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_embed_model = args[2] }
+	_ = v_embed_model
+	_ = v_chat_key
+	_ = v_embed_key
+	_ = v_empty
+	_ = v_out
+	_ = v_service_key
+	v_empty = Object()
+	v_out = _core_map_merge(v_empty, v_request)
+	v_chat_key = _core_truthy(v_model)
+	v_embed_key = _core_truthy(v_embed_model)
+	v_service_key = _core_or(v_chat_key, v_embed_key)
+	if coreTruthy(v_service_key) {
+	// empty
+	} else {
+		_core_map_delete(v_out, "embedModel")
+		_core_map_delete(v_out, "embed_model")
+	}
+	return v_out, nil
+}
+
 func _provider_route_file_content(args ...Value) (Value, error) {
 	axirCoverageMark("_provider_route_file_content")
 	var v_features Value
 	var v_part Value
 	var v_processing Value
 	var v_slot Value
+	var v_citation_config Value
+	var v_cited Value
 	var v_copy Value
 	var v_empty Value
 	var v_empty_texts Value
@@ -22403,6 +22826,8 @@ func _provider_route_file_content(args ...Value) (Value, error) {
 	_ = v_processing
 	if len(args) > 3 { v_slot = args[3] }
 	_ = v_slot
+	_ = v_citation_config
+	_ = v_cited
 	_ = v_copy
 	_ = v_empty
 	_ = v_empty_texts
@@ -22420,6 +22845,13 @@ func _provider_route_file_content(args ...Value) (Value, error) {
 	_ = v_supports_files
 	_ = v_text
 	_ = v_texts
+	v_citation_config = coreGet(v_part, "citations", nil)
+	v_cited = coreGet(v_citation_config, "enabled", false)
+	if coreTruthy(v_cited) {
+		return v_part, nil
+	} else {
+	// empty
+	}
 	{ v, err := _provider_features_support(v_features, "files"); if err != nil { return nil, err }; v_supports_files = v }
 	if coreTruthy(v_supports_files) {
 		v_empty = Object()
@@ -22463,41 +22895,6 @@ func _provider_route_file_content(args ...Value) (Value, error) {
 	v_out = Object()
 	if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
 	if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func router_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("router_embed_request")
-	var v_request Value
-	var v_model Value
-	var v_embed_model Value
-	var v_chat_key Value
-	var v_embed_key Value
-	var v_empty Value
-	var v_out Value
-	var v_service_key Value
-	if len(args) > 0 { v_request = args[0] }
-	_ = v_request
-	if len(args) > 1 { v_model = args[1] }
-	_ = v_model
-	if len(args) > 2 { v_embed_model = args[2] }
-	_ = v_embed_model
-	_ = v_chat_key
-	_ = v_embed_key
-	_ = v_empty
-	_ = v_out
-	_ = v_service_key
-	v_empty = Object()
-	v_out = _core_map_merge(v_empty, v_request)
-	v_chat_key = _core_truthy(v_model)
-	v_embed_key = _core_truthy(v_embed_model)
-	v_service_key = _core_or(v_chat_key, v_embed_key)
-	if coreTruthy(v_service_key) {
-	// empty
-	} else {
-		_core_map_delete(v_out, "embedModel")
-		_core_map_delete(v_out, "embed_model")
-	}
 	return v_out, nil
 }
 
@@ -22702,6 +23099,110 @@ func provider_route_file_extractions(args ...Value) (Value, error) {
 		v_message_index = _core_add(v_message_index, 1)
 	}
 	return v_tasks, nil
+}
+
+func _ai_merge_citation_metadata(args ...Value) (Value, error) {
+	axirCoverageMark("_ai_merge_citation_metadata")
+	var v_target Value
+	var v_incoming Value
+	var v_block Value
+	var v_blocks Value
+	var v_citation Value
+	var v_citations Value
+	var v_empty Value
+	var v_existing Value
+	var v_found Value
+	var v_has_blocks Value
+	var v_has_citations Value
+	var v_index Value
+	var v_next Value
+	var v_old_index Value
+	var v_previous Value
+	var v_same Value
+	var v_snake Value
+	var v_update Value
+	var v_updates Value
+	if len(args) > 0 { v_target = args[0] }
+	_ = v_target
+	if len(args) > 1 { v_incoming = args[1] }
+	_ = v_incoming
+	_ = v_block
+	_ = v_blocks
+	_ = v_citation
+	_ = v_citations
+	_ = v_empty
+	_ = v_existing
+	_ = v_found
+	_ = v_has_blocks
+	_ = v_has_citations
+	_ = v_index
+	_ = v_next
+	_ = v_old_index
+	_ = v_previous
+	_ = v_same
+	_ = v_snake
+	_ = v_update
+	_ = v_updates
+	v_empty = MutableArray()
+	v_snake = coreGet(v_incoming, "text_blocks", nil)
+	v_updates = coreGet(v_incoming, "textBlocks", v_snake)
+	v_has_blocks = coreTypeIs(v_updates, "list")
+	if coreTruthy(v_has_blocks) {
+		v_blocks = coreGet(v_target, "text_blocks", v_empty)
+		for _, v_update = range coreIter(v_updates) {
+			v_index = coreGet(v_update, "index", 0)
+			v_next = MutableArray()
+			v_found = false
+			for _, v_block = range coreIter(v_blocks) {
+				v_old_index = coreGet(v_block, "index", 0)
+				v_same = _core_eq(v_index, v_old_index)
+				if coreTruthy(v_same) {
+					v_next = coreAppend(v_next, v_update)
+					v_found = true
+				} else {
+					v_next = coreAppend(v_next, v_block)
+				}
+			}
+			if coreTruthy(v_found) {
+			// empty
+			} else {
+				v_next = coreAppend(v_next, v_update)
+			}
+			v_blocks = v_next
+		}
+		if err := coreSet(v_target, "text_blocks", v_blocks); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_updates = coreGet(v_incoming, "citations", nil)
+	v_has_citations = coreTypeIs(v_updates, "list")
+	if coreTruthy(v_has_citations) {
+		v_citations = MutableArray()
+		v_previous = coreGet(v_target, "citations", v_empty)
+		for _, v_citation = range coreIter(v_previous) {
+			v_citations = coreAppend(v_citations, v_citation)
+		}
+		for _, v_citation = range coreIter(v_updates) {
+			v_found = false
+			for _, v_existing = range coreIter(v_citations) {
+				v_same = _core_eq(v_citation, v_existing)
+				if coreTruthy(v_same) {
+					v_found = true
+				} else {
+				// empty
+				}
+			}
+			if coreTruthy(v_found) {
+			// empty
+			} else {
+				v_citations = coreAppend(v_citations, v_citation)
+			}
+		}
+		if err := coreSet(v_target, "citations", v_citations); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _provider_route_score(args ...Value) (Value, error) {
@@ -26767,9 +27268,11 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	var v_alias Value
 	var v_alias_match Value
 	var v_aliases Value
+	var v_anthropic Value
 	var v_apply_native_override Value
 	var v_astra_session Value
 	var v_base_features Value
+	var v_base_media Value
 	var v_cache_features Value
 	var v_cache_types Value
 	var v_can_steer Value
@@ -26780,11 +27283,14 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	var v_current_mode Value
 	var v_current_modes Value
 	var v_descriptor Value
+	var v_documents Value
 	var v_empty_list Value
 	var v_empty_map Value
+	var v_empty_media Value
 	var v_factory Value
 	var v_factory_snake Value
 	var v_features Value
+	var v_files Value
 	var v_gpt6_cache Value
 	var v_gpt6_model Value
 	var v_has_factory Value
@@ -26812,6 +27318,7 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	var v_matches Value
 	var v_matches_alias Value
 	var v_matches_name Value
+	var v_media Value
 	var v_model_info Value
 	var v_model_info_missing Value
 	var v_model_info_snake Value
@@ -26852,9 +27359,11 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	_ = v_alias
 	_ = v_alias_match
 	_ = v_aliases
+	_ = v_anthropic
 	_ = v_apply_native_override
 	_ = v_astra_session
 	_ = v_base_features
+	_ = v_base_media
 	_ = v_cache_features
 	_ = v_cache_types
 	_ = v_can_steer
@@ -26865,11 +27374,14 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	_ = v_current_mode
 	_ = v_current_modes
 	_ = v_descriptor
+	_ = v_documents
 	_ = v_empty_list
 	_ = v_empty_map
+	_ = v_empty_media
 	_ = v_factory
 	_ = v_factory_snake
 	_ = v_features
+	_ = v_files
 	_ = v_gpt6_cache
 	_ = v_gpt6_model
 	_ = v_has_factory
@@ -26897,6 +27409,7 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	_ = v_matches
 	_ = v_matches_alias
 	_ = v_matches_name
+	_ = v_media
 	_ = v_model_info
 	_ = v_model_info_missing
 	_ = v_model_info_snake
@@ -27126,6 +27639,19 @@ func provider_resolve_features(args ...Value) (Value, error) {
 		if err := coreSet(v_cache_features, "supported", false); err != nil { return nil, err }
 		if err := coreSet(v_cache_features, "types", v_cache_types); err != nil { return nil, err }
 		if err := coreSet(v_features, "caching", v_cache_features); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_anthropic = _core_eq(v_profile, "anthropic")
+	if coreTruthy(v_anthropic) {
+		v_empty_media = Object()
+		v_base_media = coreGet(v_features, "media", v_empty_media)
+		v_media = _core_map_merge(v_empty_media, v_base_media)
+		{ v, err := _core_json_parse("{\"supported\":true,\"citations\":true}"); if err != nil { return nil, err }; v_documents = v }
+		{ v, err := _core_json_parse("{\"supported\":true,\"formats\":[\"application/pdf\"],\"uploadMethod\":\"inline\"}"); if err != nil { return nil, err }; v_files = v }
+		if err := coreSet(v_media, "documents", v_documents); err != nil { return nil, err }
+		if err := coreSet(v_media, "files", v_files); err != nil { return nil, err }
+		if err := coreSet(v_features, "media", v_media); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -28122,6 +28648,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 	_ = v_transport
 	v_model = coreGet(v_request, "model", "")
 	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_provider_id = v }
+	if _, err := _provider_validate_documents(v_provider_id, v_request, v_options); err != nil { return nil, err }
 	{ v, err := provider_resolve_descriptor(v_provider_id, v_options); if err != nil { return nil, err }; v_descriptor = v }
 	v_transport = coreGet(v_descriptor, "transport", "openai-chat")
 	v_is_google_decisions = _core_eq(v_transport, "google-gemini-decisions")
@@ -38206,10 +38733,12 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	var v_cache Value
 	var v_cache_control Value
 	var v_data Value
+	var v_doc Value
 	var v_error Value
 	var v_file_uri Value
 	var v_file_uri_snake Value
 	var v_format Value
+	var v_has_doc Value
 	var v_has_file_uri Value
 	var v_image Value
 	var v_image_alt Value
@@ -38220,6 +38749,7 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	var v_is_text Value
 	var v_is_url Value
 	var v_is_video Value
+	var v_mapped Value
 	var v_media_type Value
 	var v_message Value
 	var v_mime Value
@@ -38233,10 +38763,12 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	_ = v_cache
 	_ = v_cache_control
 	_ = v_data
+	_ = v_doc
 	_ = v_error
 	_ = v_file_uri
 	_ = v_file_uri_snake
 	_ = v_format
+	_ = v_has_doc
 	_ = v_has_file_uri
 	_ = v_image
 	_ = v_image_alt
@@ -38247,6 +38779,7 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	_ = v_is_text
 	_ = v_is_url
 	_ = v_is_video
+	_ = v_mapped
 	_ = v_media_type
 	_ = v_message
 	_ = v_mime
@@ -38255,6 +38788,14 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	_ = v_source
 	_ = v_text
 	_ = v_type
+	{ v, err := _anthropic_document_input(v_part); if err != nil { return nil, err }; v_doc = v }
+	v_has_doc = _core_is_not_none(v_doc)
+	if coreTruthy(v_has_doc) {
+		{ v, err := _anthropic_document_part(v_doc); if err != nil { return nil, err }; v_mapped = v }
+		return v_mapped, nil
+	} else {
+	// empty
+	}
 	v_type = coreGet(v_part, "type", "text")
 	v_is_text = _core_eq(v_type, "text")
 	if coreTruthy(v_is_text) {
@@ -43417,6 +43958,413 @@ func provider_compatibility_report(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "providerScores", v_scores); err != nil { return nil, err }
 	if err := coreSet(v_out, "recommendedProvider", v_recommended); err != nil { return nil, err }
 	if err := coreSet(v_out, "summary", v_summary); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _anthropic_document_input(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_document_input")
+	var v_part Value
+	var v_citations Value
+	var v_data Value
+	var v_doc Value
+	var v_enabled Value
+	var v_error Value
+	var v_file Value
+	var v_has Value
+	var v_has_uri Value
+	var v_key Value
+	var v_keys Value
+	var v_mime Value
+	var v_mime_snake Value
+	var v_pdf Value
+	var v_source Value
+	var v_supports_native_documents Value
+	var v_type Value
+	var v_uri Value
+	var v_uri_snake Value
+	var v_value Value
+	if len(args) > 0 { v_part = args[0] }
+	_ = v_part
+	_ = v_citations
+	_ = v_data
+	_ = v_doc
+	_ = v_enabled
+	_ = v_error
+	_ = v_file
+	_ = v_has
+	_ = v_has_uri
+	_ = v_key
+	_ = v_keys
+	_ = v_mime
+	_ = v_mime_snake
+	_ = v_pdf
+	_ = v_source
+	_ = v_supports_native_documents
+	_ = v_type
+	_ = v_uri
+	_ = v_uri_snake
+	_ = v_value
+	v_type = coreGet(v_part, "type", "")
+	v_supports_native_documents = _core_eq(v_type, "document")
+	if coreTruthy(v_supports_native_documents) {
+		return v_part, nil
+	} else {
+	// empty
+	}
+	v_file = _core_eq(v_type, "file")
+	if coreTruthy(v_file) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_mime_snake = coreGet(v_part, "mime_type", nil)
+	v_mime = coreGet(v_part, "mimeType", v_mime_snake)
+	v_pdf = _core_eq(v_mime, "application/pdf")
+	if coreTruthy(v_pdf) {
+	// empty
+	} else {
+		v_citations = coreGet(v_part, "citations", nil)
+		v_enabled = coreGet(v_citations, "enabled", false)
+		if coreTruthy(v_enabled) {
+			v_error = _core_runtime_error("Anthropic file citations require a PDF; use a document text source for plain text")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		return nil, nil
+	}
+	v_doc = Object()
+	v_source = Object()
+	v_uri_snake = coreGet(v_part, "file_uri", nil)
+	v_uri = coreGet(v_part, "fileUri", v_uri_snake)
+	v_has_uri = _core_is_not_none(v_uri)
+	if coreTruthy(v_has_uri) {
+		if err := coreSet(v_source, "type", "url"); err != nil { return nil, err }
+		if err := coreSet(v_source, "url", v_uri); err != nil { return nil, err }
+	} else {
+		if err := coreSet(v_source, "type", "base64"); err != nil { return nil, err }
+		if err := coreSet(v_source, "mediaType", "application/pdf"); err != nil { return nil, err }
+		v_data = coreGet(v_part, "data", nil)
+		if err := coreSet(v_source, "data", v_data); err != nil { return nil, err }
+	}
+	if err := coreSet(v_doc, "source", v_source); err != nil { return nil, err }
+	{ v, err := _core_json_parse("[\"title\",\"context\",\"citations\",\"cache\"]"); if err != nil { return nil, err }; v_keys = v }
+	for _, v_key = range coreIter(v_keys) {
+		v_has = _core_map_contains(v_part, v_key)
+		if coreTruthy(v_has) {
+			v_value = coreGet(v_part, v_key, nil)
+			if err := coreSet(v_doc, v_key, v_value); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	return v_doc, nil
+}
+
+func _provider_validate_documents(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_validate_documents")
+	var v_profile Value
+	var v_request Value
+	var v_options Value
+	var v_any_disabled Value
+	var v_any_enabled Value
+	var v_check Value
+	var v_citations Value
+	var v_cited_file Value
+	var v_content Value
+	var v_descriptor Value
+	var v_doc Value
+	var v_document Value
+	var v_empty Value
+	var v_enabled Value
+	var v_error Value
+	var v_file Value
+	var v_format Value
+	var v_format_snake Value
+	var v_format_type Value
+	var v_has_doc Value
+	var v_json Value
+	var v_message Value
+	var v_part Value
+	var v_parts Value
+	var v_prompt Value
+	var v_reject Value
+	var v_requires_native Value
+	var v_role Value
+	var v_snake_prompt Value
+	var v_source Value
+	var v_source_type Value
+	var v_supports_native_documents Value
+	var v_type Value
+	var v_unsupported Value
+	var v_uploaded Value
+	var v_user Value
+	var v_vertex Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_any_disabled
+	_ = v_any_enabled
+	_ = v_check
+	_ = v_citations
+	_ = v_cited_file
+	_ = v_content
+	_ = v_descriptor
+	_ = v_doc
+	_ = v_document
+	_ = v_empty
+	_ = v_enabled
+	_ = v_error
+	_ = v_file
+	_ = v_format
+	_ = v_format_snake
+	_ = v_format_type
+	_ = v_has_doc
+	_ = v_json
+	_ = v_message
+	_ = v_part
+	_ = v_parts
+	_ = v_prompt
+	_ = v_reject
+	_ = v_requires_native
+	_ = v_role
+	_ = v_snake_prompt
+	_ = v_source
+	_ = v_source_type
+	_ = v_supports_native_documents
+	_ = v_type
+	_ = v_unsupported
+	_ = v_uploaded
+	_ = v_user
+	_ = v_vertex
+	v_supports_native_documents = _core_eq(v_profile, "anthropic")
+	v_empty = MutableArray()
+	v_snake_prompt = coreGet(v_request, "chat_prompt", v_empty)
+	v_prompt = coreGet(v_request, "chatPrompt", v_snake_prompt)
+	v_any_enabled = false
+	v_any_disabled = false
+	for _, v_message = range coreIter(v_prompt) {
+		v_role = coreGet(v_message, "role", "")
+		v_user = _core_eq(v_role, "user")
+		v_content = coreGet(v_message, "content", nil)
+		v_parts = coreTypeIs(v_content, "list")
+		v_check = _core_and(v_user, v_parts)
+		if coreTruthy(v_check) {
+			for _, v_part = range coreIter(v_content) {
+				v_type = coreGet(v_part, "type", "")
+				v_document = _core_eq(v_type, "document")
+				v_file = _core_eq(v_type, "file")
+				v_citations = coreGet(v_part, "citations", nil)
+				v_enabled = coreGet(v_citations, "enabled", false)
+				v_enabled = _core_eq(v_enabled, true)
+				v_cited_file = _core_and(v_file, v_enabled)
+				v_requires_native = _core_or(v_document, v_cited_file)
+				v_unsupported = _core_not(v_supports_native_documents)
+				v_reject = _core_and(v_requires_native, v_unsupported)
+				if coreTruthy(v_reject) {
+					v_error = _core_ai_error_unsupported("Provider does not support native document inputs and citations")
+					return nil, asError(v_error)
+				} else {
+				// empty
+				}
+				if coreTruthy(v_supports_native_documents) {
+					{ v, err := _anthropic_document_input(v_part); if err != nil { return nil, err }; v_doc = v }
+					v_has_doc = _core_is_not_none(v_doc)
+					if coreTruthy(v_has_doc) {
+						if _, err := _validate_document_input(v_doc); err != nil { return nil, err }
+						v_source = coreGet(v_doc, "source", nil)
+						v_source_type = coreGet(v_source, "type", nil)
+						v_uploaded = _core_eq(v_source_type, "file")
+						if coreTruthy(v_uploaded) {
+							{ v, err := provider_resolve_descriptor(v_profile, v_options); if err != nil { return nil, err }; v_descriptor = v }
+							v_vertex = coreGet(v_descriptor, "vertex", false)
+							if coreTruthy(v_vertex) {
+								v_error = _core_runtime_error("Anthropic fileId document sources require the first-party Files API")
+								return nil, asError(v_error)
+							} else {
+							// empty
+							}
+						} else {
+						// empty
+						}
+						if coreTruthy(v_enabled) {
+							v_any_enabled = true
+						} else {
+							v_any_disabled = true
+						}
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+	}
+	if coreTruthy(v_any_enabled) {
+		if coreTruthy(v_any_disabled) {
+			v_error = _core_runtime_error("Anthropic citations must be enabled on all documents in the request or none")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_format_snake = coreGet(v_request, "response_format", nil)
+		v_format = coreGet(v_request, "responseFormat", v_format_snake)
+		v_format_type = coreGet(v_format, "type", nil)
+		v_json = _core_eq(v_format_type, "json_schema")
+		if coreTruthy(v_json) {
+			v_error = _core_runtime_error("Anthropic document citations cannot be combined with native structured outputs (output_config.format); use a text signature without .useStructured()")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func _anthropic_document_part(args ...Value) (Value, error) {
+	axirCoverageMark("_anthropic_document_part")
+	var v_doc Value
+	var v_base64 Value
+	var v_block Value
+	var v_blocks Value
+	var v_cache Value
+	var v_citations Value
+	var v_config Value
+	var v_content Value
+	var v_control Value
+	var v_data Value
+	var v_data_type Value
+	var v_enabled Value
+	var v_file Value
+	var v_has Value
+	var v_has_citations Value
+	var v_input Value
+	var v_key Value
+	var v_keys Value
+	var v_mapped Value
+	var v_out Value
+	var v_part Value
+	var v_snake Value
+	var v_source Value
+	var v_text Value
+	var v_type Value
+	var v_url Value
+	var v_value Value
+	if len(args) > 0 { v_doc = args[0] }
+	_ = v_doc
+	_ = v_base64
+	_ = v_block
+	_ = v_blocks
+	_ = v_cache
+	_ = v_citations
+	_ = v_config
+	_ = v_content
+	_ = v_control
+	_ = v_data
+	_ = v_data_type
+	_ = v_enabled
+	_ = v_file
+	_ = v_has
+	_ = v_has_citations
+	_ = v_input
+	_ = v_key
+	_ = v_keys
+	_ = v_mapped
+	_ = v_out
+	_ = v_part
+	_ = v_snake
+	_ = v_source
+	_ = v_text
+	_ = v_type
+	_ = v_url
+	_ = v_value
+	if _, err := _validate_document_input(v_doc); err != nil { return nil, err }
+	v_input = coreGet(v_doc, "source", nil)
+	v_type = coreGet(v_input, "type", nil)
+	v_source = Object()
+	if err := coreSet(v_source, "type", v_type); err != nil { return nil, err }
+	v_text = _core_eq(v_type, "text")
+	v_base64 = _core_eq(v_type, "base64")
+	v_data_type = _core_or(v_text, v_base64)
+	if coreTruthy(v_data_type) {
+		v_data = coreGet(v_input, "data", nil)
+		if err := coreSet(v_source, "data", v_data); err != nil { return nil, err }
+		if coreTruthy(v_text) {
+			if err := coreSet(v_source, "media_type", "text/plain"); err != nil { return nil, err }
+		} else {
+			if err := coreSet(v_source, "media_type", "application/pdf"); err != nil { return nil, err }
+		}
+	} else {
+	// empty
+	}
+	v_url = _core_eq(v_type, "url")
+	if coreTruthy(v_url) {
+		v_value = coreGet(v_input, "url", nil)
+		if err := coreSet(v_source, "url", v_value); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_file = _core_eq(v_type, "file")
+	if coreTruthy(v_file) {
+		v_snake = coreGet(v_input, "file_id", nil)
+		v_value = coreGet(v_input, "fileId", v_snake)
+		if err := coreSet(v_source, "file_id", v_value); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_content = _core_eq(v_type, "content")
+	if coreTruthy(v_content) {
+		v_blocks = coreGet(v_input, "content", nil)
+		v_mapped = MutableArray()
+		for _, v_block = range coreIter(v_blocks) {
+			v_text = coreGet(v_block, "text", nil)
+			v_part = Object()
+			if err := coreSet(v_part, "type", "text"); err != nil { return nil, err }
+			if err := coreSet(v_part, "text", v_text); err != nil { return nil, err }
+			v_mapped = coreAppend(v_mapped, v_part)
+		}
+		if err := coreSet(v_source, "content", v_mapped); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "type", "document"); err != nil { return nil, err }
+	if err := coreSet(v_out, "source", v_source); err != nil { return nil, err }
+	{ v, err := _core_json_parse("[\"title\",\"context\"]"); if err != nil { return nil, err }; v_keys = v }
+	for _, v_key = range coreIter(v_keys) {
+		v_has = _core_map_contains(v_doc, v_key)
+		if coreTruthy(v_has) {
+			v_value = coreGet(v_doc, v_key, nil)
+			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	v_has_citations = _core_map_contains(v_doc, "citations")
+	if coreTruthy(v_has_citations) {
+		v_citations = coreGet(v_doc, "citations", nil)
+		v_enabled = coreGet(v_citations, "enabled", nil)
+		v_config = Object()
+		if err := coreSet(v_config, "enabled", v_enabled); err != nil { return nil, err }
+		if err := coreSet(v_out, "citations", v_config); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_cache = coreGet(v_doc, "cache", false)
+	if coreTruthy(v_cache) {
+		{ v, err := _core_json_parse("{\"type\":\"ephemeral\"}"); if err != nil { return nil, err }; v_control = v }
+		if err := coreSet(v_out, "cache_control", v_control); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_out, nil
 }
 
@@ -73286,6 +74234,94 @@ func _stream_apply_structured_impl(args ...Value) (Value, error) {
 	return v_deltas, nil
 }
 
+func _gen_citation_log_metadata(args ...Value) (Value, error) {
+	axirCoverageMark("_gen_citation_log_metadata")
+	var v_entry Value
+	var v_response Value
+	var v_block Value
+	var v_blocks Value
+	var v_citation_holder Value
+	var v_citations Value
+	var v_copy Value
+	var v_count Value
+	var v_empty Value
+	var v_existing Value
+	var v_fallback Value
+	var v_has_blocks Value
+	var v_has_citations Value
+	var v_index Value
+	var v_metadata Value
+	var v_position Value
+	var v_result Value
+	var v_result_blocks Value
+	var v_results Value
+	var v_seed Value
+	var v_usage Value
+	if len(args) > 0 { v_entry = args[0] }
+	_ = v_entry
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	_ = v_block
+	_ = v_blocks
+	_ = v_citation_holder
+	_ = v_citations
+	_ = v_copy
+	_ = v_count
+	_ = v_empty
+	_ = v_existing
+	_ = v_fallback
+	_ = v_has_blocks
+	_ = v_has_citations
+	_ = v_index
+	_ = v_metadata
+	_ = v_position
+	_ = v_result
+	_ = v_result_blocks
+	_ = v_results
+	_ = v_seed
+	_ = v_usage
+	v_fallback = MutableArray()
+	v_fallback = coreAppend(v_fallback, v_response)
+	v_results = coreGet(v_response, "results", v_fallback)
+	v_blocks = MutableArray()
+	v_citation_holder = Object()
+	v_position = 0
+	for _, v_result = range coreIter(v_results) {
+		v_index = coreGet(v_result, "index", v_position)
+		v_metadata = Object()
+		if _, err := _ai_merge_citation_metadata(v_metadata, v_result); err != nil { return nil, err }
+		v_empty = MutableArray()
+		v_result_blocks = coreGet(v_metadata, "text_blocks", v_empty)
+		for _, v_block = range coreIter(v_result_blocks) {
+			v_seed = Object()
+			v_copy = _core_map_merge(v_seed, v_block)
+			if err := coreSet(v_copy, "result_index", v_index); err != nil { return nil, err }
+			v_blocks = coreAppend(v_blocks, v_copy)
+		}
+		if _, err := _ai_merge_citation_metadata(v_citation_holder, v_result); err != nil { return nil, err }
+		v_position = _core_add(v_position, 1)
+	}
+	v_count = _core_len(v_blocks)
+	v_has_blocks = _core_gt(v_count, 0)
+	if coreTruthy(v_has_blocks) {
+		if err := coreSet(v_entry, "text_blocks", v_blocks); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_citations = coreGet(v_citation_holder, "citations", nil)
+	v_has_citations = coreTypeIs(v_citations, "list")
+	if coreTruthy(v_has_citations) {
+		v_existing = coreGet(v_entry, "usage", nil)
+		v_seed = Object()
+		v_usage = _core_map_merge(v_seed, v_existing)
+		if err := coreSet(v_usage, "citations", v_citations); err != nil { return nil, err }
+		if err := coreSet(v_entry, "usage", v_usage); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
 func _stream_feedback_text_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_feedback_text_impl")
 	var v_result Value
@@ -80357,10 +81393,109 @@ func _agent_render_context_pressure(args ...Value) (Value, error) {
 	return v_text, nil
 }
 
+func _agent_depth_limited_value(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_depth_limited_value")
+	var v_value Value
+	var v_depth Value
+	var v_ancestors Value
+	var v_ancestor Value
+	var v_branch Value
+	var v_container Value
+	var v_is_list Value
+	var v_is_map Value
+	var v_item Value
+	var v_key Value
+	var v_keys Value
+	var v_length Value
+	var v_next Value
+	var v_out Value
+	var v_out_list Value
+	var v_placeholder Value
+	var v_processed Value
+	var v_same Value
+	var v_too_deep Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_depth = args[1] }
+	_ = v_depth
+	if len(args) > 2 { v_ancestors = args[2] }
+	_ = v_ancestors
+	_ = v_ancestor
+	_ = v_branch
+	_ = v_container
+	_ = v_is_list
+	_ = v_is_map
+	_ = v_item
+	_ = v_key
+	_ = v_keys
+	_ = v_length
+	_ = v_next
+	_ = v_out
+	_ = v_out_list
+	_ = v_placeholder
+	_ = v_processed
+	_ = v_same
+	_ = v_too_deep
+	v_is_list = coreTypeIs(v_value, "list")
+	v_is_map = coreTypeIs(v_value, "object")
+	v_container = _core_or(v_is_list, v_is_map)
+	if coreTruthy(v_container) {
+	// empty
+	} else {
+		return v_value, nil
+	}
+	for _, v_ancestor = range coreIter(v_ancestors) {
+		v_same = _core_same_reference(v_value, v_ancestor)
+		if coreTruthy(v_same) {
+			return "[Circular]", nil
+		} else {
+		// empty
+		}
+	}
+	v_too_deep = _core_gte(v_depth, 3)
+	if coreTruthy(v_too_deep) {
+		if coreTruthy(v_is_list) {
+			v_length = _core_len(v_value)
+			v_placeholder = _core_string_format("[Array({})]", v_length)
+			return v_placeholder, nil
+		} else {
+		// empty
+		}
+		return "[Object]", nil
+	} else {
+	// empty
+	}
+	v_branch = MutableArray()
+	for _, v_ancestor = range coreIter(v_ancestors) {
+		v_branch = coreAppend(v_branch, v_ancestor)
+	}
+	v_branch = coreAppend(v_branch, v_value)
+	v_next = _core_add(v_depth, 1)
+	if coreTruthy(v_is_list) {
+		v_out_list = MutableArray()
+		for _, v_item = range coreIter(v_value) {
+			{ v, err := _agent_depth_limited_value(v_item, v_next, v_branch); if err != nil { return nil, err }; v_processed = v }
+			v_out_list = coreAppend(v_out_list, v_processed)
+		}
+		return v_out_list, nil
+	} else {
+	// empty
+	}
+	v_out = Object()
+	v_keys = _core_map_keys(v_value)
+	for _, v_key = range coreIter(v_keys) {
+		v_item = coreGet(v_value, v_key, nil)
+		{ v, err := _agent_depth_limited_value(v_item, v_next, v_branch); if err != nil { return nil, err }; v_processed = v }
+		if err := coreSet(v_out, v_key, v_processed); err != nil { return nil, err }
+	}
+	return v_out, nil
+}
+
 func _agent_smart_stringify(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_smart_stringify")
 	var v_value Value
 	var v_max_chars Value
+	var v_ancestors Value
 	var v_array_head_items Value
 	var v_array_tail_items Value
 	var v_array_threshold Value
@@ -80375,19 +81510,27 @@ func _agent_smart_stringify(args ...Value) (Value, error) {
 	var v_index Value
 	var v_is_list Value
 	var v_item Value
+	var v_item_length Value
 	var v_item_text Value
 	var v_json Value
+	var v_keep Value
 	var v_large Value
 	var v_negative_tail_items Value
 	var v_out Value
+	var v_per_item Value
+	var v_prefix Value
+	var v_processed Value
 	var v_settings Value
+	var v_small_budget Value
 	var v_tail Value
 	var v_tail_start Value
 	var v_tail_text Value
+	var v_too_long Value
 	if len(args) > 0 { v_value = args[0] }
 	_ = v_value
 	if len(args) > 1 { v_max_chars = args[1] }
 	_ = v_max_chars
+	_ = v_ancestors
 	_ = v_array_head_items
 	_ = v_array_tail_items
 	_ = v_array_threshold
@@ -80402,15 +81545,22 @@ func _agent_smart_stringify(args ...Value) (Value, error) {
 	_ = v_index
 	_ = v_is_list
 	_ = v_item
+	_ = v_item_length
 	_ = v_item_text
 	_ = v_json
+	_ = v_keep
 	_ = v_large
 	_ = v_negative_tail_items
 	_ = v_out
+	_ = v_per_item
+	_ = v_prefix
+	_ = v_processed
 	_ = v_settings
+	_ = v_small_budget
 	_ = v_tail
 	_ = v_tail_start
 	_ = v_tail_text
+	_ = v_too_long
 	{ v, err := _agent_context_policy_registry(); if err != nil { return nil, err }; v_context_registry = v }
 	v_empty_map = Object()
 	v_settings = coreGet(v_context_registry, "smart_stringify", v_empty_map)
@@ -80426,9 +81576,26 @@ func _agent_smart_stringify(args ...Value) (Value, error) {
 			v_tail = MutableArray()
 			v_negative_tail_items = _core_mul(-1, v_array_tail_items)
 			v_tail_start = _core_add(v_count, v_negative_tail_items)
+			v_per_item = _core_div(v_max_chars, 6)
+			v_per_item = _core_math_floor(v_per_item)
+			v_small_budget = _core_lt(v_per_item, 80)
+			if coreTruthy(v_small_budget) {
+				v_per_item = 80
+			} else {
+			// empty
+			}
 			v_index = 0
 			for _, v_item = range coreIter(v_value) {
 				v_item_text = _core_json_stringify(v_item)
+				v_item_length = _core_len(v_item_text)
+				v_too_long = _core_gt(v_item_length, v_per_item)
+				if coreTruthy(v_too_long) {
+					v_keep = _core_add(v_per_item, -3)
+					v_prefix = _core_string_slice(v_item_text, 0, v_keep)
+					v_item_text = _core_string_format("{}...", v_prefix)
+				} else {
+				// empty
+				}
 				v_in_head = _core_lt(v_index, v_array_head_items)
 				if coreTruthy(v_in_head) {
 					v_head = coreAppend(v_head, v_item_text)
@@ -80454,7 +81621,9 @@ func _agent_smart_stringify(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_json = _core_json_pretty(v_value)
+	v_ancestors = MutableArray()
+	{ v, err := _agent_depth_limited_value(v_value, 0, v_ancestors); if err != nil { return nil, err }; v_processed = v }
+	v_json = _core_json_pretty(v_processed)
 	return v_json, nil
 }
 
@@ -83062,7 +84231,13 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 	var v_checkpoint_active Value
 	var v_checkpoint_entries Value
 	var v_checkpoint_turns Value
+	var v_child Value
+	var v_child_id Value
+	var v_descriptor Value
+	var v_descriptors Value
 	var v_dynamic Value
+	var v_edge Value
+	var v_edges Value
 	var v_effective Value
 	var v_empty_actor_state Value
 	var v_empty_entries Value
@@ -83080,20 +84255,31 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 	var v_fixture_provenance Value
 	var v_fixture_restore_notice Value
 	var v_fixture_session_state Value
+	var v_graph Value
 	var v_has_fixture_action_log Value
 	var v_has_fixture_checkpoint Value
 	var v_has_fixture_provenance Value
 	var v_has_fixture_restore_notice Value
+	var v_has_graph Value
 	var v_has_session_state Value
+	var v_is_array Value
+	var v_is_array_node Value
 	var v_is_budget Value
 	var v_is_checkpoint_summary Value
 	var v_is_executor_policy Value
 	var v_is_manage_context Value
 	var v_is_policy Value
 	var v_is_smart Value
+	var v_item Value
+	var v_key Value
 	var v_max_chars Value
 	var v_max_runtime Value
 	var v_mutable_prompt_chars Value
+	var v_node_key Value
+	var v_node_keys Value
+	var v_node_list Value
+	var v_node_map Value
+	var v_nodes Value
 	var v_operation Value
 	var v_options Value
 	var v_options2 Value
@@ -83102,11 +84288,15 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 	var v_out_budget Value
 	var v_out_smart Value
 	var v_out_summary Value
+	var v_parent Value
+	var v_parent_id Value
 	var v_policy Value
 	var v_policy2 Value
 	var v_prepared Value
 	var v_pressure Value
 	var v_pressure_text_budget Value
+	var v_root Value
+	var v_seed Value
 	var v_selected Value
 	var v_summary Value
 	var v_text Value
@@ -83120,7 +84310,13 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 	_ = v_checkpoint_active
 	_ = v_checkpoint_entries
 	_ = v_checkpoint_turns
+	_ = v_child
+	_ = v_child_id
+	_ = v_descriptor
+	_ = v_descriptors
 	_ = v_dynamic
+	_ = v_edge
+	_ = v_edges
 	_ = v_effective
 	_ = v_empty_actor_state
 	_ = v_empty_entries
@@ -83138,20 +84334,31 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 	_ = v_fixture_provenance
 	_ = v_fixture_restore_notice
 	_ = v_fixture_session_state
+	_ = v_graph
 	_ = v_has_fixture_action_log
 	_ = v_has_fixture_checkpoint
 	_ = v_has_fixture_provenance
 	_ = v_has_fixture_restore_notice
+	_ = v_has_graph
 	_ = v_has_session_state
+	_ = v_is_array
+	_ = v_is_array_node
 	_ = v_is_budget
 	_ = v_is_checkpoint_summary
 	_ = v_is_executor_policy
 	_ = v_is_manage_context
 	_ = v_is_policy
 	_ = v_is_smart
+	_ = v_item
+	_ = v_key
 	_ = v_max_chars
 	_ = v_max_runtime
 	_ = v_mutable_prompt_chars
+	_ = v_node_key
+	_ = v_node_keys
+	_ = v_node_list
+	_ = v_node_map
+	_ = v_nodes
 	_ = v_operation
 	_ = v_options
 	_ = v_options2
@@ -83160,11 +84367,15 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 	_ = v_out_budget
 	_ = v_out_smart
 	_ = v_out_summary
+	_ = v_parent
+	_ = v_parent_id
 	_ = v_policy
 	_ = v_policy2
 	_ = v_prepared
 	_ = v_pressure
 	_ = v_pressure_text_budget
+	_ = v_root
+	_ = v_seed
 	_ = v_selected
 	_ = v_summary
 	_ = v_text
@@ -83222,6 +84433,46 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 	v_is_smart = _core_eq(v_operation, "smart_stringify")
 	if coreTruthy(v_is_smart) {
 		v_value = coreGet(v_fixture, "value", nil)
+		v_graph = coreGet(v_fixture, "value_graph", nil)
+		v_has_graph = coreTypeIs(v_graph, "object")
+		if coreTruthy(v_has_graph) {
+			v_descriptors = coreGet(v_graph, "nodes", nil)
+			v_nodes = Object()
+			v_node_keys = _core_map_keys(v_descriptors)
+			for _, v_node_key = range coreIter(v_node_keys) {
+				v_descriptor = coreGet(v_descriptors, v_node_key, nil)
+				v_is_array_node = coreTypeIs(v_descriptor, "list")
+				if coreTruthy(v_is_array_node) {
+					v_node_list = MutableArray()
+					for _, v_item = range coreIter(v_descriptor) {
+						v_node_list = coreAppend(v_node_list, v_item)
+					}
+					if err := coreSet(v_nodes, v_node_key, v_node_list); err != nil { return nil, err }
+				} else {
+					v_seed = Object()
+					v_node_map = _core_map_merge(v_seed, v_descriptor)
+					if err := coreSet(v_nodes, v_node_key, v_node_map); err != nil { return nil, err }
+				}
+			}
+			v_edges = coreGet(v_graph, "edges", nil)
+			for _, v_edge = range coreIter(v_edges) {
+				v_parent_id = coreGet(v_edge, "from", nil)
+				v_child_id = coreGet(v_edge, "to", nil)
+				v_key = coreGet(v_edge, "key", nil)
+				v_parent = coreGet(v_nodes, v_parent_id, nil)
+				v_child = coreGet(v_nodes, v_child_id, nil)
+				v_is_array = coreTypeIs(v_parent, "list")
+				if coreTruthy(v_is_array) {
+					v_parent = coreAppend(v_parent, v_child)
+				} else {
+					if err := coreSet(v_parent, v_key, v_child); err != nil { return nil, err }
+				}
+			}
+			v_root = coreGet(v_graph, "root", nil)
+			v_value = coreGet(v_nodes, v_root, nil)
+		} else {
+		// empty
+		}
 		v_max_chars = coreGet(v_fixture, "max_chars", 400)
 		{ v, err := _agent_smart_stringify(v_value, v_max_chars); if err != nil { return nil, err }; v_text = v }
 		v_out_smart = Object()
@@ -87305,6 +88556,7 @@ func _normalize_agent_runtime_step_result(args ...Value) (Value, error) {
 	var v_out Value
 	var v_output Value
 	var v_output_is_empty Value
+	var v_output_is_text Value
 	var v_raw_is_map Value
 	var v_raw_logs Value
 	var v_raw_logs_is_list Value
@@ -87352,6 +88604,7 @@ func _normalize_agent_runtime_step_result(args ...Value) (Value, error) {
 	_ = v_out
 	_ = v_output
 	_ = v_output_is_empty
+	_ = v_output_is_text
 	_ = v_raw_is_map
 	_ = v_raw_logs
 	_ = v_raw_logs_is_list
@@ -87390,7 +88643,13 @@ func _normalize_agent_runtime_step_result(args ...Value) (Value, error) {
 		v_is_error = coreGet(v_raw, "is_error", false)
 		v_result = coreGet(v_raw, "result", v_raw)
 		v_output = coreGet(v_raw, "output", "")
-		v_output_is_empty = _core_eq(v_output, "")
+		v_output_is_text = coreTypeIs(v_output, "string")
+		v_output_is_empty = false
+		if coreTruthy(v_output_is_text) {
+			v_output_is_empty = _core_eq(v_output, "")
+		} else {
+		// empty
+		}
 		if coreTruthy(v_output_is_empty) {
 			v_raw_logs = coreGet(v_raw, "logs", nil)
 			v_raw_logs_is_list = coreTypeIs(v_raw_logs, "list")
@@ -87651,8 +88910,10 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	var v_closed Value
 	var v_completion_payload Value
 	var v_completion_type Value
+	var v_context_policy Value
 	var v_current_memories Value
 	var v_discover_request Value
+	var v_dropped Value
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_globals Value
@@ -87667,20 +88928,28 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	var v_is_clarification_completion Value
 	var v_is_closed Value
 	var v_is_final_completion Value
+	var v_length Value
+	var v_max_chars Value
 	var v_memory_context Value
 	var v_memory_globals Value
 	var v_memory_inputs Value
 	var v_memory_patch Value
 	var v_missing_session Value
+	var v_negative_max Value
 	var v_normalized Value
 	var v_notice Value
+	var v_output Value
+	var v_output_is_string Value
+	var v_prefix Value
 	var v_raw Value
 	var v_recall_request Value
+	var v_rendered Value
 	var v_runtime_options Value
 	var v_status Value
 	var v_status_log Value
 	var v_step_error Value
 	var v_step_turn Value
+	var v_too_long Value
 	var v_used_request Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -87698,8 +88967,10 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	_ = v_closed
 	_ = v_completion_payload
 	_ = v_completion_type
+	_ = v_context_policy
 	_ = v_current_memories
 	_ = v_discover_request
+	_ = v_dropped
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_globals
@@ -87714,20 +88985,28 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	_ = v_is_clarification_completion
 	_ = v_is_closed
 	_ = v_is_final_completion
+	_ = v_length
+	_ = v_max_chars
 	_ = v_memory_context
 	_ = v_memory_globals
 	_ = v_memory_inputs
 	_ = v_memory_patch
 	_ = v_missing_session
+	_ = v_negative_max
 	_ = v_normalized
 	_ = v_notice
+	_ = v_output
+	_ = v_output_is_string
+	_ = v_prefix
 	_ = v_raw
 	_ = v_recall_request
+	_ = v_rendered
 	_ = v_runtime_options
 	_ = v_status
 	_ = v_status_log
 	_ = v_step_error
 	_ = v_step_turn
+	_ = v_too_long
 	_ = v_used_request
 	{ v, err := _agent_runtime_execution_options(v_state, v_options); if err != nil { return nil, err }; v_runtime_options = v }
 	v_empty_map = Object()
@@ -87755,6 +89034,26 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 		if _, err := _agent_attach_code_analysis(v_normalized, v_raw); err != nil { return nil, err }
 	} else {
 	// empty
+	}
+	v_output = coreGet(v_normalized, "output", "")
+	v_output_is_string = coreTypeIs(v_output, "string")
+	if coreTruthy(v_output_is_string) {
+	// empty
+	} else {
+		{ v, err := _resolve_agent_context_policy(v_options); if err != nil { return nil, err }; v_context_policy = v }
+		v_max_chars = coreGet(v_context_policy, "maxRuntimeChars", 3000)
+		{ v, err := _agent_smart_stringify(v_output, v_max_chars); if err != nil { return nil, err }; v_rendered = v }
+		v_length = _core_len(v_rendered)
+		v_too_long = _core_gt(v_length, v_max_chars)
+		if coreTruthy(v_too_long) {
+			v_prefix = _core_string_slice(v_rendered, 0, v_max_chars)
+			v_negative_max = _core_mul(v_max_chars, -1)
+			v_dropped = _core_add(v_length, v_negative_max)
+			v_rendered = _core_string_format("{}\n...[truncated {} chars]", v_prefix, v_dropped)
+		} else {
+		// empty
+		}
+		if err := coreSet(v_normalized, "output", v_rendered); err != nil { return nil, err }
 	}
 	if _, err := _agent_runtime_append_action_log(v_state, v_normalized); err != nil { return nil, err }
 	if _, err := _agent_record_trace_event(v_state, "runtime_execute", v_normalized); err != nil { return nil, err }
@@ -121012,6 +122311,7 @@ func _core_axgen_record_chat_log(target Value, values ...Value) Value {
 		"thought_blocks", coreGet(response, "thought_blocks", Array()),
 		"providerMetadata", coreGet(request, "provider_metadata", Object()),
 	)
+	if _, err := _gen_citation_log_metadata(entry, response); err != nil { panic(err) }
 	log = coreAppend(log, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.ChatLog = log
@@ -128207,6 +129507,9 @@ func goPromptAudioPart(value Value) Value {
 // goPromptFilePart is TS's file part: the mime type and either the data or
 // the fileUri.
 func goPromptFilePart(value Value) Value {
+    document, err := _prompt_document_part(value)
+    if err != nil { panic(err) }
+    if document != nil { return document }
 	file := goPromptMediaObject(value, "File", "mimeType")
 	data, hasData := file["data"]
 	fileURI, hasFileURI := file["fileUri"]
@@ -128220,7 +129523,7 @@ func goPromptFilePart(value Value) Value {
 	if hasFileURI {
 		part = Object("type", "file", "mimeType", file["mimeType"], "fileUri", fileURI)
 	}
-	return goPromptDeclaredKeys(part, file, "filename", "cache", "extractedText")
+	return goPromptDeclaredKeys(part, file, "filename", "cache", "extractedText", "title", "context", "citations")
 }
 
 // goPromptURLPart is TS's url part: the url, and the title and description

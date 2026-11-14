@@ -1645,6 +1645,8 @@ module @ax.provider version "0.1" {
               }
             }
             %is_file = core.call intrinsic.eq(%part_type, "file")
+            %is_document = core.call intrinsic.eq(%part_type, "document")
+            %is_file = core.call intrinsic.or(%is_file, %is_document)
             core.if %is_file {
               core.set %requirements["hasFiles"] = true
               %cached_file = core.get %part["cache"] default false
@@ -1820,6 +1822,24 @@ module @ax.provider version "0.1" {
           %part_index = core.let 0
           core.for %part in %content {
             %part_type = core.get %part["type"] default "text"
+            %is_document = core.call intrinsic.eq(%part_type, "document")
+            %citation_config = core.get %part["citations"] default null
+            %cited = core.get %citation_config["enabled"] default false
+            %needs_documents = core.call intrinsic.or(%is_document, %cited)
+            core.if %needs_documents {
+              %media = core.get %features["media"] default null
+              %documents = core.get %media["documents"] default null
+              %supported = core.get %documents["supported"] default false
+              %supports_citations = core.get %documents["citations"] default false
+              %no_citations = core.call intrinsic.not(%cited)
+              %citing_supported = core.call intrinsic.or(%no_citations, %supports_citations)
+              %can_preserve = core.call intrinsic.and(%supported, %citing_supported)
+              %cannot_preserve = core.call intrinsic.not(%can_preserve)
+              core.if %cannot_preserve {
+                %error = core.call intrinsic.error.runtime("Document inputs and citations require native document support")
+                core.raise %error
+              }
+            }
             %is_file = core.call intrinsic.eq(%part_type, "file")
             core.if %is_file {
               %slot = core.call intrinsic.string.format("{}:{}", %message_index, %part_index)
@@ -1871,6 +1891,11 @@ module @ax.provider version "0.1" {
     tag "provider-routing-native-file-preservation"
     type signature = "(features:json, part:json, processing:json, slot:string) -> json throws"
     body @entry(%features: json, %part: json, %processing: json, %slot: string) {
+      %citation_config = core.get %part["citations"] default null
+      %cited = core.get %citation_config["enabled"] default false
+      core.if %cited {
+        core.return %part
+      }
       %supports_files = core.call @provider_features_support(%features, "files")
       core.if %supports_files {
         %empty = core.map
@@ -4192,6 +4217,17 @@ module @ax.provider version "0.1" {
         core.set %cache_features["types"] = %cache_types
         core.set %features["caching"] = %cache_features
       }
+      %anthropic = core.call intrinsic.eq(%profile, "anthropic")
+      core.if %anthropic {
+        %empty_media = core.map
+        %base_media = core.get %features["media"] default %empty_media
+        %media = core.call intrinsic.map.merge(%empty_media, %base_media)
+        %documents = core.call intrinsic.json.parse("{\"supported\":true,\"citations\":true}")
+        %files = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"application/pdf\"],\"uploadMethod\":\"inline\"}")
+        core.set %media["documents"] = %documents
+        core.set %media["files"] = %files
+        core.set %features["media"] = %media
+      }
       core.return %features
     }
   }
@@ -4616,6 +4652,7 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string, %request: AxChatRequest, %options: json) {
       %model = core.get %request["model"] default ""
       %provider_id = core.call @provider_chat_profile(%profile, %model)
+      core.call @provider_validate_documents(%provider_id, %request, %options)
       %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
       %transport = core.get %descriptor["transport"] default "openai-chat"
       %is_google_decisions = core.call intrinsic.eq(%transport, "google-gemini-decisions")
@@ -10077,6 +10114,12 @@ module @ax.provider version "0.1" {
     tag "anthropic-content-core-helper"
     type signature = "(json) -> json throws"
     body @entry(%part: json) {
+      %doc = core.call @anthropic_document_input(%part)
+      %has_doc = core.call intrinsic.is_not_none(%doc)
+      core.if %has_doc {
+        %mapped = core.call @anthropic_document_part(%doc)
+        core.return %mapped
+      }
       %type = core.get %part["type"] default "text"
       %is_text = core.call intrinsic.eq(%type, "text")
       core.if %is_text {
@@ -12957,6 +13000,204 @@ module @ax.provider version "0.1" {
       core.set %out["providerScores"] = %scores
       core.set %out["recommendedProvider"] = %recommended
       core.set %out["summary"] = %summary
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @anthropic_document_input {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "source:src/ax/ai/anthropic/documents.ts#getAnthropicDocument"
+    type signature = "(json) -> json throws"
+    body @entry(%part: json) {
+      %type = core.get %part["type"] default ""
+      %supports_native_documents = core.call intrinsic.eq(%type, "document")
+      core.if %supports_native_documents { core.return %part }
+      %file = core.call intrinsic.eq(%type, "file")
+      core.if %file {} else { core.return null }
+      %mime_snake = core.get %part["mime_type"]
+      %mime = core.get %part["mimeType"] default %mime_snake
+      %pdf = core.call intrinsic.eq(%mime, "application/pdf")
+      core.if %pdf {} else {
+        %citations = core.get %part["citations"]
+        %enabled = core.get %citations["enabled"] default false
+        core.if %enabled {
+          %error = core.call intrinsic.error.runtime("Anthropic file citations require a PDF; use a document text source for plain text")
+          core.raise %error
+        }
+        core.return null
+      }
+      %doc = core.map
+      %source = core.map
+      %uri_snake = core.get %part["file_uri"]
+      %uri = core.get %part["fileUri"] default %uri_snake
+      %has_uri = core.call intrinsic.is_not_none(%uri)
+      core.if %has_uri {
+        core.set %source["type"] = "url"
+        core.set %source["url"] = %uri
+      } else {
+        core.set %source["type"] = "base64"
+        core.set %source["mediaType"] = "application/pdf"
+        %data = core.get %part["data"]
+        core.set %source["data"] = %data
+      }
+      core.set %doc["source"] = %source
+      %keys = core.call intrinsic.json.parse("[\"title\",\"context\",\"citations\",\"cache\"]")
+      core.for %key in %keys {
+        %has = core.call intrinsic.map.contains(%part, %key)
+        core.if %has {
+          %value = core.get %part[%key]
+          core.set %doc[%key] = %value
+        }
+      }
+      core.return %doc
+    }
+  }
+
+  op ax.provider.semantic @provider_validate_documents {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "source:src/ax/ai/anthropic/documents.ts#validateAnthropicDocuments"
+    type signature = "(string, json, json) -> void throws"
+    body @entry(%profile: string, %request: json, %options: json) {
+      %supports_native_documents = core.call intrinsic.eq(%profile, "anthropic")
+      %empty = core.list
+      %snake_prompt = core.get %request["chat_prompt"] default %empty
+      %prompt = core.get %request["chatPrompt"] default %snake_prompt
+      %any_enabled = core.let false
+      %any_disabled = core.let false
+      core.for %message in %prompt {
+        %role = core.get %message["role"] default ""
+        %user = core.call intrinsic.eq(%role, "user")
+        %content = core.get %message["content"]
+        %parts = core.type_is %content type "list"
+        %check = core.call intrinsic.and(%user, %parts)
+        core.if %check {
+          core.for %part in %content {
+            %type = core.get %part["type"] default ""
+            %document = core.call intrinsic.eq(%type, "document")
+            %file = core.call intrinsic.eq(%type, "file")
+            %citations = core.get %part["citations"]
+            %enabled = core.get %citations["enabled"] default false
+            %enabled = core.call intrinsic.eq(%enabled, true)
+            %cited_file = core.call intrinsic.and(%file, %enabled)
+            %requires_native = core.call intrinsic.or(%document, %cited_file)
+            %unsupported = core.call intrinsic.not(%supports_native_documents)
+            %reject = core.call intrinsic.and(%requires_native, %unsupported)
+            core.if %reject {
+              %error = core.call intrinsic.ai.error.unsupported("Provider does not support native document inputs and citations")
+              core.raise %error
+            }
+            core.if %supports_native_documents {
+              %doc = core.call @anthropic_document_input(%part)
+              %has_doc = core.call intrinsic.is_not_none(%doc)
+              core.if %has_doc {
+                core.call @validate_document_input(%doc)
+                %source = core.get %doc["source"]
+                %source_type = core.get %source["type"]
+                %uploaded = core.call intrinsic.eq(%source_type, "file")
+                core.if %uploaded {
+                  %descriptor = core.call @provider_resolve_descriptor(%profile, %options)
+                  %vertex = core.get %descriptor["vertex"] default false
+                  core.if %vertex {
+                    %error = core.call intrinsic.error.runtime("Anthropic fileId document sources require the first-party Files API")
+                    core.raise %error
+                  }
+                }
+                core.if %enabled { %any_enabled = core.let true } else { %any_disabled = core.let true }
+              }
+            }
+          }
+        }
+      }
+      core.if %any_enabled {
+        core.if %any_disabled {
+          %error = core.call intrinsic.error.runtime("Anthropic citations must be enabled on all documents in the request or none")
+          core.raise %error
+        }
+        %format_snake = core.get %request["response_format"]
+        %format = core.get %request["responseFormat"] default %format_snake
+        %format_type = core.get %format["type"]
+        %json = core.call intrinsic.eq(%format_type, "json_schema")
+        core.if %json {
+          %error = core.call intrinsic.error.runtime("Anthropic document citations cannot be combined with native structured outputs (output_config.format); use a text signature without .useStructured()")
+          core.raise %error
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @anthropic_document_part {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "source:src/ax/ai/anthropic/documents.ts#createAnthropicDocument"
+    type signature = "(json) -> json throws"
+    body @entry(%doc: json) {
+      core.call @validate_document_input(%doc)
+      %input = core.get %doc["source"]
+      %type = core.get %input["type"]
+      %source = core.map
+      core.set %source["type"] = %type
+      %text = core.call intrinsic.eq(%type, "text")
+      %base64 = core.call intrinsic.eq(%type, "base64")
+      %data_type = core.call intrinsic.or(%text, %base64)
+      core.if %data_type {
+        %data = core.get %input["data"]
+        core.set %source["data"] = %data
+        core.if %text { core.set %source["media_type"] = "text/plain" } else { core.set %source["media_type"] = "application/pdf" }
+      }
+      %url = core.call intrinsic.eq(%type, "url")
+      core.if %url {
+        %value = core.get %input["url"]
+        core.set %source["url"] = %value
+      }
+      %file = core.call intrinsic.eq(%type, "file")
+      core.if %file {
+        %snake = core.get %input["file_id"]
+        %value = core.get %input["fileId"] default %snake
+        core.set %source["file_id"] = %value
+      }
+      %content = core.call intrinsic.eq(%type, "content")
+      core.if %content {
+        %blocks = core.get %input["content"]
+        %mapped = core.list
+        core.for %block in %blocks {
+          %text = core.get %block["text"]
+          %part = core.map
+          core.set %part["type"] = "text"
+          core.set %part["text"] = %text
+          core.append %mapped, %part
+        }
+        core.set %source["content"] = %mapped
+      }
+      %out = core.map
+      core.set %out["type"] = "document"
+      core.set %out["source"] = %source
+      %keys = core.call intrinsic.json.parse("[\"title\",\"context\"]")
+      core.for %key in %keys {
+        %has = core.call intrinsic.map.contains(%doc, %key)
+        core.if %has {
+          %value = core.get %doc[%key]
+          core.set %out[%key] = %value
+        }
+      }
+      %has_citations = core.call intrinsic.map.contains(%doc, "citations")
+      core.if %has_citations {
+        %citations = core.get %doc["citations"]
+        %enabled = core.get %citations["enabled"]
+        %config = core.map
+        core.set %config["enabled"] = %enabled
+        core.set %out["citations"] = %config
+      }
+      %cache = core.get %doc["cache"] default false
+      core.if %cache {
+        %control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+        core.set %out["cache_control"] = %control
+      }
       core.return %out
     }
   }

@@ -456,6 +456,7 @@ struct Core {
   static Value json_parse_strict(Value value);
   static Value json_stringify(Value value);
   static Value json_stable_stringify(Value value);
+  static Value same_reference(Value left, Value right);
   static Value json_pretty(Value value);
   static Value signature_error(Value message);
   static Value validation_error(Value message);

@@ -1,0 +1,32 @@
+{
+  "expected_error_contains": "native document",
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "anthropic-native-document-reject-unsupported-cited-pdf",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "cache": true,
+            "citations": {
+              "enabled": true
+            },
+            "context": "Use as evidence.",
+            "data": "JVBERi0=",
+            "filename": "legacy.pdf",
+            "mimeType": "application/pdf",
+            "title": "Evidence",
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {}
+}

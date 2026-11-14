@@ -686,6 +686,7 @@ final class Core {
   static Object jsonParseStrict(Object value) { return Json.parse(String.valueOf(value).trim()); }
   static Object jsonStringify(Object value) { return Json.stringify(value); }
   static Object jsonStableStringify(Object value) { return Json.stableStringify(value); }
+  static boolean sameReference(Object left, Object right) { return left == right; }
   static Object jsonPretty(Object value) { return Json.pretty(value); }
 
   static Object signatureError(Object message) { return new AxSignatureError(String.valueOf(message)); }
@@ -1533,6 +1534,7 @@ final class Core {
     entry.put("thought", asMap(response).get("thought"));
     entry.put("thought_blocks", asMap(response).getOrDefault("thought_blocks", List.of()));
     entry.put("providerMetadata", asMap(request).getOrDefault("provider_metadata", Map.of()));
+    _gen_citation_log_metadata(entry, response);
     asList(get(gen, "chat_log", List.of())).add(entry);
     return null;
   }
@@ -4300,6 +4302,11 @@ final class Core {
     }
     Object is_file = Core.eq(type_name, "file");
     if (Core.truthy(is_file)) {
+      Object has_source = Core.mapContains(value, "source");
+      if (Core.truthy(has_source)) {
+        Core._validate_document_input(value);
+        return null;
+      }
       Object valid_file = Core.validFile(value);
       Object invalid_file = Core.not(valid_file);
       if (Core.truthy(invalid_file)) {
@@ -4843,6 +4850,17 @@ final class Core {
     return out;
   }
 
+  static Object _document_nonempty_string(Object value) {
+    axirCoverageMark("_document_nonempty_string");
+    Object is_string = Core.typeIs(value, "string");
+    if (Core.truthy(is_string)) {
+      Object trimmed = Core.stringTrim(value);
+      Object nonempty = Core.ne(trimmed, "");
+      return nonempty;
+    }
+    return Boolean.FALSE;
+  }
+
   static Object _schema_to_json_schema_impl(Object fields, Object schema_title, Object options) {
     axirCoverageMark("_schema_to_json_schema_impl");
     Object schema = new java.util.LinkedHashMap<String, Object>();
@@ -4867,6 +4885,133 @@ final class Core {
       }
     }
     return schema;
+  }
+
+  static Object _validate_document_input(Object doc) {
+    axirCoverageMark("_validate_document_input");
+    Object source = Core.get(doc, "source", null);
+    Object has_source = Core.mapContains(doc, "source");
+    if (Core.truthy(has_source)) {
+      // empty
+    }
+    if (!Core.truthy(has_source)) {
+      Object error = Core.runtimeError("Document input must contain a source");
+      throw Core.asRuntime(error);
+    }
+    Object metadata = Core.jsonParse("[\"title\",\"context\"]");
+    for (Object key : Core.iter(metadata)) {
+      Object has = Core.mapContains(doc, key);
+      if (Core.truthy(has)) {
+        Object value = Core.get(doc, key, null);
+        Object is_string = Core.typeIs(value, "string");
+        if (Core.truthy(is_string)) {
+          // empty
+        }
+        if (!Core.truthy(is_string)) {
+          Object message = Core.stringFormat("Document {} must be a string", key);
+          Object error = Core.runtimeError(message);
+          throw Core.asRuntime(error);
+        }
+      }
+    }
+    Object has_citations = Core.mapContains(doc, "citations");
+    if (Core.truthy(has_citations)) {
+      Object citations = Core.get(doc, "citations", null);
+      Object enabled = Core.get(citations, "enabled", null);
+      Object is_bool = Core.typeIs(enabled, "boolean");
+      if (Core.truthy(is_bool)) {
+        // empty
+      }
+      if (!Core.truthy(is_bool)) {
+        Object error = Core.runtimeError("Document citations.enabled must be a boolean");
+        throw Core.asRuntime(error);
+      }
+    }
+    Object source_is_object = Core.typeIs(source, "object");
+    if (Core.truthy(source_is_object)) {
+      // empty
+    }
+    if (!Core.truthy(source_is_object)) {
+      Object error = Core.runtimeError("Document source must be an object");
+      throw Core.asRuntime(error);
+    }
+    Object type = Core.get(source, "type", "");
+    Object is_text = Core.eq(type, "text");
+    if (Core.truthy(is_text)) {
+      Object data = Core.get(source, "data", null);
+      Object valid = Core._document_nonempty_string(data);
+      if (Core.truthy(valid)) {
+        return null;
+      }
+      Object error = Core.runtimeError("Document text must not be empty");
+      throw Core.asRuntime(error);
+    }
+    Object is_base64 = Core.eq(type, "base64");
+    if (Core.truthy(is_base64)) {
+      Object data = Core.get(source, "data", null);
+      Object media_snake = Core.get(source, "media_type", null);
+      Object media = Core.get(source, "mediaType", media_snake);
+      Object pdf = Core.eq(media, "application/pdf");
+      Object nonempty = Core._document_nonempty_string(data);
+      Object valid = Core.and(pdf, nonempty);
+      if (Core.truthy(valid)) {
+        return null;
+      }
+      Object error = Core.runtimeError("Document base64 source requires PDF data and mediaType application/pdf");
+      throw Core.asRuntime(error);
+    }
+    Object is_url = Core.eq(type, "url");
+    if (Core.truthy(is_url)) {
+      Object url = Core.get(source, "url", null);
+      Object nonempty = Core._document_nonempty_string(url);
+      if (Core.truthy(nonempty)) {
+        Object lower = Core.stringLower(url);
+        Object http = Core.stringStartsWith(lower, "http://");
+        Object https = Core.stringStartsWith(lower, "https://");
+        Object valid = Core.or(http, https);
+        if (Core.truthy(valid)) {
+          return null;
+        }
+      }
+      Object error = Core.runtimeError("Document URL must use http or https");
+      throw Core.asRuntime(error);
+    }
+    Object is_file = Core.eq(type, "file");
+    if (Core.truthy(is_file)) {
+      Object file_snake = Core.get(source, "file_id", null);
+      Object file = Core.get(source, "fileId", file_snake);
+      Object valid = Core._document_nonempty_string(file);
+      if (Core.truthy(valid)) {
+        return null;
+      }
+      Object error = Core.runtimeError("Document fileId must not be empty");
+      throw Core.asRuntime(error);
+    }
+    Object is_content = Core.eq(type, "content");
+    if (Core.truthy(is_content)) {
+      Object content = Core.get(source, "content", null);
+      Object is_list = Core.typeIs(content, "list");
+      Object valid = Boolean.FALSE;
+      if (Core.truthy(is_list)) {
+        Object length = Core.len(content);
+        valid = Core.gt(length, 0);
+        for (Object block : Core.iter(content)) {
+          Object block_type = Core.get(block, "type", null);
+          Object text = Core.get(block, "text", null);
+          is_text = Core.eq(block_type, "text");
+          Object nonempty = Core._document_nonempty_string(text);
+          Object block_valid = Core.and(is_text, nonempty);
+          valid = Core.and(valid, block_valid);
+        }
+      }
+      if (Core.truthy(valid)) {
+        return null;
+      }
+      Object error = Core.runtimeError("Document custom content must contain nonempty text blocks");
+      throw Core.asRuntime(error);
+    }
+    Object error = Core.runtimeError("Unsupported document source type");
+    throw Core.asRuntime(error);
   }
 
   static Object _evidence_result_schema_impl(Object typ) {
@@ -5170,6 +5315,31 @@ final class Core {
     Core.append(messages, system_message);
     Core.append(messages, user_message);
     return messages;
+  }
+
+  static Object _prompt_document_part(Object value) {
+    axirCoverageMark("_prompt_document_part");
+    Object has_source = Core.mapContains(value, "source");
+    if (Core.truthy(has_source)) {
+      Core._validate_document_input(value);
+      Object part = new java.util.LinkedHashMap<String, Object>();
+      Core.set(part, "type", "document");
+      Object keys = new java.util.ArrayList<Object>();
+      Core.append(keys, "source");
+      Core.append(keys, "title");
+      Core.append(keys, "context");
+      Core.append(keys, "citations");
+      Core.append(keys, "cache");
+      for (Object key : Core.iter(keys)) {
+        Object present = Core.mapContains(value, key);
+        if (Core.truthy(present)) {
+          Object item = Core.get(value, key, null);
+          Core.set(part, key, item);
+        }
+      }
+      return part;
+    }
+    return null;
   }
 
   static Object decisions_require_object(Object value, Object context) {
@@ -6795,6 +6965,10 @@ final class Core {
             Object type_text = Core.stringFormat("User message content item at index {} must have a type, received: {}", item_index, received_type);
             Object type_error = Core.aiErrorResponse(type_text);
             throw Core.asRuntime(type_error);
+          }
+          Object is_document = Core.eq(item_type, "document");
+          if (Core.truthy(is_document)) {
+            Core._validate_document_input(item);
           }
           Object next_item_index = Core.add(item_index, 1);
           item_index = next_item_index;
@@ -9353,6 +9527,7 @@ final class Core {
     if (Core.truthy(has_trusted)) {
       Core.set(completion, "decisionContext", trusted);
     }
+    Core._ai_merge_citation_metadata(completion, result);
     return completion;
   }
 
@@ -9551,6 +9726,7 @@ final class Core {
     if (Core.truthy(has_finish)) {
       Core.set(out, "finish_reason", finish);
     }
+    Core._ai_merge_citation_metadata(out, first);
     return out;
   }
 
@@ -9636,6 +9812,7 @@ final class Core {
   static Object provider_validate_chat_request(Object profile, Object request, Object options) {
     axirCoverageMark("provider_validate_chat_request");
     Object canonical = Core.provider_normalize_profile(profile);
+    Core._provider_validate_documents(canonical, request, options);
     Object is_google_decisions = Core.eq(canonical, "google-gemini-decisions");
     if (Core.truthy(is_google_decisions)) {
       Object model = Core.get(request, "model", "gemini-decision-1");
@@ -10393,6 +10570,7 @@ final class Core {
 
   static Object _fold_chat_stream_chunk_impl(Object target, Object chunk) {
     axirCoverageMark("_fold_chat_stream_chunk_impl");
+    Core._ai_merge_citation_metadata(target, chunk);
     Object trusted = Core.get(chunk, "decisionContext", null);
     Object has_trusted = Core.isNotNone(trusted);
     if (Core.truthy(has_trusted)) {
@@ -10805,6 +10983,8 @@ final class Core {
             }
           }
           Object is_file = Core.eq(part_type, "file");
+          Object is_document = Core.eq(part_type, "document");
+          is_file = Core.or(is_file, is_document);
           if (Core.truthy(is_file)) {
             Core.set(requirements, "hasFiles", Boolean.TRUE);
             Object cached_file = Core.get(part, "cache", Boolean.FALSE);
@@ -11195,6 +11375,24 @@ final class Core {
         Object part_index = 0;
         for (Object part : Core.iter(content)) {
           Object part_type = Core.get(part, "type", "text");
+          Object is_document = Core.eq(part_type, "document");
+          Object citation_config = Core.get(part, "citations", null);
+          Object cited = Core.get(citation_config, "enabled", Boolean.FALSE);
+          Object needs_documents = Core.or(is_document, cited);
+          if (Core.truthy(needs_documents)) {
+            Object media = Core.get(features, "media", null);
+            Object documents = Core.get(media, "documents", null);
+            Object supported = Core.get(documents, "supported", Boolean.FALSE);
+            Object supports_citations = Core.get(documents, "citations", Boolean.FALSE);
+            Object no_citations = Core.not(cited);
+            Object citing_supported = Core.or(no_citations, supports_citations);
+            Object can_preserve = Core.and(supported, citing_supported);
+            Object cannot_preserve = Core.not(can_preserve);
+            if (Core.truthy(cannot_preserve)) {
+              Object error = Core.runtimeError("Document inputs and citations require native document support");
+              throw Core.asRuntime(error);
+            }
+          }
           Object is_file = Core.eq(part_type, "file");
           if (Core.truthy(is_file)) {
             Object slot = Core.stringFormat("{}:{}", message_index, part_index);
@@ -11239,8 +11437,30 @@ final class Core {
     return out;
   }
 
+  static Object router_embed_request(Object request, Object model, Object embed_model) {
+    axirCoverageMark("router_embed_request");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object out = Core.mapMerge(empty, request);
+    Object chat_key = Core.truthyValue(model);
+    Object embed_key = Core.truthyValue(embed_model);
+    Object service_key = Core.or(chat_key, embed_key);
+    if (Core.truthy(service_key)) {
+      // empty
+    }
+    if (!Core.truthy(service_key)) {
+      Core.mapDelete(out, "embedModel");
+      Core.mapDelete(out, "embed_model");
+    }
+    return out;
+  }
+
   static Object _provider_route_file_content(Object features, Object part, Object processing, Object slot) {
     axirCoverageMark("_provider_route_file_content");
+    Object citation_config = Core.get(part, "citations", null);
+    Object cited = Core.get(citation_config, "enabled", Boolean.FALSE);
+    if (Core.truthy(cited)) {
+      return part;
+    }
     Object supports_files = Core._provider_features_support(features, "files");
     if (Core.truthy(supports_files)) {
       Object empty = new java.util.LinkedHashMap<String, Object>();
@@ -11277,23 +11497,6 @@ final class Core {
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "type", "text");
     Core.set(out, "text", text);
-    return out;
-  }
-
-  static Object router_embed_request(Object request, Object model, Object embed_model) {
-    axirCoverageMark("router_embed_request");
-    Object empty = new java.util.LinkedHashMap<String, Object>();
-    Object out = Core.mapMerge(empty, request);
-    Object chat_key = Core.truthyValue(model);
-    Object embed_key = Core.truthyValue(embed_model);
-    Object service_key = Core.or(chat_key, embed_key);
-    if (Core.truthy(service_key)) {
-      // empty
-    }
-    if (!Core.truthy(service_key)) {
-      Core.mapDelete(out, "embedModel");
-      Core.mapDelete(out, "embed_model");
-    }
     return out;
   }
 
@@ -11389,6 +11592,67 @@ final class Core {
       message_index = Core.add(message_index, 1);
     }
     return tasks;
+  }
+
+  static Object _ai_merge_citation_metadata(Object target, Object incoming) {
+    axirCoverageMark("_ai_merge_citation_metadata");
+    Object empty = new java.util.ArrayList<Object>();
+    Object snake = Core.get(incoming, "text_blocks", null);
+    Object updates = Core.get(incoming, "textBlocks", snake);
+    Object has_blocks = Core.typeIs(updates, "list");
+    if (Core.truthy(has_blocks)) {
+      Object blocks = Core.get(target, "text_blocks", empty);
+      for (Object update : Core.iter(updates)) {
+        Object index = Core.get(update, "index", 0);
+        Object next = new java.util.ArrayList<Object>();
+        Object found = Boolean.FALSE;
+        for (Object block : Core.iter(blocks)) {
+          Object old_index = Core.get(block, "index", 0);
+          Object same = Core.eq(index, old_index);
+          if (Core.truthy(same)) {
+            Core.append(next, update);
+            found = Boolean.TRUE;
+          }
+          if (!Core.truthy(same)) {
+            Core.append(next, block);
+          }
+        }
+        if (Core.truthy(found)) {
+          // empty
+        }
+        if (!Core.truthy(found)) {
+          Core.append(next, update);
+        }
+        blocks = next;
+      }
+      Core.set(target, "text_blocks", blocks);
+    }
+    updates = Core.get(incoming, "citations", null);
+    Object has_citations = Core.typeIs(updates, "list");
+    if (Core.truthy(has_citations)) {
+      Object citations = new java.util.ArrayList<Object>();
+      Object previous = Core.get(target, "citations", empty);
+      for (Object citation : Core.iter(previous)) {
+        Core.append(citations, citation);
+      }
+      for (Object citation : Core.iter(updates)) {
+        Object found = Boolean.FALSE;
+        for (Object existing : Core.iter(citations)) {
+          Object same = Core.eq(citation, existing);
+          if (Core.truthy(same)) {
+            found = Boolean.TRUE;
+          }
+        }
+        if (Core.truthy(found)) {
+          // empty
+        }
+        if (!Core.truthy(found)) {
+          Core.append(citations, citation);
+        }
+      }
+      Core.set(target, "citations", citations);
+    }
+    return null;
   }
 
   static Object _provider_route_score(Object provider, Object requirements) {
@@ -13448,6 +13712,17 @@ final class Core {
       Core.set(cache_features, "types", cache_types);
       Core.set(features, "caching", cache_features);
     }
+    Object anthropic = Core.eq(profile, "anthropic");
+    if (Core.truthy(anthropic)) {
+      Object empty_media = new java.util.LinkedHashMap<String, Object>();
+      Object base_media = Core.get(features, "media", empty_media);
+      Object media = Core.mapMerge(empty_media, base_media);
+      Object documents = Core.jsonParse("{\"supported\":true,\"citations\":true}");
+      Object files = Core.jsonParse("{\"supported\":true,\"formats\":[\"application/pdf\"],\"uploadMethod\":\"inline\"}");
+      Core.set(media, "documents", documents);
+      Core.set(media, "files", files);
+      Core.set(features, "media", media);
+    }
     return features;
   }
 
@@ -13835,6 +14110,7 @@ final class Core {
     axirCoverageMark("provider_build_chat_request");
     Object model = Core.get(request, "model", "");
     Object provider_id = Core.provider_chat_profile(profile, model);
+    Core._provider_validate_documents(provider_id, request, options);
     Object descriptor = Core.provider_resolve_descriptor(provider_id, options);
     Object transport = Core.get(descriptor, "transport", "openai-chat");
     Object is_google_decisions = Core.eq(transport, "google-gemini-decisions");
@@ -18771,6 +19047,12 @@ final class Core {
 
   static Object _anthropic_content_part_impl(Object part) {
     axirCoverageMark("_anthropic_content_part_impl");
+    Object doc = Core._anthropic_document_input(part);
+    Object has_doc = Core.isNotNone(doc);
+    if (Core.truthy(has_doc)) {
+      Object mapped = Core._anthropic_document_part(doc);
+      return mapped;
+    }
     Object type = Core.get(part, "type", "text");
     Object is_text = Core.eq(type, "text");
     if (Core.truthy(is_text)) {
@@ -21254,6 +21536,207 @@ final class Core {
     Core.set(out, "providerScores", scores);
     Core.set(out, "recommendedProvider", recommended);
     Core.set(out, "summary", summary);
+    return out;
+  }
+
+  static Object _anthropic_document_input(Object part) {
+    axirCoverageMark("_anthropic_document_input");
+    Object type = Core.get(part, "type", "");
+    Object supports_native_documents = Core.eq(type, "document");
+    if (Core.truthy(supports_native_documents)) {
+      return part;
+    }
+    Object file = Core.eq(type, "file");
+    if (Core.truthy(file)) {
+      // empty
+    }
+    if (!Core.truthy(file)) {
+      return null;
+    }
+    Object mime_snake = Core.get(part, "mime_type", null);
+    Object mime = Core.get(part, "mimeType", mime_snake);
+    Object pdf = Core.eq(mime, "application/pdf");
+    if (Core.truthy(pdf)) {
+      // empty
+    }
+    if (!Core.truthy(pdf)) {
+      Object citations = Core.get(part, "citations", null);
+      Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
+      if (Core.truthy(enabled)) {
+        Object error = Core.runtimeError("Anthropic file citations require a PDF; use a document text source for plain text");
+        throw Core.asRuntime(error);
+      }
+      return null;
+    }
+    Object doc = new java.util.LinkedHashMap<String, Object>();
+    Object source = new java.util.LinkedHashMap<String, Object>();
+    Object uri_snake = Core.get(part, "file_uri", null);
+    Object uri = Core.get(part, "fileUri", uri_snake);
+    Object has_uri = Core.isNotNone(uri);
+    if (Core.truthy(has_uri)) {
+      Core.set(source, "type", "url");
+      Core.set(source, "url", uri);
+    }
+    if (!Core.truthy(has_uri)) {
+      Core.set(source, "type", "base64");
+      Core.set(source, "mediaType", "application/pdf");
+      Object data = Core.get(part, "data", null);
+      Core.set(source, "data", data);
+    }
+    Core.set(doc, "source", source);
+    Object keys = Core.jsonParse("[\"title\",\"context\",\"citations\",\"cache\"]");
+    for (Object key : Core.iter(keys)) {
+      Object has = Core.mapContains(part, key);
+      if (Core.truthy(has)) {
+        Object value = Core.get(part, key, null);
+        Core.set(doc, key, value);
+      }
+    }
+    return doc;
+  }
+
+  static Object _provider_validate_documents(Object profile, Object request, Object options) {
+    axirCoverageMark("_provider_validate_documents");
+    Object supports_native_documents = Core.eq(profile, "anthropic");
+    Object empty = new java.util.ArrayList<Object>();
+    Object snake_prompt = Core.get(request, "chat_prompt", empty);
+    Object prompt = Core.get(request, "chatPrompt", snake_prompt);
+    Object any_enabled = Boolean.FALSE;
+    Object any_disabled = Boolean.FALSE;
+    for (Object message : Core.iter(prompt)) {
+      Object role = Core.get(message, "role", "");
+      Object user = Core.eq(role, "user");
+      Object content = Core.get(message, "content", null);
+      Object parts = Core.typeIs(content, "list");
+      Object check = Core.and(user, parts);
+      if (Core.truthy(check)) {
+        for (Object part : Core.iter(content)) {
+          Object type = Core.get(part, "type", "");
+          Object document = Core.eq(type, "document");
+          Object file = Core.eq(type, "file");
+          Object citations = Core.get(part, "citations", null);
+          Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
+          enabled = Core.eq(enabled, Boolean.TRUE);
+          Object cited_file = Core.and(file, enabled);
+          Object requires_native = Core.or(document, cited_file);
+          Object unsupported = Core.not(supports_native_documents);
+          Object reject = Core.and(requires_native, unsupported);
+          if (Core.truthy(reject)) {
+            Object error = Core.aiErrorUnsupported("Provider does not support native document inputs and citations");
+            throw Core.asRuntime(error);
+          }
+          if (Core.truthy(supports_native_documents)) {
+            Object doc = Core._anthropic_document_input(part);
+            Object has_doc = Core.isNotNone(doc);
+            if (Core.truthy(has_doc)) {
+              Core._validate_document_input(doc);
+              Object source = Core.get(doc, "source", null);
+              Object source_type = Core.get(source, "type", null);
+              Object uploaded = Core.eq(source_type, "file");
+              if (Core.truthy(uploaded)) {
+                Object descriptor = Core.provider_resolve_descriptor(profile, options);
+                Object vertex = Core.get(descriptor, "vertex", Boolean.FALSE);
+                if (Core.truthy(vertex)) {
+                  Object error = Core.runtimeError("Anthropic fileId document sources require the first-party Files API");
+                  throw Core.asRuntime(error);
+                }
+              }
+              if (Core.truthy(enabled)) {
+                any_enabled = Boolean.TRUE;
+              }
+              if (!Core.truthy(enabled)) {
+                any_disabled = Boolean.TRUE;
+              }
+            }
+          }
+        }
+      }
+    }
+    if (Core.truthy(any_enabled)) {
+      if (Core.truthy(any_disabled)) {
+        Object error = Core.runtimeError("Anthropic citations must be enabled on all documents in the request or none");
+        throw Core.asRuntime(error);
+      }
+      Object format_snake = Core.get(request, "response_format", null);
+      Object format = Core.get(request, "responseFormat", format_snake);
+      Object format_type = Core.get(format, "type", null);
+      Object json = Core.eq(format_type, "json_schema");
+      if (Core.truthy(json)) {
+        Object error = Core.runtimeError("Anthropic document citations cannot be combined with native structured outputs (output_config.format); use a text signature without .useStructured()");
+        throw Core.asRuntime(error);
+      }
+    }
+    return null;
+  }
+
+  static Object _anthropic_document_part(Object doc) {
+    axirCoverageMark("_anthropic_document_part");
+    Core._validate_document_input(doc);
+    Object input = Core.get(doc, "source", null);
+    Object type = Core.get(input, "type", null);
+    Object source = new java.util.LinkedHashMap<String, Object>();
+    Core.set(source, "type", type);
+    Object text = Core.eq(type, "text");
+    Object base64 = Core.eq(type, "base64");
+    Object data_type = Core.or(text, base64);
+    if (Core.truthy(data_type)) {
+      Object data = Core.get(input, "data", null);
+      Core.set(source, "data", data);
+      if (Core.truthy(text)) {
+        Core.set(source, "media_type", "text/plain");
+      }
+      if (!Core.truthy(text)) {
+        Core.set(source, "media_type", "application/pdf");
+      }
+    }
+    Object url = Core.eq(type, "url");
+    if (Core.truthy(url)) {
+      Object value = Core.get(input, "url", null);
+      Core.set(source, "url", value);
+    }
+    Object file = Core.eq(type, "file");
+    if (Core.truthy(file)) {
+      Object snake = Core.get(input, "file_id", null);
+      Object value = Core.get(input, "fileId", snake);
+      Core.set(source, "file_id", value);
+    }
+    Object content = Core.eq(type, "content");
+    if (Core.truthy(content)) {
+      Object blocks = Core.get(input, "content", null);
+      Object mapped = new java.util.ArrayList<Object>();
+      for (Object block : Core.iter(blocks)) {
+        text = Core.get(block, "text", null);
+        Object part = new java.util.LinkedHashMap<String, Object>();
+        Core.set(part, "type", "text");
+        Core.set(part, "text", text);
+        Core.append(mapped, part);
+      }
+      Core.set(source, "content", mapped);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "type", "document");
+    Core.set(out, "source", source);
+    Object keys = Core.jsonParse("[\"title\",\"context\"]");
+    for (Object key : Core.iter(keys)) {
+      Object has = Core.mapContains(doc, key);
+      if (Core.truthy(has)) {
+        Object value = Core.get(doc, key, null);
+        Core.set(out, key, value);
+      }
+    }
+    Object has_citations = Core.mapContains(doc, "citations");
+    if (Core.truthy(has_citations)) {
+      Object citations = Core.get(doc, "citations", null);
+      Object enabled = Core.get(citations, "enabled", null);
+      Object config = new java.util.LinkedHashMap<String, Object>();
+      Core.set(config, "enabled", enabled);
+      Core.set(out, "citations", config);
+    }
+    Object cache = Core.get(doc, "cache", Boolean.FALSE);
+    if (Core.truthy(cache)) {
+      Object control = Core.jsonParse("{\"type\":\"ephemeral\"}");
+      Core.set(out, "cache_control", control);
+    }
     return out;
   }
 
@@ -35102,6 +35585,46 @@ final class Core {
     return deltas;
   }
 
+  static Object _gen_citation_log_metadata(Object entry, Object response) {
+    axirCoverageMark("_gen_citation_log_metadata");
+    Object fallback = new java.util.ArrayList<Object>();
+    Core.append(fallback, response);
+    Object results = Core.get(response, "results", fallback);
+    Object blocks = new java.util.ArrayList<Object>();
+    Object citation_holder = new java.util.LinkedHashMap<String, Object>();
+    Object position = 0;
+    for (Object result : Core.iter(results)) {
+      Object index = Core.get(result, "index", position);
+      Object metadata = new java.util.LinkedHashMap<String, Object>();
+      Core._ai_merge_citation_metadata(metadata, result);
+      Object empty = new java.util.ArrayList<Object>();
+      Object result_blocks = Core.get(metadata, "text_blocks", empty);
+      for (Object block : Core.iter(result_blocks)) {
+        Object seed = new java.util.LinkedHashMap<String, Object>();
+        Object copy = Core.mapMerge(seed, block);
+        Core.set(copy, "result_index", index);
+        Core.append(blocks, copy);
+      }
+      Core._ai_merge_citation_metadata(citation_holder, result);
+      position = Core.add(position, 1);
+    }
+    Object count = Core.len(blocks);
+    Object has_blocks = Core.gt(count, 0);
+    if (Core.truthy(has_blocks)) {
+      Core.set(entry, "text_blocks", blocks);
+    }
+    Object citations = Core.get(citation_holder, "citations", null);
+    Object has_citations = Core.typeIs(citations, "list");
+    if (Core.truthy(has_citations)) {
+      Object existing = Core.get(entry, "usage", null);
+      Object seed = new java.util.LinkedHashMap<String, Object>();
+      Object usage = Core.mapMerge(seed, existing);
+      Core.set(usage, "citations", citations);
+      Core.set(entry, "usage", usage);
+    }
+    return null;
+  }
+
   static Object _stream_feedback_text_impl(Object result) {
     axirCoverageMark("_stream_feedback_text_impl");
     Object none = Core.none();
@@ -38455,6 +38978,56 @@ final class Core {
     return text;
   }
 
+  static Object _agent_depth_limited_value(Object value, Object depth, Object ancestors) {
+    axirCoverageMark("_agent_depth_limited_value");
+    Object is_list = Core.typeIs(value, "list");
+    Object is_map = Core.typeIs(value, "object");
+    Object container = Core.or(is_list, is_map);
+    if (Core.truthy(container)) {
+      // empty
+    }
+    if (!Core.truthy(container)) {
+      return value;
+    }
+    for (Object ancestor : Core.iter(ancestors)) {
+      Object same = Core.sameReference(value, ancestor);
+      if (Core.truthy(same)) {
+        return "[Circular]";
+      }
+    }
+    Object too_deep = Core.gte(depth, 3);
+    if (Core.truthy(too_deep)) {
+      if (Core.truthy(is_list)) {
+        Object length = Core.len(value);
+        Object placeholder = Core.stringFormat("[Array({})]", length);
+        return placeholder;
+      }
+      return "[Object]";
+    }
+    Object branch = new java.util.ArrayList<Object>();
+    for (Object ancestor : Core.iter(ancestors)) {
+      Core.append(branch, ancestor);
+    }
+    Core.append(branch, value);
+    Object next = Core.add(depth, 1);
+    if (Core.truthy(is_list)) {
+      Object out_list = new java.util.ArrayList<Object>();
+      for (Object item : Core.iter(value)) {
+        Object processed = Core._agent_depth_limited_value(item, next, branch);
+        Core.append(out_list, processed);
+      }
+      return out_list;
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object keys = Core.mapKeys(value);
+    for (Object key : Core.iter(keys)) {
+      Object item = Core.get(value, key, null);
+      Object processed = Core._agent_depth_limited_value(item, next, branch);
+      Core.set(out, key, processed);
+    }
+    return out;
+  }
+
   static Object _agent_smart_stringify(Object value, Object max_chars) {
     axirCoverageMark("_agent_smart_stringify");
     Object context_registry = Core._agent_context_policy_registry();
@@ -38472,9 +39045,22 @@ final class Core {
         Object tail = new java.util.ArrayList<Object>();
         Object negative_tail_items = Core.mul(-1, array_tail_items);
         Object tail_start = Core.add(count, negative_tail_items);
+        Object per_item = Core.div(max_chars, 6);
+        per_item = Core.mathFloor(per_item);
+        Object small_budget = Core.lt(per_item, 80);
+        if (Core.truthy(small_budget)) {
+          per_item = 80;
+        }
         Object index = 0;
         for (Object item : Core.iter(value)) {
           Object item_text = Core.jsonStringify(item);
+          Object item_length = Core.len(item_text);
+          Object too_long = Core.gt(item_length, per_item);
+          if (Core.truthy(too_long)) {
+            Object keep = Core.add(per_item, -3);
+            Object prefix = Core.stringSlice(item_text, 0, keep);
+            item_text = Core.stringFormat("{}...", prefix);
+          }
           Object in_head = Core.lt(index, array_head_items);
           if (Core.truthy(in_head)) {
             Core.append(head, item_text);
@@ -38492,7 +39078,9 @@ final class Core {
         return out;
       }
     }
-    Object json = Core.jsonPretty(value);
+    Object ancestors = new java.util.ArrayList<Object>();
+    Object processed = Core._agent_depth_limited_value(value, 0, ancestors);
+    Object json = Core.jsonPretty(processed);
     return json;
   }
 
@@ -39766,6 +40354,46 @@ final class Core {
     Object is_smart = Core.eq(operation, "smart_stringify");
     if (Core.truthy(is_smart)) {
       Object value = Core.get(fixture, "value", null);
+      Object graph = Core.get(fixture, "value_graph", null);
+      Object has_graph = Core.typeIs(graph, "object");
+      if (Core.truthy(has_graph)) {
+        Object descriptors = Core.get(graph, "nodes", null);
+        Object nodes = new java.util.LinkedHashMap<String, Object>();
+        Object node_keys = Core.mapKeys(descriptors);
+        for (Object node_key : Core.iter(node_keys)) {
+          Object descriptor = Core.get(descriptors, node_key, null);
+          Object is_array_node = Core.typeIs(descriptor, "list");
+          if (Core.truthy(is_array_node)) {
+            Object node_list = new java.util.ArrayList<Object>();
+            for (Object item : Core.iter(descriptor)) {
+              Core.append(node_list, item);
+            }
+            Core.set(nodes, node_key, node_list);
+          }
+          if (!Core.truthy(is_array_node)) {
+            Object seed = new java.util.LinkedHashMap<String, Object>();
+            Object node_map = Core.mapMerge(seed, descriptor);
+            Core.set(nodes, node_key, node_map);
+          }
+        }
+        Object edges = Core.get(graph, "edges", null);
+        for (Object edge : Core.iter(edges)) {
+          Object parent_id = Core.get(edge, "from", null);
+          Object child_id = Core.get(edge, "to", null);
+          Object key = Core.get(edge, "key", null);
+          Object parent = Core.get(nodes, parent_id, null);
+          Object child = Core.get(nodes, child_id, null);
+          Object is_array = Core.typeIs(parent, "list");
+          if (Core.truthy(is_array)) {
+            Core.append(parent, child);
+          }
+          if (!Core.truthy(is_array)) {
+            Core.set(parent, key, child);
+          }
+        }
+        Object root = Core.get(graph, "root", null);
+        value = Core.get(nodes, root, null);
+      }
       Object max_chars = Core.get(fixture, "max_chars", 400);
       Object text = Core._agent_smart_stringify(value, max_chars);
       Object out_smart = new java.util.LinkedHashMap<String, Object>();
@@ -41834,7 +42462,11 @@ final class Core {
       is_error = Core.get(raw, "is_error", Boolean.FALSE);
       result = Core.get(raw, "result", raw);
       output = Core.get(raw, "output", "");
-      Object output_is_empty = Core.eq(output, "");
+      Object output_is_text = Core.typeIs(output, "string");
+      Object output_is_empty = Boolean.FALSE;
+      if (Core.truthy(output_is_text)) {
+        output_is_empty = Core.eq(output, "");
+      }
       if (Core.truthy(output_is_empty)) {
         Object raw_logs = Core.get(raw, "logs", null);
         Object raw_logs_is_list = Core.typeIs(raw_logs, "list");
@@ -42016,6 +42648,25 @@ final class Core {
       raw = Core.agentRuntimeExecute(session, code, runtime_options);
       normalized = Core._normalize_agent_runtime_step_result(raw, code);
       Core._agent_attach_code_analysis(normalized, raw);
+    }
+    Object output = Core.get(normalized, "output", "");
+    Object output_is_string = Core.typeIs(output, "string");
+    if (Core.truthy(output_is_string)) {
+      // empty
+    }
+    if (!Core.truthy(output_is_string)) {
+      Object context_policy = Core._resolve_agent_context_policy(options);
+      Object max_chars = Core.get(context_policy, "maxRuntimeChars", 3000);
+      Object rendered = Core._agent_smart_stringify(output, max_chars);
+      Object length = Core.len(rendered);
+      Object too_long = Core.gt(length, max_chars);
+      if (Core.truthy(too_long)) {
+        Object prefix = Core.stringSlice(rendered, 0, max_chars);
+        Object negative_max = Core.mul(max_chars, -1);
+        Object dropped = Core.add(length, negative_max);
+        rendered = Core.stringFormat("{}\n...[truncated {} chars]", prefix, dropped);
+      }
+      Core.set(normalized, "output", rendered);
     }
     Core._agent_runtime_append_action_log(state, normalized);
     Core._agent_record_trace_event(state, "runtime_execute", normalized);
@@ -53879,6 +54530,8 @@ class PromptRuntime {
   // TS defaultRenderInField: a file part carries the mime type and either its
   // data or its fileUri.
   static Map<String, Object> filePart(Object value) {
+    Object document = Core._prompt_document_part(value);
+    if (document instanceof Map<?, ?>) return (Map<String, Object>) document;
     Map<?, ?> map = mediaObject(value, "File", "mimeType");
     boolean hasData = map.containsKey("data");
     boolean hasFileUri = map.containsKey("fileUri");
@@ -53889,7 +54542,7 @@ class PromptRuntime {
     part.put("mimeType", map.get("mimeType"));
     if (hasFileUri) part.put("fileUri", map.get("fileUri"));
     else part.put("data", map.get("data"));
-    return declaredKeys(part, map, "filename", "cache", "extractedText");
+    return declaredKeys(part, map, "filename", "cache", "extractedText", "title", "context", "citations");
   }
 
   // TS defaultRenderInField: a url part carries the url, and the title and

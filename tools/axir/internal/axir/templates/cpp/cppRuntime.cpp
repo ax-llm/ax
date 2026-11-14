@@ -1964,6 +1964,11 @@ Value Core::json_parse_strict(Value value) {
 }
 Value Core::json_stringify(Value value) { return Value(stringify(value)); }
 Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(value)); }
+Value Core::same_reference(Value left, Value right) {
+  if (left.is_array() && right.is_array()) return std::get<std::shared_ptr<Array>>(left.data) == std::get<std::shared_ptr<Array>>(right.data);
+  if (left.is_object() && right.is_object()) return std::get<std::shared_ptr<Object>>(left.data) == std::get<std::shared_ptr<Object>>(right.data);
+  return false;
+}
 Value Core::json_pretty(Value value) { return Value(pretty_stringify(value)); }
 Value Core::signature_error(Value message) { return Value(Object{{"__error", "signature"}, {"message", str(message)}}); }
 Value Core::validation_error(Value message) { return Value(Object{{"__error", "validation"}, {"message", str(message)}}); }
@@ -3192,6 +3197,8 @@ static Value prompt_audio_part(const Value& value) {
 }
 // TS's file part: the mime type and either the data or the fileUri.
 static Value prompt_file_part(const Value& value) {
+  Value document = Core::_prompt_document_part(value);
+  if (!document.is_null()) return document;
   prompt_media_object(value, "File", "mimeType");
   bool has_data = object_ref(value).count("data") > 0;
   bool has_file_uri = object_ref(value).count("fileUri") > 0;
@@ -3200,7 +3207,7 @@ static Value prompt_file_part(const Value& value) {
   Value part = has_file_uri
       ? Value(Object{{"type", "file"}, {"mimeType", get_key(value, "mimeType")}, {"fileUri", get_key(value, "fileUri")}})
       : Value(Object{{"type", "file"}, {"mimeType", get_key(value, "mimeType")}, {"data", get_key(value, "data")}});
-  return prompt_declared_keys(part, value, {"filename", "cache", "extractedText"});
+  return prompt_declared_keys(part, value, {"filename", "cache", "extractedText", "title", "context", "citations"});
 }
 // TS's url part: the url, and the title and description when they are set; a
 // plain string is the url.
@@ -3586,6 +3593,7 @@ Value Core::axgen_record_chat_log(Value gen, Value request, Value response) {
       {"thought_blocks", get_key(response, "thought_blocks", Value::array())},
       {"providerMetadata", get_key(request, "provider_metadata", Value::object())},
   });
+  _gen_citation_log_metadata(entry, response);
   append(chat_log, entry);
   set(gen, "chat_log", chat_log);
   return Value();

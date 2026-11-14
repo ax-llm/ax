@@ -1712,6 +1712,7 @@ def _core_axgen_record_chat_log(gen, request, response):
         "thought_blocks": _core_get(response, "thought_blocks", []),
         "providerMetadata": _core_get(request, "provider_metadata", {}),
     }
+    _gen_citation_log_metadata(entry, response)
     chat_log.append(entry)
     return None
 

@@ -433,9 +433,10 @@ See [ai() API]({{langRoot}}/api/ai/).
 
 ## File routing
 
-### Anthropic document citations (TypeScript)
+### Anthropic document citations
 
-TypeScript supports native Anthropic document citations for plain text, base64
+TypeScript, Python, Java, C++, Go, and Rust support native Anthropic document
+citations for plain text, base64
 PDFs, PDF URLs, uploaded file IDs, and custom text blocks. A `document` chat part
 carries a `source`, optional `title` and `context`, and
 `citations: { enabled: true }`. An AxGen `file` input accepts the same value
@@ -448,9 +449,12 @@ citations. Streaming blocks are snapshots keyed by `index`. AxGen retains these
 blocks at `program.getChatLog()[i].textBlocks`, with `resultIndex` identifying the
 sample. Source offsets locate the cited input; the block text identifies the
 supported output passage. `getUsage()` also retains the flat citation list.
-Generated-language parity remains tracked in the AxIR backlog.
+Python, Java, C++, Go, and Rust use `text_blocks` and `result_index`. Their
+per-request generation log entries also retain `usage.citations`; document
+indices are local to that request. Read the log with `get_chat_log()` in Python,
+C++, and Rust, `getChatLog()` in Java, or the `ChatLog` field in Go.
 
-See the document citation example in [TypeScript generation examples](/typescript/examples/generation/).
+See the document citation example in [generation examples]({{langRoot}}/examples/generation/).
 
 ### Provider selection
 

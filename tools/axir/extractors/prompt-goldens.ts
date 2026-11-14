@@ -901,3 +901,37 @@ writeFixture('string-format-cases', {
     expected: jsValueText(input),
   })),
 });
+
+for (const [name, doc] of [
+  [
+    'native-text',
+    {
+      source: { type: 'text', data: 'A source passage.' },
+      title: 'Notes',
+      context: 'Evidence',
+      citations: { enabled: true },
+      cache: true,
+    },
+  ],
+  [
+    'native-file-id',
+    {
+      source: { type: 'file', fileId: 'file_notes' },
+      citations: { enabled: false },
+    },
+  ],
+  [
+    'legacy-cited-pdf',
+    {
+      mimeType: 'application/pdf',
+      data: 'JVBERi0=',
+      title: 'Report',
+      context: 'Evidence',
+      citations: { enabled: true },
+    },
+  ],
+] as const) {
+  stringPrompt(`file-input-document-${name}`, 'doc:file -> answer:string', {
+    doc,
+  });
+}

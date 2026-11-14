@@ -1,0 +1,38 @@
+{
+  "expected_error_contains": "Anthropic document citations cannot be combined with native structured outputs (output_config.format); use a text signature without .useStructured()",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-json-schema",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "cache": true,
+            "citations": {
+              "enabled": true
+            },
+            "context": "Use as evidence.",
+            "source": {
+              "data": "A passage.",
+              "type": "text"
+            },
+            "title": "Evidence",
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    },
+    "responseFormat": {
+      "schema": {
+        "type": "object"
+      },
+      "type": "json_schema"
+    }
+  }
+}

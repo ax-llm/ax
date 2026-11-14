@@ -1,0 +1,29 @@
+{
+  "expected_error_contains": "Document citations.enabled must be a boolean",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-invalid-citations",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "citations": {
+              "enabled": "yes"
+            },
+            "source": {
+              "data": "Text.",
+              "type": "text"
+            },
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

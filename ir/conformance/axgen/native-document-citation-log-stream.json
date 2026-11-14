@@ -1,0 +1,178 @@
+{
+  "expected_chat_log_subset": [
+    {
+      "text_blocks": [
+        {
+          "index": 0,
+          "result_index": 0,
+          "text": "Answer: "
+        },
+        {
+          "citations": [
+            {
+              "documentIndex": 0,
+              "documentTitle": "Notes",
+              "endCharIndex": 10,
+              "fileId": "file_notes",
+              "snippet": "A passage.",
+              "startCharIndex": 0,
+              "type": "char_location"
+            }
+          ],
+          "index": 1,
+          "result_index": 0,
+          "text": "supported"
+        }
+      ],
+      "usage": {
+        "citations": [
+          {
+            "documentIndex": 0,
+            "documentTitle": "Notes",
+            "endCharIndex": 10,
+            "fileId": "file_notes",
+            "snippet": "A passage.",
+            "startCharIndex": 0,
+            "type": "char_location"
+          }
+        ]
+      }
+    }
+  ],
+  "expected_output": {
+    "answer": "supported"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "doc": {
+      "citations": {
+        "enabled": true
+      },
+      "source": {
+        "data": "A passage.",
+        "type": "text"
+      },
+      "title": "Notes"
+    }
+  },
+  "kind": "forward",
+  "name": "native-document-citation-log-stream",
+  "options": {
+    "stream": true
+  },
+  "responses": [
+    {
+      "stream": [
+        {
+          "model_usage": {
+            "ai": "mock-ai-service",
+            "model": "mock-model",
+            "tokens": {
+              "completionTokens": 3,
+              "promptTokens": 2,
+              "totalTokens": 5
+            }
+          },
+          "results": [
+            {
+              "content": "Answer: ",
+              "index": 0,
+              "text_blocks": [
+                {
+                  "index": 0,
+                  "text": "Answer: "
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "supported",
+              "index": 0,
+              "text_blocks": [
+                {
+                  "index": 1,
+                  "text": "supported"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "citations": [
+                {
+                  "documentIndex": 0,
+                  "documentTitle": "Notes",
+                  "endCharIndex": 10,
+                  "fileId": "file_notes",
+                  "snippet": "A passage.",
+                  "startCharIndex": 0,
+                  "type": "char_location"
+                }
+              ],
+              "index": 0,
+              "text_blocks": [
+                {
+                  "citations": [
+                    {
+                      "documentIndex": 0,
+                      "documentTitle": "Notes",
+                      "endCharIndex": 10,
+                      "fileId": "file_notes",
+                      "snippet": "A passage.",
+                      "startCharIndex": 0,
+                      "type": "char_location"
+                    }
+                  ],
+                  "index": 1,
+                  "text": "supported"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "citations": [
+                {
+                  "documentIndex": 0,
+                  "documentTitle": "Notes",
+                  "endCharIndex": 10,
+                  "fileId": "file_notes",
+                  "snippet": "A passage.",
+                  "startCharIndex": 0,
+                  "type": "char_location"
+                }
+              ],
+              "finish_reason": "stop",
+              "index": 0,
+              "text_blocks": [
+                {
+                  "citations": [
+                    {
+                      "documentIndex": 0,
+                      "documentTitle": "Notes",
+                      "endCharIndex": 10,
+                      "fileId": "file_notes",
+                      "snippet": "A passage.",
+                      "startCharIndex": 0,
+                      "type": "char_location"
+                    }
+                  ],
+                  "index": 1,
+                  "text": "supported"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "doc:file -> answer:string"
+}

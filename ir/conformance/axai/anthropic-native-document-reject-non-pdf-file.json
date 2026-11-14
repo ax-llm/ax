@@ -1,0 +1,28 @@
+{
+  "expected_error_contains": "Anthropic file citations require a PDF; use a document text source for plain text",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-non-pdf-file",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "citations": {
+              "enabled": true
+            },
+            "data": "hello",
+            "mimeType": "text/plain",
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {}
+}

@@ -1,0 +1,26 @@
+{
+  "expected_error_contains": "Document URL must use http or https",
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-native-document-reject-invalid-url",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "source": {
+              "type": "url",
+              "url": "file:///tmp/doc"
+            },
+            "type": "document"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}
