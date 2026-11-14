@@ -3,7 +3,11 @@
 // exact shapes (including optionality); Flatten normalizes the mapped-type
 // intersections BuildObject produces so they can be compared against plain
 // object literals.
-import type { AxAudioInput, AxChatAudioOutput } from '../ai/types.js';
+import type {
+  AxAudioInput,
+  AxChatAudioOutput,
+  AxFileInput,
+} from '../ai/types.js';
 import type { Equal, Expect, Flatten } from '../util/typetest.js';
 import type { BuildObject, ParseSignature } from './sigtypes.js';
 
@@ -183,21 +187,7 @@ type _fileIn = Expect<
     Flatten<FileResult['inputs']>,
     {
       userQuestion: string;
-      fileData:
-        | {
-            mimeType: string;
-            data: string;
-            filename?: string;
-            cache?: boolean;
-            extractedText?: string;
-          }
-        | {
-            mimeType: string;
-            fileUri: string;
-            filename?: string;
-            cache?: boolean;
-            extractedText?: string;
-          };
+      fileData: AxFileInput;
     }
   >
 >;

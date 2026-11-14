@@ -1,6 +1,7 @@
 import type {
   AxAudioInput,
   AxChatAudioOutput,
+  AxFileInput,
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
@@ -1694,37 +1695,8 @@ type InferFieldValueType<
                           ? InferAudioValueType<T, TMode>
                           : T['type'] extends 'file'
                             ? T['isArray'] extends true
-                              ? (
-                                  | {
-                                      mimeType: string;
-                                      data: string;
-                                      filename?: string;
-                                      cache?: boolean;
-                                      extractedText?: string;
-                                    }
-                                  | {
-                                      mimeType: string;
-                                      fileUri: string;
-                                      filename?: string;
-                                      cache?: boolean;
-                                      extractedText?: string;
-                                    }
-                                )[]
-                              :
-                                  | {
-                                      mimeType: string;
-                                      data: string;
-                                      filename?: string;
-                                      cache?: boolean;
-                                      extractedText?: string;
-                                    }
-                                  | {
-                                      mimeType: string;
-                                      fileUri: string;
-                                      filename?: string;
-                                      cache?: boolean;
-                                      extractedText?: string;
-                                    }
+                              ? AxFileInput[]
+                              : AxFileInput
                             : T['type'] extends 'url'
                               ? T['isArray'] extends true
                                 ? string[]
@@ -1879,37 +1851,8 @@ type InferFluentType<
                         ? InferAudioValueType<T, TMode>
                         : T['type'] extends 'file'
                           ? T['isArray'] extends true
-                            ? (
-                                | {
-                                    mimeType: string;
-                                    data: string;
-                                    filename?: string;
-                                    cache?: boolean;
-                                    extractedText?: string;
-                                  }
-                                | {
-                                    mimeType: string;
-                                    fileUri: string;
-                                    filename?: string;
-                                    cache?: boolean;
-                                    extractedText?: string;
-                                  }
-                              )[]
-                            :
-                                | {
-                                    mimeType: string;
-                                    data: string;
-                                    filename?: string;
-                                    cache?: boolean;
-                                    extractedText?: string;
-                                  }
-                                | {
-                                    mimeType: string;
-                                    fileUri: string;
-                                    filename?: string;
-                                    cache?: boolean;
-                                    extractedText?: string;
-                                  }
+                            ? AxFileInput[]
+                            : AxFileInput
                           : T['type'] extends 'url'
                             ? T['isArray'] extends true
                               ? string[]

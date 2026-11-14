@@ -1,4 +1,6 @@
 /* eslint-disable functional/prefer-immutable-types */
+
+import { validateDocumentInput } from '../ai/documents.js';
 import { ColorLog } from '../util/log.js';
 
 import { validateBox } from './box.js';
@@ -136,6 +138,10 @@ export const validateValue = (
   }
 
   const validFile = (val: Readonly<AxFieldValue>): boolean => {
+    if (val && typeof val === 'object' && 'source' in val) {
+      validateDocumentInput(val);
+      return true;
+    }
     if (!val || typeof val !== 'object' || !('mimeType' in val)) {
       return false;
     }
@@ -278,13 +284,16 @@ export function mergeProgramUsage(
       }
       currentUsage.tokens = tokens;
 
-      // Merge citations and dedupe by URL
-      const existing = currentUsage.citations ?? [];
+      // Document indices are local to a request, so keep document citations
+      // from distinct round trips even when their offsets happen to match.
+      const existing = [...(currentUsage.citations ?? [])];
       const incoming = usage.citations ?? [];
       if (incoming.length) {
         const seen = new Set(existing.map((c) => c.url));
         for (const c of incoming) {
-          if (c?.url && !seen.has(c.url)) {
+          if (c?.type && !c.url) {
+            existing.push(c);
+          } else if (c?.url && !seen.has(c.url)) {
             existing.push(c);
             seen.add(c.url);
           }

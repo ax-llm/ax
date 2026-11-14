@@ -19,6 +19,7 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
+  AxChatResponseTextBlock,
   AxCitation,
   AxInternalChatRequest,
   AxModelConfig,
@@ -27,6 +28,11 @@ import type {
   AxTokenUsage,
 } from '../types.js';
 import { resolveVertexAIHost } from '../vertex.js';
+import {
+  createAnthropicDocument,
+  getAnthropicDocument,
+  validateAnthropicDocuments,
+} from './documents.js';
 import { axModelInfoAnthropic } from './info.js';
 import {
   type AxAIAnthropicChatError,
@@ -111,9 +117,9 @@ function mapAnthropicErrorEvent(error: {
  * and `content_block_location` citations never reached callers — even though the
  * cited span is the whole point of enabling citations on a document.
  */
-function mapAnthropicCitation(
-  c: Record<string, unknown>
-): AxCitation | undefined {
+function mapAnthropicCitation(value: unknown): AxCitation | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const c = value as Record<string, unknown>;
   const citation: AxCitation = {};
 
   if (typeof c.url === 'string' && c.url.length > 0) {
@@ -139,6 +145,7 @@ function mapAnthropicCitation(
     if (typeof c.document_title === 'string') {
       citation.documentTitle = c.document_title;
     }
+    if (typeof c.file_id === 'string') citation.fileId = c.file_id;
     if (type === 'char_location') {
       if (typeof c.start_char_index === 'number') {
         citation.startCharIndex = c.start_char_index;
@@ -163,7 +170,7 @@ function mapAnthropicCitation(
     }
   }
 
-  return Object.keys(citation).length > 0 ? citation : undefined;
+  return citation.url || citation.type ? citation : undefined;
 }
 
 const isClaudeOpus47OrLater = (model: string): boolean =>
@@ -599,6 +606,14 @@ class AxAIAnthropicImpl
       taskBudget: config.taskBudget,
     } as AxModelConfig;
   }
+
+  validateChatReq = (
+    req: Readonly<
+      AxInternalChatRequest<AxAIAnthropicModel | AxAIAnthropicVertexModel>
+    >
+  ): void => {
+    validateAnthropicDocuments(req, this.isVertex);
+  };
 
   createChatReq = async (
     req: Readonly<
@@ -1097,11 +1112,13 @@ class AxAIAnthropicImpl
 
     // Collect citations from text blocks (citations are embedded here)
     const citations: NonNullable<AxChatResponseResult['citations']> = [];
+    const textBlocks: AxChatResponseTextBlock[] = [];
 
-    for (const block of resp.content) {
+    for (const [blockIndex, block] of resp.content.entries()) {
       switch (block.type) {
-        case 'text':
+        case 'text': {
           aggregatedContent += block.text ?? '';
+          const blockCitations: AxCitation[] = [];
           // Map citations if present on the text block
           if (Array.isArray((block as any).citations)) {
             for (const c of (block as any).citations) {
@@ -1110,10 +1127,17 @@ class AxAIAnthropicImpl
               );
               if (citation) {
                 citations.push(citation);
+                blockCitations.push(citation);
               }
             }
           }
+          textBlocks.push({
+            index: blockIndex,
+            text: block.text ?? '',
+            ...(blockCitations.length ? { citations: blockCitations } : {}),
+          });
           break;
+        }
         case 'thinking':
           // Store each thinking block separately with its signature
           {
@@ -1157,6 +1181,7 @@ class AxAIAnthropicImpl
     if (aggregatedContent) {
       result.content = aggregatedContent;
     }
+    if (textBlocks.length) result.textBlocks = textBlocks;
     if (thinkingBlocks.length > 0) {
       // Store array of all thinking blocks with their signatures
       result.thoughtBlocks = thinkingBlocks;
@@ -1215,11 +1240,34 @@ class AxAIAnthropicImpl
     const sstate = state as {
       indexIdMap: Record<number, string>;
       remoteId?: string;
+      textBlocks?: Record<number, AxChatResponseTextBlock>;
     };
 
     if (!sstate.indexIdMap) {
       sstate.indexIdMap = {};
     }
+    sstate.textBlocks ??= {};
+    const updateTextBlock = (
+      blockIndex: number,
+      text: string,
+      citations: AxCitation[],
+      start = false
+    ): AxChatResponseTextBlock => {
+      const previous = start ? undefined : sstate.textBlocks?.[blockIndex];
+      const allCitations = [...(previous?.citations ?? []), ...citations];
+      const block = {
+        index: blockIndex,
+        text: (previous?.text ?? '') + text,
+        ...(allCitations.length ? { citations: allCitations } : {}),
+      };
+      sstate.textBlocks![blockIndex] = block;
+      return {
+        ...block,
+        ...(block.citations
+          ? { citations: block.citations.map((citation) => ({ ...citation })) }
+          : {}),
+      };
+    };
 
     if (resp.type === 'error') {
       const { error } = resp as unknown as AxAIAnthropicErrorEvent;
@@ -1267,6 +1315,14 @@ class AxAIAnthropicImpl
             {
               index,
               content: contentBlock.text,
+              textBlocks: [
+                updateTextBlock(
+                  (resp as AxAIAnthropicContentBlockStartEvent).index,
+                  contentBlock.text,
+                  annos,
+                  true
+                ),
+              ],
               ...(annos.length ? { citations: annos } : {}),
             },
           ],
@@ -1353,6 +1409,13 @@ class AxAIAnthropicImpl
                 index,
                 content: '',
                 citations: annos,
+                textBlocks: [
+                  updateTextBlock(
+                    (resp as AxAIAnthropicContentBlockDeltaEvent).index,
+                    '',
+                    annos
+                  ),
+                ],
               },
             ],
             remoteId: sstate.remoteId,
@@ -1364,14 +1427,8 @@ class AxAIAnthropicImpl
         const annos: NonNullable<AxChatResponseResult['citations']> = [];
         if (Array.isArray((delta as any).citations)) {
           for (const c of (delta as any).citations) {
-            if (c?.url) {
-              annos.push({
-                url: String(c.url),
-                title: typeof c.title === 'string' ? c.title : undefined,
-                snippet:
-                  typeof c.cited_text === 'string' ? c.cited_text : undefined,
-              });
-            }
+            const citation = mapAnthropicCitation(c);
+            if (citation) annos.push(citation);
           }
         }
         return {
@@ -1379,6 +1436,13 @@ class AxAIAnthropicImpl
             {
               index,
               content: delta.text,
+              textBlocks: [
+                updateTextBlock(
+                  (resp as AxAIAnthropicContentBlockDeltaEvent).index,
+                  delta.text,
+                  annos
+                ),
+              ],
               ...(annos.length ? { citations: annos } : {}),
             },
           ],
@@ -1630,6 +1694,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
         structuredOutputModes,
         functionCot: true,
         media: {
+          documents: { supported: true, citations: true },
           images: {
             supported: true,
             formats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
@@ -1646,10 +1711,9 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
             maxDuration: 0,
           },
           files: {
-            supported: false,
-            formats: [],
-            maxSize: 0,
-            uploadMethod: 'none' as 'inline' | 'upload' | 'cloud' | 'none',
+            supported: true,
+            formats: ['application/pdf'],
+            uploadMethod: 'inline' as const,
           },
           urls: {
             supported: false,
@@ -1882,7 +1946,11 @@ function createMessages(
                   ? { cache_control: { type: 'ephemeral' as const } }
                   : {}),
               };
+            case 'document':
+              return createAnthropicDocument(v);
             case 'file': {
+              const document = getAnthropicDocument(v);
+              if (document) return createAnthropicDocument(document);
               if (!supportsExtendedMedia)
                 throw new Error('Invalid content type');
               const type = v.mimeType.startsWith('image/')

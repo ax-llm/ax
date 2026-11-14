@@ -160,6 +160,19 @@ export type AxAIAnthropicChatRequestCacheParam = {
   cache_control?: { type: 'ephemeral' };
 };
 
+export type AxAIAnthropicDocumentBlock = AxAIAnthropicChatRequestCacheParam & {
+  type: 'document';
+  title?: string;
+  context?: string;
+  citations?: { enabled: boolean };
+  source:
+    | { type: 'text'; media_type: 'text/plain'; data: string }
+    | { type: 'base64'; media_type: 'application/pdf'; data: string }
+    | { type: 'url'; url: string }
+    | { type: 'file'; file_id: string }
+    | { type: 'content'; content: { type: 'text'; text: string }[] };
+};
+
 // Type for the request to create a message using Anthropic's Messages API
 export type AxAIAnthropicChatRequest = {
   model?: string;
@@ -179,6 +192,7 @@ export type AxAIAnthropicChatRequest = {
         content:
           | string
           | (
+              | AxAIAnthropicDocumentBlock
               | ({
                   type: 'text';
                   text: string;

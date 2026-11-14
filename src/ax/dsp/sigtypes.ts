@@ -1,3 +1,4 @@
+import type { AxFileInput } from '../ai/types.js';
 import type { AxBox } from './box.js';
 import type {
   AxBooleanEvidence,
@@ -99,21 +100,7 @@ export interface InputTypeMap {
     altText?: string;
   };
   audio: AxAudioInput;
-  file:
-    | {
-        mimeType: string;
-        data: string;
-        filename?: string;
-        cache?: boolean;
-        extractedText?: string;
-      }
-    | {
-        mimeType: string;
-        fileUri: string;
-        filename?: string;
-        cache?: boolean;
-        extractedText?: string;
-      };
+  file: AxFileInput;
   url: string;
   code: string;
   // Note: 'object' is intentionally NOT here - it maps to 'any' like 'json'

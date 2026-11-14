@@ -461,6 +461,10 @@ export type AxChatLogEntry = {
   name?: string;
   model: string;
   messages: AxChatLogMessage[];
+  /** Response text blocks with per-block citations, scoped to this round trip. */
+  textBlocks?: (import('../ai/types.js').AxChatResponseTextBlock & {
+    resultIndex: number;
+  })[];
   /** Ax-local session identifier used for conversation tracking and memory isolation. */
   sessionId?: AxChatResponse['sessionId'];
   /** Provider response/message/completion identifier. */

@@ -1,3 +1,4 @@
+import { validateDocumentInput } from './documents.js';
 import type { AxChatRequest, AxChatResponseResult } from './types.js';
 
 type AxChatRequestMessage = AxChatRequest['chatPrompt'][number];
@@ -164,6 +165,10 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
                   `User message audio content at index ${index} cannot be empty, received: ${value(data)}`
                 );
               }
+              break;
+            }
+            case 'document': {
+              validateDocumentInput(contentItem);
               break;
             }
             case 'file': {

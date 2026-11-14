@@ -538,6 +538,15 @@ gen.getChatLog(): readonly AxChatLogEntry[]
 
 ### getUsage()
 
+For TypeScript Anthropic document citations, a `file` input accepts
+`{ source: { type: 'text', data }, title?, context?, citations: { enabled: true } }`
+as well as the other document source forms documented in `ax-ai.md`.
+Use a text signature; native structured JSON and document citations cannot be
+combined. Each round trip's `getChatLog()[i].textBlocks` retains the original
+output passages and their citations after both `forward()` and
+`streamingForward()`. The flat citation list in `getUsage()` retains source
+locations but does not replace these passage associations.
+
 Returns token usage aggregated by `(ai, model)` across all steps. When a provider reports prompt-cache usage, `promptTokens` is the uncached input portion and `cacheReadTokens` / `cacheCreationTokens` carry the cache counters. Reset with `resetUsage()`.
 
 ```typescript
