@@ -54,9 +54,7 @@ export class AxEmbeddingAdapter {
       throw new Error('Failed to embed text');
     }
 
-    return this.func.length === 2
-      ? this.func(embeds, extra)
-      : this.func(embeds);
+    return this.func(embeds, extra);
   }
 
   public toFunction(): AxFunction {
