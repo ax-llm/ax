@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr` [axgen] Keep ordinary F1 token counts independent of inherited object properties
+  - Status: open
+  - Source PR: #898
+  - Source commit: `269f5b998721d4f22bf3081b1c86df0f33952067`
+  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
+  - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
