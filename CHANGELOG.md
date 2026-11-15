@@ -1,5 +1,21 @@
 # Changelog
 
+## [25.4.11](https://github.com/ax-llm/ax/compare/25.4.10...25.4.11) (2026-11-14)
+
+### Features
+
+* add Gemini 4 Hydrogen across Ax languages ([#892](https://github.com/ax-llm/ax/pull/892)) ([0df7042](https://github.com/ax-llm/ax/commit/0df70420a4a8cc77eafe97f399a7a344ec247e72))
+* **anthropic:** add native document citations to chat and generation ([#895](https://github.com/ax-llm/ax/pull/895)) ([5736c56](https://github.com/ax-llm/ax/commit/5736c56dde36a30a97dd5adaefdd7636e2e990f8))
+* **axir:** port document citations and shared-reference output ([#896](https://github.com/ax-llm/ax/pull/896)) ([2142f57](https://github.com/ax-llm/ax/commit/2142f5713a622fe2d4d564f078c395405bbb8956))
+
+### Bug Fixes
+
+* **agent:** keep a value shared by two siblings from reading as a cycle ([#893](https://github.com/ax-llm/ax/pull/893)) ([b0014b8](https://github.com/ax-llm/ax/commit/b0014b8704cf9ce773e6498f3361d9a51288d017))
+* **anthropic:** keep document citations instead of dropping them ([#894](https://github.com/ax-llm/ax/pull/894)) ([144d17e](https://github.com/ax-llm/ax/commit/144d17e620d7a8b809e71114a986064618ff49ee))
+* **axgen:** preserve streamed text accompanying tool calls ([#887](https://github.com/ax-llm/ax/pull/887)) ([282da19](https://github.com/ax-llm/ax/commit/282da191feba977b36500a14854e52ef266fb35b))
+* **axir:** preserve text alongside streamed tool calls ([#891](https://github.com/ax-llm/ax/pull/891)) ([084c7b8](https://github.com/ax-llm/ax/commit/084c7b893f5a7d2215e8f6d331596f2af98ef98f))
+
+
 ## [25.4.10](https://github.com/ax-llm/ax/compare/25.4.9...25.4.10) (2026-11-12)
 
 ### Features
