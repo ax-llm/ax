@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
   - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-11-16-preserve-regex-and-division-semantics-in-agent-javascript-analys` [axagent] Preserve regex and division semantics in agent JavaScript analysis
+  - Status: open
+  - Source PR: #900
+  - Source commit: `452cf6cf8726d0f70481f5a815f73d640321049d`
+  - TS paths: `src/ax/util/jsAnalysis.ts`, `src/ax/util/jsAnalysis.test.ts`
+  - Impact: PR #900 changes the shared TypeScript scanner used for completion-call detection and referenced/read-variable analysis. The generated runtimeSupport.js scanner must gain equivalent regex masking and token-aware division handling, with fixtures for quote-bearing patterns, literal operands, postfix updates, member keywords, comments, and Unicode identifiers.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

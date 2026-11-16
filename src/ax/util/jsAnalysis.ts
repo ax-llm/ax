@@ -2,10 +2,9 @@ function isIdentifierChar(ch: string | undefined): boolean {
   return !!ch && /[A-Za-z0-9_$]/.test(ch);
 }
 
-// A `/` opens a regular expression only where an expression may start. After a value (an
-// identifier, `)`, `]`, a literal) it is division, and reading it as a pattern would swallow
-// the code up to the next slash. Keywords that take an expression are listed because they end
-// in an identifier character.
+// Track input tokens separately from the blanked output: a removed literal still
+// ends an expression. This lightweight scanner is not a JavaScript parser; after
+// ambiguous closing braces/parentheses it conservatively keeps `/` as code.
 const REGEX_PRECEDING_PUNCTUATION = new Set([
   '(',
   ',',
@@ -17,7 +16,6 @@ const REGEX_PRECEDING_PUNCTUATION = new Set([
   '|',
   '?',
   '{',
-  '}',
   ';',
   '+',
   '-',
@@ -27,59 +25,42 @@ const REGEX_PRECEDING_PUNCTUATION = new Set([
   '>',
   '~',
   '^',
+  '/',
 ]);
 const REGEX_PRECEDING_KEYWORDS = new Set([
   'return',
   'typeof',
   'instanceof',
   'in',
-  'of',
   'new',
   'delete',
   'void',
   'case',
   'do',
   'else',
-  'yield',
-  'await',
   'throw',
 ]);
 
-/** Whether the `/` at `index` can begin a regular expression, judged from the sanitized code
- * emitted so far: strings and comments are already blanks there, so the last significant
- * character is real code. */
-function startsRegex(emitted: string): boolean {
-  let cursor = emitted.length - 1;
-  while (cursor >= 0 && (emitted[cursor] === ' ' || emitted[cursor] === '\t')) {
-    cursor--;
-  }
-  if (cursor < 0) {
-    return true;
-  }
-  const previous = emitted[cursor] ?? '';
-  if (REGEX_PRECEDING_PUNCTUATION.has(previous)) {
-    return true;
-  }
-  if (!isIdentifierChar(previous)) {
-    return false;
-  }
-  let start = cursor;
-  while (start > 0 && isIdentifierChar(emitted[start - 1])) {
-    start--;
-  }
-  return REGEX_PRECEDING_KEYWORDS.has(emitted.slice(start, cursor + 1));
+// Contextual words (of/yield/await) can also be identifiers. Without parsing
+// their enclosing grammar, do not use them as evidence for a regex opener.
+const JS_IDENTIFIER =
+  /(?:[$_\p{ID_Start}]|\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\}))(?:[$\p{ID_Continue}]|\u200c|\u200d|\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\}))*/uy;
+
+function isLineTerminator(ch: string | undefined): boolean {
+  return ch === '\n' || ch === '\r' || ch === '\u2028' || ch === '\u2029';
 }
 
-/** Index just past the regular expression literal that starts at `start`, or -1 when the line
- * ends first — a `/` that begins division never has a closing slash on the same line. */
+/** Find a single-line regex terminator, respecting escapes and character classes.
+ * Call only when the preceding token allows a new expression. */
 function findRegexEnd(code: string, start: number): number {
   let inCharacterClass = false;
   for (let i = start + 1; i < code.length; i++) {
     const ch = code[i] ?? '';
-    if (ch === '\n' || ch === '\r') {
+    if (isLineTerminator(ch)) {
       return -1;
     }
     if (ch === '\\') {
+      if (isLineTerminator(code[i + 1])) return -1;
       i++;
       continue;
     }
@@ -119,6 +100,8 @@ export function stripJsStringsAndComments(code: string): string {
     | 'lineComment'
     | 'blockComment' = 'normal';
   let escaped = false;
+  let expressionAllowed = true;
+  let previousToken = '';
 
   while (i < code.length) {
     const ch = code[i] ?? '';
@@ -188,11 +171,13 @@ export function stripJsStringsAndComments(code: string): string {
 
     // A regular expression literal is not code: `/['"]/` used to open a string at its quote and
     // blank every line after it, hiding the calls the callers of this function look for.
-    if (ch === '/' && startsRegex(out)) {
+    if (ch === '/' && expressionAllowed) {
       const end = findRegexEnd(code, i);
       if (end !== -1) {
         out += ' '.repeat(end - i);
         i = end;
+        expressionAllowed = false;
+        previousToken = 'value';
         continue;
       }
     }
@@ -201,6 +186,8 @@ export function stripJsStringsAndComments(code: string): string {
       out += ' ';
       i++;
       state = 'single';
+      expressionAllowed = false;
+      previousToken = 'value';
       continue;
     }
 
@@ -208,6 +195,8 @@ export function stripJsStringsAndComments(code: string): string {
       out += ' ';
       i++;
       state = 'double';
+      expressionAllowed = false;
+      previousToken = 'value';
       continue;
     }
 
@@ -215,9 +204,54 @@ export function stripJsStringsAndComments(code: string): string {
       out += ' ';
       i++;
       state = 'template';
+      expressionAllowed = false;
+      previousToken = 'value';
       continue;
     }
 
+    if (/\s/u.test(ch)) {
+      out += ch;
+      i++;
+      continue;
+    }
+
+    JS_IDENTIFIER.lastIndex = i;
+    const identifier = JS_IDENTIFIER.exec(code)?.[0];
+    if (identifier) {
+      expressionAllowed =
+        previousToken !== '.' && REGEX_PRECEDING_KEYWORDS.has(identifier);
+      previousToken = identifier;
+      out += identifier;
+      i += identifier.length;
+      continue;
+    }
+
+    if ((ch === '+' || ch === '-') && next === ch) {
+      // Prefix updates still expect an operand; postfix updates end a value.
+      // Neither changes the expression state that preceded the update token.
+      previousToken = ch + next;
+      out += previousToken;
+      i += 2;
+      continue;
+    }
+    if (code.startsWith('...', i)) {
+      expressionAllowed = true;
+      previousToken = '...';
+      out += previousToken;
+      i += 3;
+      continue;
+    }
+    if (ch === '?' && next === '.') {
+      expressionAllowed = false;
+      previousToken = '.';
+      out += '?.';
+      i += 2;
+      continue;
+    }
+
+    expressionAllowed = REGEX_PRECEDING_PUNCTUATION.has(ch);
+    // Private property names can be keyword-shaped, just like dot properties.
+    previousToken = ch === '#' ? '.' : ch;
     out += ch;
     i++;
   }

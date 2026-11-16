@@ -102,3 +102,88 @@ describe('callers that depend on the sanitized code', () => {
     expect(identifiers.has('payload')).toBe(true);
   });
 });
+
+describe('regex versus division token context', () => {
+  const values = [
+    'count++',
+    'count--',
+    '++count',
+    '--count',
+    '"12"',
+    "'12'",
+    '`12`',
+    '/pattern/',
+    '{}',
+    'function () {}',
+    'obj.of',
+    'obj.return',
+    'obj.#return',
+    String.raw`\u{61}return`,
+    String.raw`\u0061return`,
+    'obj?.throw',
+    'obj./* comment */in',
+    'of',
+    'yield',
+    'await',
+    'πreturn',
+    '𐐀return',
+    '1e-3',
+    '12n',
+    '(count)',
+    'items[0]',
+  ];
+
+  it.each(values)('preserves division after %s', (value) => {
+    const code = `const ratio = ${value} / denominator / 2;`;
+    const sanitized = strip(code);
+    expect(sanitized).toContain('/ denominator / 2');
+    expect(sanitized).toHaveLength(code.length);
+    expect(extractReferencedIdentifiers(code).has('denominator')).toBe(true);
+    expect(
+      hasCompletionSignalCall(
+        `const ratio = ${value} / final({ answer: 42 }) / 2;`
+      )
+    ).toBe(true);
+  });
+
+  it.each([
+    '=\n',
+    '= /* comment */',
+    '= // comment\n',
+    '= +',
+    '= !',
+    '= typeof',
+    '= void',
+    '= value /',
+  ])('blanks a regex after %s', (prefix) => {
+    const code = `const pattern ${prefix} /["']/; final({ answer: payload });`;
+    expect(strip(code)).not.toContain('["\']');
+    expect(hasCompletionSignalCall(code)).toBe(true);
+    expect(extractReferencedIdentifiers(code).has('payload')).toBe(true);
+  });
+
+  it('does not expose calls or identifiers inside regex literals', () => {
+    const code = 'const pattern = /final(payload)|respond(other)/gi;';
+    expect(hasCompletionSignalCall(code)).toBe(false);
+    expect(extractReferencedIdentifiers(code).has('payload')).toBe(false);
+  });
+
+  it('keeps token context across comments and line breaks', () => {
+    const code = 'const ratio = "12" /* note */\n / final({ answer: 42 }) / 2;';
+    expect(hasCompletionSignalCall(code)).toBe(true);
+    expect(strip(code).split('\n')).toHaveLength(2);
+  });
+});
+
+describe('unterminated regex recovery', () => {
+  it.each(['\n', '\r', '\u2028', '\u2029'])(
+    'does not consume code across a line terminator %j',
+    (newline) => {
+      for (const backslash of ['', '\\']) {
+        const code = `const pattern = /unterminated${backslash}${newline}final({ answer: 42 }); /`;
+        expect(strip(code)).toContain('final({ answer: 42 })');
+        expect(strip(code)).toHaveLength(code.length);
+      }
+    }
+  );
+});
