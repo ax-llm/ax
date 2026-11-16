@@ -43,8 +43,33 @@ const REGEX_PRECEDING_KEYWORDS = new Set([
 
 // Contextual words (of/yield/await) can also be identifiers. Without parsing
 // their enclosing grammar, do not use them as evidence for a regex opener.
-const JS_IDENTIFIER =
-  /(?:[$_\p{ID_Start}]|\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\}))(?:[$\p{ID_Continue}]|\u200c|\u200d|\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\}))*/uy;
+const JS_UNICODE_ESCAPE = /\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\})/y;
+
+function readJsIdentifier(code: string, start: number): string {
+  let end = start;
+  while (end < code.length) {
+    const ch = code[end]!;
+    const asciiIdentifier =
+      end === start ? isIdentifierStart(ch) : isIdentifierChar(ch);
+    // Keep non-ASCII names together without requiring Unicode property tables
+    // from embedded JS engines. Non-whitespace non-ASCII input is conservatively
+    // treated as a name here; validating JavaScript remains the runtime's job.
+    if (asciiIdentifier || (ch.charCodeAt(0) > 127 && !/\s/.test(ch))) {
+      end++;
+      continue;
+    }
+    if (ch === '\\') {
+      JS_UNICODE_ESCAPE.lastIndex = end;
+      const unicodeEscape = JS_UNICODE_ESCAPE.exec(code)?.[0];
+      if (unicodeEscape) {
+        end += unicodeEscape.length;
+        continue;
+      }
+    }
+    break;
+  }
+  return code.slice(start, end);
+}
 
 function isLineTerminator(ch: string | undefined): boolean {
   return ch === '\n' || ch === '\r' || ch === '\u2028' || ch === '\u2029';
@@ -215,8 +240,7 @@ export function stripJsStringsAndComments(code: string): string {
       continue;
     }
 
-    JS_IDENTIFIER.lastIndex = i;
-    const identifier = JS_IDENTIFIER.exec(code)?.[0];
+    const identifier = readJsIdentifier(code, i);
     if (identifier) {
       expressionAllowed =
         previousToken !== '.' && REGEX_PRECEDING_KEYWORDS.has(identifier);
@@ -251,7 +275,8 @@ export function stripJsStringsAndComments(code: string): string {
 
     expressionAllowed = REGEX_PRECEDING_PUNCTUATION.has(ch);
     // Private property names can be keyword-shaped, just like dot properties.
-    previousToken = ch === '#' ? '.' : ch;
+    // 35 is #; a quoted hash would end the generated Rust raw string.
+    previousToken = ch.charCodeAt(0) === 35 ? '.' : ch;
     out += ch;
     i++;
   }

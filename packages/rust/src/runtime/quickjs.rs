@@ -683,6 +683,100 @@ function __ax_bind_host_namespaces() {
 function isIdentifierChar(ch) {
   return !!ch && /[A-Za-z0-9_$]/.test(ch);
 }
+const REGEX_PRECEDING_PUNCTUATION = /* @__PURE__ */ new Set([
+  "(",
+  ",",
+  "=",
+  ":",
+  "[",
+  "!",
+  "&",
+  "|",
+  "?",
+  "{",
+  ";",
+  "+",
+  "-",
+  "*",
+  "%",
+  "<",
+  ">",
+  "~",
+  "^",
+  "/"
+]);
+const REGEX_PRECEDING_KEYWORDS = /* @__PURE__ */ new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "new",
+  "delete",
+  "void",
+  "case",
+  "do",
+  "else",
+  "throw"
+]);
+const JS_UNICODE_ESCAPE = /\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\})/y;
+function readJsIdentifier(code, start) {
+  var _a;
+  let end = start;
+  while (end < code.length) {
+    const ch = code[end];
+    const asciiIdentifier = end === start ? isIdentifierStart(ch) : isIdentifierChar(ch);
+    if (asciiIdentifier || ch.charCodeAt(0) > 127 && !/\s/.test(ch)) {
+      end++;
+      continue;
+    }
+    if (ch === "\\") {
+      JS_UNICODE_ESCAPE.lastIndex = end;
+      const unicodeEscape = (_a = JS_UNICODE_ESCAPE.exec(code)) == null ? void 0 : _a[0];
+      if (unicodeEscape) {
+        end += unicodeEscape.length;
+        continue;
+      }
+    }
+    break;
+  }
+  return code.slice(start, end);
+}
+function isLineTerminator(ch) {
+  return ch === "\n" || ch === "\r" || ch === "\u2028" || ch === "\u2029";
+}
+function findRegexEnd(code, start) {
+  var _a, _b;
+  let inCharacterClass = false;
+  for (let i = start + 1; i < code.length; i++) {
+    const ch = (_a = code[i]) != null ? _a : "";
+    if (isLineTerminator(ch)) {
+      return -1;
+    }
+    if (ch === "\\") {
+      if (isLineTerminator(code[i + 1])) return -1;
+      i++;
+      continue;
+    }
+    if (inCharacterClass) {
+      if (ch === "]") {
+        inCharacterClass = false;
+      }
+      continue;
+    }
+    if (ch === "[") {
+      inCharacterClass = true;
+      continue;
+    }
+    if (ch === "/") {
+      let end = i + 1;
+      while (end < code.length && /[a-z]/i.test((_b = code[end]) != null ? _b : "")) {
+        end++;
+      }
+      return end;
+    }
+  }
+  return -1;
+}
 function isIdentifierStart(ch) {
   return !!ch && /[A-Za-z_$]/.test(ch);
 }
@@ -692,6 +786,8 @@ function stripJsStringsAndComments(code) {
   let i = 0;
   let state = "normal";
   let escaped = false;
+  let expressionAllowed = true;
+  let previousToken = "";
   while (i < code.length) {
     const ch = (_a = code[i]) != null ? _a : "";
     const next = (_b = code[i + 1]) != null ? _b : "";
@@ -752,24 +848,75 @@ function stripJsStringsAndComments(code) {
       state = "blockComment";
       continue;
     }
+    if (ch === "/" && expressionAllowed) {
+      const end = findRegexEnd(code, i);
+      if (end !== -1) {
+        out += " ".repeat(end - i);
+        i = end;
+        expressionAllowed = false;
+        previousToken = "value";
+        continue;
+      }
+    }
     if (ch === "'") {
       out += " ";
       i++;
       state = "single";
+      expressionAllowed = false;
+      previousToken = "value";
       continue;
     }
     if (ch === '"') {
       out += " ";
       i++;
       state = "double";
+      expressionAllowed = false;
+      previousToken = "value";
       continue;
     }
     if (ch === "`") {
       out += " ";
       i++;
       state = "template";
+      expressionAllowed = false;
+      previousToken = "value";
       continue;
     }
+    if (/\s/u.test(ch)) {
+      out += ch;
+      i++;
+      continue;
+    }
+    const identifier = readJsIdentifier(code, i);
+    if (identifier) {
+      expressionAllowed = previousToken !== "." && REGEX_PRECEDING_KEYWORDS.has(identifier);
+      previousToken = identifier;
+      out += identifier;
+      i += identifier.length;
+      continue;
+    }
+    if ((ch === "+" || ch === "-") && next === ch) {
+      previousToken = ch + next;
+      out += previousToken;
+      i += 2;
+      continue;
+    }
+    if (code.startsWith("...", i)) {
+      expressionAllowed = true;
+      previousToken = "...";
+      out += previousToken;
+      i += 3;
+      continue;
+    }
+    if (ch === "?" && next === ".") {
+      expressionAllowed = false;
+      previousToken = ".";
+      out += "?.";
+      i += 2;
+      continue;
+    }
+    expressionAllowed = REGEX_PRECEDING_PUNCTUATION.has(ch);
+    previousToken = ch.charCodeAt(0) === 35 ? "." : ch;
     out += ch;
     i++;
   }

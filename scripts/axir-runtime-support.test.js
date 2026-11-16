@@ -30,6 +30,14 @@ const CODE_SAMPLES = [
   "globalThis.total = sum(values); count += 1; items.push(value); // note = 'x'",
   'for (const row of rows) { const inner = row.id; } result = rows.map((r) => r.id);',
   'const r = await crm.lookup({ id: "c-7" }); final("Report", { tier: r.tier });',
+  `const quote = /["']/; const parsed = JSON.parse(payload);`,
+  'const ratio = count++ / denominator / 2;',
+  'const ratio = "12" / final({ answer: payload }) / 2;',
+  'const ratio = obj.of / denominator / 2;',
+  'const ratio = obj.#return / denominator / 2;',
+  'const ratio = 𐐀return / denominator / 2;',
+  String.raw`const ratio = \u{61}return / denominator / 2;`,
+  'const pattern = /final(payload)|respond(other)/gi;',
 ];
 
 describe('axir runtime support JavaScript', () => {
