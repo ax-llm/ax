@@ -89,7 +89,8 @@ export function axValidateEventEnvelope(
     throw new Error('AxEventEnvelope.specversion must be "1.0"');
   }
   for (const field of ['id', 'source', 'type'] as const) {
-    if (!envelope[field]?.trim()) {
+    const value = envelope[field];
+    if (typeof value !== 'string' || !value.trim()) {
       throw new Error(`AxEventEnvelope.${field} must be a non-empty string`);
     }
   }
