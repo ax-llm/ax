@@ -3923,7 +3923,7 @@
     },
     {
       "id": "axir-2026-11-16-preserve-regex-and-division-semantics-in-agent-javascript-analys",
-      "status": "open",
+      "status": "done",
       "title": "Preserve regex and division semantics in agent JavaScript analysis",
       "createdAt": "2026-11-16",
       "sourcePR": 900,
@@ -3939,9 +3939,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-11-16",
+      "completedByCommit": "595820951a3d72aacc14afc7d98e01ff5d1b5e3a",
+      "verification": "The runtime helper is regenerated directly from the TypeScript scanner and embedded in all five generated packages. 150 focused TypeScript tests, 137 AxIR maintenance tests, and eight native Goja scanner cases pass, including Unicode and escaped identifiers. Full TypeScript workspace checks passed with 4,222 tests and one existing skip. Full PR CI, including generated-language verification and real-engine checks, is required before merge."
     }
   ],
   "nonPortableExemptions": [
