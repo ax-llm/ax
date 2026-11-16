@@ -949,6 +949,27 @@ def _run_ai_context_cache(fixture):
 
 def _run_event(fixture):
     operation = fixture.get("operation")
+    if operation == "identity_validation":
+        for case in fixture["cases"]:
+            event = case["event"]
+            runtime = AxEventRuntime([])
+            runtime.start()
+            native = AxEventEnvelope(id=event.get("id"), source=event.get("source"), type=event.get("type"))
+            for invoke in [
+                lambda: event_route_commands(event, [], "anonymous", "untrusted"),
+                lambda: runtime.plan(event),
+                lambda: runtime.publish(event),
+                lambda: runtime.publish(native),
+            ]:
+                error = None
+                try:
+                    invoke()
+                except Exception as exc:
+                    error = str(exc)
+                _assert_equal(error, case["expected_error"], "event identity validation")
+            _assert_equal(len(runtime.store.deliveries), 0, "invalid events do not enqueue")
+            runtime.close()
+        return
     if operation == "routing":
         actual = event_route_commands(fixture["event"], fixture["routes"], fixture["identity_scope"], fixture["trust"])
         _assert_equal(actual, fixture["expected"], "event routing")

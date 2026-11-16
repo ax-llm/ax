@@ -51818,6 +51818,26 @@ final class Core {
 
   static Object event_route_commands(Object event, Object routes, Object identity_scope, Object trust) {
     axirCoverageMark("event_route_commands");
+    Object identity_fields = new java.util.ArrayList<Object>();
+    Core.append(identity_fields, "id");
+    Core.append(identity_fields, "source");
+    Core.append(identity_fields, "type");
+    for (Object field : Core.iter(identity_fields)) {
+      Object value = Core.get(event, field, null);
+      Object message = Core.stringFormat("AxEventEnvelope.{} must be a non-empty string", field);
+      Object is_string = Core.typeIs(value, "string");
+      Object not_string = Core.not(is_string);
+      if (Core.truthy(not_string)) {
+        Object type_error = Core.validationError(message);
+        throw Core.asRuntime(type_error);
+      }
+      Object trimmed = Core.stringTrim(value);
+      Object empty = Core.eq(trimmed, "");
+      if (Core.truthy(empty)) {
+        Object empty_error = Core.validationError(message);
+        throw Core.asRuntime(empty_error);
+      }
+    }
     Object commands = new java.util.ArrayList<Object>();
     Object event_type = Core.get(event, "type", "");
     Object event_source = Core.get(event, "source", "");
@@ -52204,6 +52224,41 @@ final class Core {
     return out;
   }
 
+  static Object mcp_client_capabilities(Object has_roots, Object has_sampling, Object has_elicitation, Object era, Object tasks_extension) {
+    axirCoverageMark("mcp_client_capabilities");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    if (Core.truthy(has_roots)) {
+      Object roots = new java.util.LinkedHashMap<String, Object>();
+      Core.set(roots, "listChanged", Boolean.TRUE);
+      Core.set(out, "roots", roots);
+    }
+    if (Core.truthy(has_sampling)) {
+      Object sampling = new java.util.LinkedHashMap<String, Object>();
+      Object sampling_context = new java.util.LinkedHashMap<String, Object>();
+      Object sampling_tools = new java.util.LinkedHashMap<String, Object>();
+      Core.set(sampling, "context", sampling_context);
+      Core.set(sampling, "tools", sampling_tools);
+      Core.set(out, "sampling", sampling);
+    }
+    if (Core.truthy(has_elicitation)) {
+      Object elicitation = new java.util.LinkedHashMap<String, Object>();
+      Object elicitation_form = new java.util.LinkedHashMap<String, Object>();
+      Object elicitation_url = new java.util.LinkedHashMap<String, Object>();
+      Core.set(elicitation, "form", elicitation_form);
+      Core.set(elicitation, "url", elicitation_url);
+      Core.set(out, "elicitation", elicitation);
+    }
+    Object modern = Core.eq(era, "modern");
+    Object add_tasks = Core.and(modern, tasks_extension);
+    if (Core.truthy(add_tasks)) {
+      Object extensions = new java.util.LinkedHashMap<String, Object>();
+      Object tasks = new java.util.LinkedHashMap<String, Object>();
+      Core.set(extensions, "io.modelcontextprotocol/tasks", tasks);
+      Core.set(out, "extensions", extensions);
+    }
+    return out;
+  }
+
   static Object event_normalize_input(Object input, Object signature_fields) {
     axirCoverageMark("event_normalize_input");
     Object none = Core.none();
@@ -52245,37 +52300,31 @@ final class Core {
     return result;
   }
 
-  static Object mcp_client_capabilities(Object has_roots, Object has_sampling, Object has_elicitation, Object era, Object tasks_extension) {
-    axirCoverageMark("mcp_client_capabilities");
+  static Object mcp_negotiate_extensions(Object client_ext, Object server_ext) {
+    axirCoverageMark("mcp_negotiate_extensions");
     Object out = new java.util.LinkedHashMap<String, Object>();
-    if (Core.truthy(has_roots)) {
-      Object roots = new java.util.LinkedHashMap<String, Object>();
-      Core.set(roots, "listChanged", Boolean.TRUE);
-      Core.set(out, "roots", roots);
-    }
-    if (Core.truthy(has_sampling)) {
-      Object sampling = new java.util.LinkedHashMap<String, Object>();
-      Object sampling_context = new java.util.LinkedHashMap<String, Object>();
-      Object sampling_tools = new java.util.LinkedHashMap<String, Object>();
-      Core.set(sampling, "context", sampling_context);
-      Core.set(sampling, "tools", sampling_tools);
-      Core.set(out, "sampling", sampling);
-    }
-    if (Core.truthy(has_elicitation)) {
-      Object elicitation = new java.util.LinkedHashMap<String, Object>();
-      Object elicitation_form = new java.util.LinkedHashMap<String, Object>();
-      Object elicitation_url = new java.util.LinkedHashMap<String, Object>();
-      Core.set(elicitation, "form", elicitation_form);
-      Core.set(elicitation, "url", elicitation_url);
-      Core.set(out, "elicitation", elicitation);
-    }
-    Object modern = Core.eq(era, "modern");
-    Object add_tasks = Core.and(modern, tasks_extension);
-    if (Core.truthy(add_tasks)) {
-      Object extensions = new java.util.LinkedHashMap<String, Object>();
-      Object tasks = new java.util.LinkedHashMap<String, Object>();
-      Core.set(extensions, "io.modelcontextprotocol/tasks", tasks);
-      Core.set(out, "extensions", extensions);
+    Object client_object = Core.typeIs(client_ext, "object");
+    Object server_object = Core.typeIs(server_ext, "object");
+    Object both_objects = Core.and(client_object, server_object);
+    if (Core.truthy(both_objects)) {
+      Object names = Core.mapKeys(client_ext);
+      for (Object name : Core.iter(names)) {
+        Object server_has = Core.mapContains(server_ext, name);
+        if (Core.truthy(server_has)) {
+          Object client_value = Core.get(client_ext, name, null);
+          Object server_value = Core.get(server_ext, name, null);
+          Object client_value_object = Core.typeIs(client_value, "object");
+          Object server_value_object = Core.typeIs(server_value, "object");
+          Object values_objects = Core.and(client_value_object, server_value_object);
+          if (Core.truthy(values_objects)) {
+            Object merged = Core.mapMerge(client_value, server_value);
+            Core.set(out, name, merged);
+          }
+          if (!Core.truthy(values_objects)) {
+            Core.set(out, name, server_value);
+          }
+        }
+      }
     }
     return out;
   }
@@ -52313,43 +52362,6 @@ final class Core {
     return result;
   }
 
-  static Object mcp_negotiate_extensions(Object client_ext, Object server_ext) {
-    axirCoverageMark("mcp_negotiate_extensions");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object client_object = Core.typeIs(client_ext, "object");
-    Object server_object = Core.typeIs(server_ext, "object");
-    Object both_objects = Core.and(client_object, server_object);
-    if (Core.truthy(both_objects)) {
-      Object names = Core.mapKeys(client_ext);
-      for (Object name : Core.iter(names)) {
-        Object server_has = Core.mapContains(server_ext, name);
-        if (Core.truthy(server_has)) {
-          Object client_value = Core.get(client_ext, name, null);
-          Object server_value = Core.get(server_ext, name, null);
-          Object client_value_object = Core.typeIs(client_value, "object");
-          Object server_value_object = Core.typeIs(server_value, "object");
-          Object values_objects = Core.and(client_value_object, server_value_object);
-          if (Core.truthy(values_objects)) {
-            Object merged = Core.mapMerge(client_value, server_value);
-            Core.set(out, name, merged);
-          }
-          if (!Core.truthy(values_objects)) {
-            Core.set(out, name, server_value);
-          }
-        }
-      }
-    }
-    return out;
-  }
-
-  static Object event_delivery_due(Object status, Object available_at, Object now) {
-    axirCoverageMark("event_delivery_due");
-    Object queued = Core.eq(status, "queued");
-    Object ready = Core.lte(available_at, now);
-    Object due = Core.and(queued, ready);
-    return due;
-  }
-
   static Object mcp_request_name(Object method, Object params) {
     axirCoverageMark("mcp_request_name");
     Object params_object = Core.typeIs(params, "object");
@@ -52374,6 +52386,14 @@ final class Core {
       }
     }
     return "";
+  }
+
+  static Object event_delivery_due(Object status, Object available_at, Object now) {
+    axirCoverageMark("event_delivery_due");
+    Object queued = Core.eq(status, "queued");
+    Object ready = Core.lte(available_at, now);
+    Object due = Core.and(queued, ready);
+    return due;
   }
 
   static Object event_strict_delivery_eligible(Object candidate, Object deliveries) {
@@ -52430,29 +52450,6 @@ final class Core {
     }
     if (!Core.truthy(encode)) {
       Core.set(out, "mode", "plain");
-    }
-    return out;
-  }
-
-  static Object event_capacity_transition(Object pending, Object queued_bytes, Object envelope_bytes, Object max_pending, Object max_queued_bytes, Object max_envelope_bytes) {
-    axirCoverageMark("event_capacity_transition");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object next_pending = Core.add(pending, 1);
-    Object next_bytes = Core.add(queued_bytes, envelope_bytes);
-    Object pending_ok = Core.lte(next_pending, max_pending);
-    Object queue_ok = Core.lte(next_bytes, max_queued_bytes);
-    Object envelope_ok = Core.lte(envelope_bytes, max_envelope_bytes);
-    Object queue_capacity = Core.and(pending_ok, queue_ok);
-    Object accepted = Core.and(queue_capacity, envelope_ok);
-    Core.set(out, "accepted", accepted);
-    Core.set(out, "nextPending", next_pending);
-    Core.set(out, "nextQueuedBytes", next_bytes);
-    Core.set(out, "reason", "capacity");
-    if (Core.truthy(envelope_ok)) {
-      // empty
-    }
-    if (!Core.truthy(envelope_ok)) {
-      Core.set(out, "reason", "envelope_too_large");
     }
     return out;
   }
@@ -52592,6 +52589,29 @@ final class Core {
       }
     }
     return bindings;
+  }
+
+  static Object event_capacity_transition(Object pending, Object queued_bytes, Object envelope_bytes, Object max_pending, Object max_queued_bytes, Object max_envelope_bytes) {
+    axirCoverageMark("event_capacity_transition");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object next_pending = Core.add(pending, 1);
+    Object next_bytes = Core.add(queued_bytes, envelope_bytes);
+    Object pending_ok = Core.lte(next_pending, max_pending);
+    Object queue_ok = Core.lte(next_bytes, max_queued_bytes);
+    Object envelope_ok = Core.lte(envelope_bytes, max_envelope_bytes);
+    Object queue_capacity = Core.and(pending_ok, queue_ok);
+    Object accepted = Core.and(queue_capacity, envelope_ok);
+    Core.set(out, "accepted", accepted);
+    Core.set(out, "nextPending", next_pending);
+    Core.set(out, "nextQueuedBytes", next_bytes);
+    Core.set(out, "reason", "capacity");
+    if (Core.truthy(envelope_ok)) {
+      // empty
+    }
+    if (!Core.truthy(envelope_ok)) {
+      Core.set(out, "reason", "envelope_too_large");
+    }
+    return out;
   }
 
   static Object event_debounce_transition(Object now, Object debounce_ms, Object has_queued_predecessor) {

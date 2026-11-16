@@ -653,7 +653,7 @@ class AxEventRuntime:
     ) -> AxEventPublishReceipt:
         if not self.started: raise RuntimeError("AxEventRuntime must be started first")
         envelope = event if isinstance(event, AxEventEnvelope) else AxEventEnvelope(
-            str(event.get("id", "")), str(event.get("source", "")), str(event.get("type", "")),
+            event.get("id"), event.get("source"), event.get("type"),
             event.get("data"), event.get("subject"), str(event.get("specversion", "1.0")),
             dict(event.get("extensions") or {}), list(event.get("correlation") or []))
         commands = self.plan(envelope, identity_scope=identity_scope, trust=trust)

@@ -120,6 +120,59 @@ describe('evaluatePrCheck surface scoping', () => {
     ).toBe(true);
   });
 
+  it('requires coverage for event changes and scopes it to event IR', () => {
+    const eventPath = 'src/ax/event/util.ts';
+    expect(surfaceIrModulesFor(eventPath)).toEqual(['ir/axcore/event.axir']);
+    for (const extraFiles of [[], ['ir/axcore/mcp.axir']]) {
+      const result = evaluatePrCheck({
+        changedFiles: [eventPath, ...extraFiles],
+        ledger: emptyLedger,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.uncovered).toEqual([eventPath]);
+    }
+    expect(
+      evaluatePrCheck({
+        changedFiles: [eventPath, 'ir/axcore/event.axir'],
+        ledger: emptyLedger,
+      }).ok
+    ).toBe(true);
+  });
+
+  it('covers only listed event paths with an open backlog entry', () => {
+    const entry = openEntry({
+      portableSurface: 'axevent',
+      tsPaths: ['src/ax/event/util.ts'],
+    });
+    const ledger = { ...emptyLedger, entries: [entry] };
+    expect(evaluatePrCheck({ changedFiles: entry.tsPaths, ledger }).ok).toBe(
+      true
+    );
+    expect(
+      evaluatePrCheck({
+        changedFiles: [...entry.tsPaths, 'src/ax/event/runtime.ts'],
+        ledger,
+      }).uncovered
+    ).toEqual(['src/ax/event/runtime.ts']);
+    expect(
+      evaluatePrCheck({
+        changedFiles: entry.tsPaths,
+        ledger: {
+          ...emptyLedger,
+          entries: [
+            {
+              ...entry,
+              status: 'done',
+              completedAt: '2026-01-02',
+              completedByCommit: 'abc123',
+              verification: 'npm run test:axir',
+            },
+          ],
+        },
+      }).ok
+    ).toBe(false);
+  });
+
   it('still honors open backlog entries and the no-impact marker', () => {
     const ledger = { schemaVersion: 1, entries: [openEntry()] };
     expect(
@@ -335,6 +388,30 @@ describe('axir-backlog CLI', () => {
     expect(
       readFileSync(path.join(root, 'docs', 'AXIR_BACKLOG.md'), 'utf8')
     ).toContain('Sync OpenAI prices');
+    expect(run(['validate', '--root', root])).toContain('valid');
+  });
+
+  it('infers and validates the event surface when adding an entry', () => {
+    run([
+      'add',
+      '--root',
+      root,
+      '--title',
+      'Validate event identity fields',
+      '--impact',
+      'Keep event validation consistent across languages.',
+      '--paths',
+      'src/ax/event/util.ts',
+      '--pr',
+      '901',
+      '--commit',
+      'abc123',
+    ]);
+    expect(readLedger(root).entries[0]).toMatchObject({
+      portableSurface: 'axevent',
+      sourcePR: 901,
+      tsPaths: ['src/ax/event/util.ts'],
+    });
     expect(run(['validate', '--root', root])).toContain('valid');
   });
 

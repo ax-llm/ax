@@ -13722,6 +13722,27 @@ func (s *conformanceEventSink) Write(output Value, context map[string]Value) err
 func runConformanceEvent(fixture map[string]Value) {
 	operation := display(coreGet(fixture, "operation", ""))
 	switch operation {
+	case "identity_validation":
+		for _, item := range asSlice(fixture["cases"]) {
+			c := asMap(item)
+			event := asMap(c["event"])
+			_, err := event_route_commands(event, Array(), "anonymous", "untrusted")
+			var message Value
+			if err != nil { message = err.Error() }
+			assertEqual(message, c["expected_error"], "event identity validation")
+			id, idOK := event["id"].(string)
+			source, sourceOK := event["source"].(string)
+			eventType, typeOK := event["type"].(string)
+			if idOK && sourceOK && typeOK {
+				runtime, runtimeErr := NewAxEventRuntime(nil, nil)
+				if runtimeErr != nil { panic(runtimeErr) }
+				if startErr := runtime.Start(); startErr != nil { panic(startErr) }
+				_, publishErr := runtime.Publish(AxEventEnvelope{SpecVersion:"1.0", ID:id, Source:source, Type:eventType}, "anonymous", "untrusted")
+				message = nil
+				if publishErr != nil { message = publishErr.Error() }
+				assertEqual(message, c["expected_error"], "native event identity validation")
+			}
+		}
 	case "routing":
 		actual := mustCore(event_route_commands(coreGet(fixture, "event", Object()), coreGet(fixture, "routes", Array()), coreGet(fixture, "identity_scope", ""), coreGet(fixture, "trust", "untrusted")))
 		assertEqual(actual, coreGet(fixture, "expected", Array()), "event routing")

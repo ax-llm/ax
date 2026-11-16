@@ -981,6 +981,24 @@ public final class Conformance {
   static void runEvent(Map<String,Object> fixture) {
     String operation=String.valueOf(fixture.get("operation"));
     switch(operation){
+      case "identity_validation" -> {
+        for(Object item:(List<Object>)fixture.get("cases")) {
+          Map<String,Object> c=(Map<String,Object>)item;
+          Map<String,Object> event=(Map<String,Object>)c.get("event");
+          String error=null;
+          try { Core.event_route_commands(event,List.of(),"anonymous","untrusted"); }
+          catch(RuntimeException e) { error=e.getMessage(); }
+          assertEqual(error,c.get("expected_error"),"event identity validation");
+          if(event.get("id") instanceof String id && event.get("source") instanceof String source && event.get("type") instanceof String type) {
+            AxEventRuntime runtime=new AxEventRuntime(List.of()).start();
+            error=null;
+            try { runtime.publish(new AxEventEnvelope(id,source,type,null),"anonymous","untrusted"); }
+            catch(RuntimeException e) { error=e.getMessage(); }
+            assertEqual(error,c.get("expected_error"),"native event identity validation");
+            runtime.close();
+          }
+        }
+      }
       case "routing" -> assertEqual(Core.event_route_commands(fixture.get("event"),fixture.get("routes"),fixture.get("identity_scope"),fixture.get("trust")),fixture.get("expected"),"event routing");
       case "retry" -> {for(Object item:(List<Object>)fixture.get("cases")){Map<String,Object> value=(Map<String,Object>)item;assertEqual(Core.event_retry_transition(value.get("invocation_started"),value.get("retry_safety"),value.get("attempt"),value.get("max_attempts")),value.get("expected"),"event retry");}}
       case "continuation" -> {Map<String,Object> key=(Map<String,Object>)fixture.get("correlation");Object actual=Core.event_continuation_match(fixture.get("continuations"),fixture.get("identity_scope"),key.get("kind"),key.get("value"),fixture.get("now"));assertEqual(((Map<String,Object>)actual).get("id"),fixture.get("expected_id"),"event continuation");}

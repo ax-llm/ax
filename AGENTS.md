@@ -78,13 +78,15 @@ examples, and website markdown in sync in the same PR.
 ## AxIR Backlog For Portable TS Changes
 
 If a PR changes portable TypeScript behavior under `src/ax/ai/`, `src/ax/dsp/`,
-`src/ax/agent/`, `src/ax/flow/`, or `src/ax/mcp/`, either update
+`src/ax/agent/`, `src/ax/flow/`, `src/ax/mcp/`, or `src/ax/event/`, either update
 AxIR/conformance in the same PR or add a backlog entry:
 
 ```bash
 npm run axir:backlog -- add --title "..." --surface axai --impact "..." --paths src/ax/ai/...
 npm run axir:backlog:validate
 ```
+
+Event changes use `--surface axevent` and map to `ir/axcore/event.axir`.
 
 If the changed code is intentionally not portable, such as a browser-only
 provider around a host runtime, add a scoped non-portable exemption instead of a

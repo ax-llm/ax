@@ -2094,6 +2094,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axmcp", "mcp", "oauth_issuer", "semantic"},
 		{"axmcp", "mcp", "ssrf", "validation-error"},
 		{"axevent", "event", "routing", "semantic"},
+		{"axevent", "event", "identity_validation", "validation-error"},
 		{"axevent", "event", "retry", "semantic"},
 		{"axevent", "event", "continuation", "semantic"},
 		{"axevent", "event", "mcp_normalization", "semantic"},

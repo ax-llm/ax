@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
   - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
+  - Status: open
+  - Source PR: #901
+  - Source commit: `71900b89b7bbd92915494f2b2d97f1853e91a7f8`
+  - TS paths: `src/ax/event/util.ts`, `src/ax/event/envelope-validation.test.ts`
+  - Impact: Reject non-string id/source/type values with clear field-specific validation errors before routing or persistence. Preserve valid envelopes and empty-string rejection across generated languages.
+  - Suggested AxIR work: Add TS-derived conformance cases for numeric and object identity fields plus valid and empty-string controls.; Implement equivalent runtime validation in AxIR/Core and generated event ingress paths including dynamically typed and JSON inputs.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

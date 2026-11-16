@@ -1,0 +1,310 @@
+{
+  "name": "event identity validation matches TypeScript before routing",
+  "kind": "event",
+  "operation": "identity_validation",
+  "cases": [
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": null
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": 42,
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": {},
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": [],
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": true,
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": null,
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "",
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": " \t\r\n",
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": " ﻿ ",
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": " padded ",
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": null
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "",
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": null
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "source": "test://events",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.id must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": 42,
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": {},
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": [],
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": true,
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": null,
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": " \t\r\n",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": " ﻿ ",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": " padded ",
+        "type": "test.event"
+      },
+      "expected_error": null
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "",
+        "type": "test.event"
+      },
+      "expected_error": null
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "type": "test.event"
+      },
+      "expected_error": "AxEventEnvelope.source must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": 42
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": {}
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": []
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": true
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": null
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": ""
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": " \t\r\n"
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": " ﻿ "
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": " padded "
+      },
+      "expected_error": null
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events",
+        "type": ""
+      },
+      "expected_error": null
+    },
+    {
+      "event": {
+        "specversion": "1.0",
+        "id": "event-1",
+        "source": "test://events"
+      },
+      "expected_error": "AxEventEnvelope.type must be a non-empty string"
+    }
+  ]
+}
