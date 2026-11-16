@@ -233,6 +233,13 @@
       {
         "suite": "axevent",
         "kind": "event",
+        "operation": "identity_validation",
+        "runner": "python:axevent.identity_validation",
+        "category": "validation-error"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
         "operation": "retry",
         "runner": "python:axevent.retry",
         "category": "semantic"

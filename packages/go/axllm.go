@@ -108429,12 +108429,19 @@ func event_route_commands(args ...Value) (Value, error) {
 	var v_authenticated Value
 	var v_command Value
 	var v_commands Value
+	var v_empty Value
+	var v_empty_error Value
 	var v_event_id Value
 	var v_event_source Value
 	var v_event_type Value
+	var v_field Value
+	var v_identity_fields Value
+	var v_is_string Value
 	var v_key Value
 	var v_match Value
 	var v_matched Value
+	var v_message Value
+	var v_not_string Value
 	var v_requires_auth Value
 	var v_route Value
 	var v_route_id Value
@@ -108446,13 +108453,16 @@ func event_route_commands(args ...Value) (Value, error) {
 	var v_sources_empty Value
 	var v_subject Value
 	var v_target_id Value
+	var v_trimmed Value
 	var v_trusted Value
 	var v_type_count Value
+	var v_type_error Value
 	var v_type_listed Value
 	var v_type_match Value
 	var v_type_open Value
 	var v_types Value
 	var v_types_empty Value
+	var v_value Value
 	var v_verified Value
 	if len(args) > 0 { v_event = args[0] }
 	_ = v_event
@@ -108468,12 +108478,19 @@ func event_route_commands(args ...Value) (Value, error) {
 	_ = v_authenticated
 	_ = v_command
 	_ = v_commands
+	_ = v_empty
+	_ = v_empty_error
 	_ = v_event_id
 	_ = v_event_source
 	_ = v_event_type
+	_ = v_field
+	_ = v_identity_fields
+	_ = v_is_string
 	_ = v_key
 	_ = v_match
 	_ = v_matched
+	_ = v_message
+	_ = v_not_string
 	_ = v_requires_auth
 	_ = v_route
 	_ = v_route_id
@@ -108485,14 +108502,41 @@ func event_route_commands(args ...Value) (Value, error) {
 	_ = v_sources_empty
 	_ = v_subject
 	_ = v_target_id
+	_ = v_trimmed
 	_ = v_trusted
 	_ = v_type_count
+	_ = v_type_error
 	_ = v_type_listed
 	_ = v_type_match
 	_ = v_type_open
 	_ = v_types
 	_ = v_types_empty
+	_ = v_value
 	_ = v_verified
+	v_identity_fields = MutableArray()
+	v_identity_fields = coreAppend(v_identity_fields, "id")
+	v_identity_fields = coreAppend(v_identity_fields, "source")
+	v_identity_fields = coreAppend(v_identity_fields, "type")
+	for _, v_field = range coreIter(v_identity_fields) {
+		v_value = coreGet(v_event, v_field, nil)
+		v_message = _core_string_format("AxEventEnvelope.{} must be a non-empty string", v_field)
+		v_is_string = coreTypeIs(v_value, "string")
+		v_not_string = _core_not(v_is_string)
+		if coreTruthy(v_not_string) {
+			v_type_error = _core_validation_error(v_message)
+			return nil, asError(v_type_error)
+		} else {
+		// empty
+		}
+		v_trimmed = coreStringTrim(v_value)
+		v_empty = _core_eq(v_trimmed, "")
+		if coreTruthy(v_empty) {
+			v_empty_error = _core_validation_error(v_message)
+			return nil, asError(v_empty_error)
+		} else {
+		// empty
+		}
+	}
 	v_commands = MutableArray()
 	v_event_type = coreGet(v_event, "type", "")
 	v_event_source = coreGet(v_event, "source", "")
@@ -109270,78 +109314,6 @@ func mcp_build_request_meta(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func event_normalize_input(args ...Value) (Value, error) {
-	axirCoverageMark("event_normalize_input")
-	var v_input Value
-	var v_signature_fields Value
-	var v_clone Value
-	var v_encoded Value
-	var v_error Value
-	var v_failed Value
-	var v_field Value
-	var v_is_object Value
-	var v_missing Value
-	var v_name Value
-	var v_none Value
-	var v_optional Value
-	var v_out Value
-	var v_result Value
-	var v_value Value
-	if len(args) > 0 { v_input = args[0] }
-	_ = v_input
-	if len(args) > 1 { v_signature_fields = args[1] }
-	_ = v_signature_fields
-	_ = v_clone
-	_ = v_encoded
-	_ = v_error
-	_ = v_failed
-	_ = v_field
-	_ = v_is_object
-	_ = v_missing
-	_ = v_name
-	_ = v_none
-	_ = v_optional
-	_ = v_out
-	_ = v_result
-	_ = v_value
-	v_none = _core_none()
-	v_out = Object()
-	v_result = Object()
-	v_error = v_none
-	v_is_object = coreTypeIs(v_input, "object")
-	if coreTruthy(v_is_object) {
-		for _, v_field = range coreIter(v_signature_fields) {
-			v_name = coreGet(v_field, "name", "")
-			v_optional = coreGet(v_field, "optional", false)
-			v_value = coreGet(v_input, v_name, v_none)
-			v_missing = _core_is_none(v_value)
-			if coreTruthy(v_missing) {
-				if coreTruthy(v_optional) {
-				// empty
-				} else {
-					v_error = _core_string_format("Required signature input {} was not present", v_name)
-				}
-			} else {
-				v_encoded = _core_json_stringify(v_value)
-				{ v, err := _core_json_parse(v_encoded); if err != nil { return nil, err }; v_clone = v }
-				if err := coreSet(v_out, v_name, v_clone); err != nil { return nil, err }
-			}
-		}
-	} else {
-		v_error = "Mapped event input must be an object"
-	}
-	v_failed = _core_is_not_none(v_error)
-	if err := coreSet(v_result, "ok", true); err != nil { return nil, err }
-	if err := coreSet(v_result, "value", v_out); err != nil { return nil, err }
-	if coreTruthy(v_failed) {
-		if err := coreSet(v_result, "ok", false); err != nil { return nil, err }
-		if err := coreSet(v_result, "error", v_error); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_result, nil
-}
-
 func mcp_client_capabilities(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_client_capabilities")
 	var v_has_roots Value
@@ -109418,6 +109390,142 @@ func mcp_client_capabilities(args ...Value) (Value, error) {
 		v_tasks = Object()
 		if err := coreSet(v_extensions, "io.modelcontextprotocol/tasks", v_tasks); err != nil { return nil, err }
 		if err := coreSet(v_out, "extensions", v_extensions); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func event_normalize_input(args ...Value) (Value, error) {
+	axirCoverageMark("event_normalize_input")
+	var v_input Value
+	var v_signature_fields Value
+	var v_clone Value
+	var v_encoded Value
+	var v_error Value
+	var v_failed Value
+	var v_field Value
+	var v_is_object Value
+	var v_missing Value
+	var v_name Value
+	var v_none Value
+	var v_optional Value
+	var v_out Value
+	var v_result Value
+	var v_value Value
+	if len(args) > 0 { v_input = args[0] }
+	_ = v_input
+	if len(args) > 1 { v_signature_fields = args[1] }
+	_ = v_signature_fields
+	_ = v_clone
+	_ = v_encoded
+	_ = v_error
+	_ = v_failed
+	_ = v_field
+	_ = v_is_object
+	_ = v_missing
+	_ = v_name
+	_ = v_none
+	_ = v_optional
+	_ = v_out
+	_ = v_result
+	_ = v_value
+	v_none = _core_none()
+	v_out = Object()
+	v_result = Object()
+	v_error = v_none
+	v_is_object = coreTypeIs(v_input, "object")
+	if coreTruthy(v_is_object) {
+		for _, v_field = range coreIter(v_signature_fields) {
+			v_name = coreGet(v_field, "name", "")
+			v_optional = coreGet(v_field, "optional", false)
+			v_value = coreGet(v_input, v_name, v_none)
+			v_missing = _core_is_none(v_value)
+			if coreTruthy(v_missing) {
+				if coreTruthy(v_optional) {
+				// empty
+				} else {
+					v_error = _core_string_format("Required signature input {} was not present", v_name)
+				}
+			} else {
+				v_encoded = _core_json_stringify(v_value)
+				{ v, err := _core_json_parse(v_encoded); if err != nil { return nil, err }; v_clone = v }
+				if err := coreSet(v_out, v_name, v_clone); err != nil { return nil, err }
+			}
+		}
+	} else {
+		v_error = "Mapped event input must be an object"
+	}
+	v_failed = _core_is_not_none(v_error)
+	if err := coreSet(v_result, "ok", true); err != nil { return nil, err }
+	if err := coreSet(v_result, "value", v_out); err != nil { return nil, err }
+	if coreTruthy(v_failed) {
+		if err := coreSet(v_result, "ok", false); err != nil { return nil, err }
+		if err := coreSet(v_result, "error", v_error); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_result, nil
+}
+
+func mcp_negotiate_extensions(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_negotiate_extensions")
+	var v_client_ext Value
+	var v_server_ext Value
+	var v_both_objects Value
+	var v_client_object Value
+	var v_client_value Value
+	var v_client_value_object Value
+	var v_merged Value
+	var v_name Value
+	var v_names Value
+	var v_out Value
+	var v_server_has Value
+	var v_server_object Value
+	var v_server_value Value
+	var v_server_value_object Value
+	var v_values_objects Value
+	if len(args) > 0 { v_client_ext = args[0] }
+	_ = v_client_ext
+	if len(args) > 1 { v_server_ext = args[1] }
+	_ = v_server_ext
+	_ = v_both_objects
+	_ = v_client_object
+	_ = v_client_value
+	_ = v_client_value_object
+	_ = v_merged
+	_ = v_name
+	_ = v_names
+	_ = v_out
+	_ = v_server_has
+	_ = v_server_object
+	_ = v_server_value
+	_ = v_server_value_object
+	_ = v_values_objects
+	v_out = Object()
+	v_client_object = coreTypeIs(v_client_ext, "object")
+	v_server_object = coreTypeIs(v_server_ext, "object")
+	v_both_objects = _core_and(v_client_object, v_server_object)
+	if coreTruthy(v_both_objects) {
+		v_names = _core_map_keys(v_client_ext)
+		for _, v_name = range coreIter(v_names) {
+			v_server_has = _core_map_contains(v_server_ext, v_name)
+			if coreTruthy(v_server_has) {
+				v_client_value = coreGet(v_client_ext, v_name, nil)
+				v_server_value = coreGet(v_server_ext, v_name, nil)
+				v_client_value_object = coreTypeIs(v_client_value, "object")
+				v_server_value_object = coreTypeIs(v_server_value, "object")
+				v_values_objects = _core_and(v_client_value_object, v_server_value_object)
+				if coreTruthy(v_values_objects) {
+					v_merged = _core_map_merge(v_client_value, v_server_value)
+					if err := coreSet(v_out, v_name, v_merged); err != nil { return nil, err }
+				} else {
+					if err := coreSet(v_out, v_name, v_server_value); err != nil { return nil, err }
+				}
+			} else {
+			// empty
+			}
+		}
 	} else {
 	// empty
 	}
@@ -109507,93 +109615,6 @@ func event_continuation_match(args ...Value) (Value, error) {
 	return v_result, nil
 }
 
-func mcp_negotiate_extensions(args ...Value) (Value, error) {
-	axirCoverageMark("mcp_negotiate_extensions")
-	var v_client_ext Value
-	var v_server_ext Value
-	var v_both_objects Value
-	var v_client_object Value
-	var v_client_value Value
-	var v_client_value_object Value
-	var v_merged Value
-	var v_name Value
-	var v_names Value
-	var v_out Value
-	var v_server_has Value
-	var v_server_object Value
-	var v_server_value Value
-	var v_server_value_object Value
-	var v_values_objects Value
-	if len(args) > 0 { v_client_ext = args[0] }
-	_ = v_client_ext
-	if len(args) > 1 { v_server_ext = args[1] }
-	_ = v_server_ext
-	_ = v_both_objects
-	_ = v_client_object
-	_ = v_client_value
-	_ = v_client_value_object
-	_ = v_merged
-	_ = v_name
-	_ = v_names
-	_ = v_out
-	_ = v_server_has
-	_ = v_server_object
-	_ = v_server_value
-	_ = v_server_value_object
-	_ = v_values_objects
-	v_out = Object()
-	v_client_object = coreTypeIs(v_client_ext, "object")
-	v_server_object = coreTypeIs(v_server_ext, "object")
-	v_both_objects = _core_and(v_client_object, v_server_object)
-	if coreTruthy(v_both_objects) {
-		v_names = _core_map_keys(v_client_ext)
-		for _, v_name = range coreIter(v_names) {
-			v_server_has = _core_map_contains(v_server_ext, v_name)
-			if coreTruthy(v_server_has) {
-				v_client_value = coreGet(v_client_ext, v_name, nil)
-				v_server_value = coreGet(v_server_ext, v_name, nil)
-				v_client_value_object = coreTypeIs(v_client_value, "object")
-				v_server_value_object = coreTypeIs(v_server_value, "object")
-				v_values_objects = _core_and(v_client_value_object, v_server_value_object)
-				if coreTruthy(v_values_objects) {
-					v_merged = _core_map_merge(v_client_value, v_server_value)
-					if err := coreSet(v_out, v_name, v_merged); err != nil { return nil, err }
-				} else {
-					if err := coreSet(v_out, v_name, v_server_value); err != nil { return nil, err }
-				}
-			} else {
-			// empty
-			}
-		}
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
-func event_delivery_due(args ...Value) (Value, error) {
-	axirCoverageMark("event_delivery_due")
-	var v_status Value
-	var v_available_at Value
-	var v_now Value
-	var v_due Value
-	var v_queued Value
-	var v_ready Value
-	if len(args) > 0 { v_status = args[0] }
-	_ = v_status
-	if len(args) > 1 { v_available_at = args[1] }
-	_ = v_available_at
-	if len(args) > 2 { v_now = args[2] }
-	_ = v_now
-	_ = v_due
-	_ = v_queued
-	_ = v_ready
-	v_queued = _core_eq(v_status, "queued")
-	v_ready = _core_lte(v_available_at, v_now)
-	v_due = _core_and(v_queued, v_ready)
-	return v_due, nil
-}
-
 func mcp_request_name(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_request_name")
 	var v_method Value
@@ -109652,6 +109673,29 @@ func mcp_request_name(args ...Value) (Value, error) {
 	// empty
 	}
 	return "", nil
+}
+
+func event_delivery_due(args ...Value) (Value, error) {
+	axirCoverageMark("event_delivery_due")
+	var v_status Value
+	var v_available_at Value
+	var v_now Value
+	var v_due Value
+	var v_queued Value
+	var v_ready Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	if len(args) > 1 { v_available_at = args[1] }
+	_ = v_available_at
+	if len(args) > 2 { v_now = args[2] }
+	_ = v_now
+	_ = v_due
+	_ = v_queued
+	_ = v_ready
+	v_queued = _core_eq(v_status, "queued")
+	v_ready = _core_lte(v_available_at, v_now)
+	v_due = _core_and(v_queued, v_ready)
+	return v_due, nil
 }
 
 func event_strict_delivery_eligible(args ...Value) (Value, error) {
@@ -109776,62 +109820,6 @@ func mcp_header_value_plan(args ...Value) (Value, error) {
 		if err := coreSet(v_out, "mode", "encode"); err != nil { return nil, err }
 	} else {
 		if err := coreSet(v_out, "mode", "plain"); err != nil { return nil, err }
-	}
-	return v_out, nil
-}
-
-func event_capacity_transition(args ...Value) (Value, error) {
-	axirCoverageMark("event_capacity_transition")
-	var v_pending Value
-	var v_queued_bytes Value
-	var v_envelope_bytes Value
-	var v_max_pending Value
-	var v_max_queued_bytes Value
-	var v_max_envelope_bytes Value
-	var v_accepted Value
-	var v_envelope_ok Value
-	var v_next_bytes Value
-	var v_next_pending Value
-	var v_out Value
-	var v_pending_ok Value
-	var v_queue_capacity Value
-	var v_queue_ok Value
-	if len(args) > 0 { v_pending = args[0] }
-	_ = v_pending
-	if len(args) > 1 { v_queued_bytes = args[1] }
-	_ = v_queued_bytes
-	if len(args) > 2 { v_envelope_bytes = args[2] }
-	_ = v_envelope_bytes
-	if len(args) > 3 { v_max_pending = args[3] }
-	_ = v_max_pending
-	if len(args) > 4 { v_max_queued_bytes = args[4] }
-	_ = v_max_queued_bytes
-	if len(args) > 5 { v_max_envelope_bytes = args[5] }
-	_ = v_max_envelope_bytes
-	_ = v_accepted
-	_ = v_envelope_ok
-	_ = v_next_bytes
-	_ = v_next_pending
-	_ = v_out
-	_ = v_pending_ok
-	_ = v_queue_capacity
-	_ = v_queue_ok
-	v_out = Object()
-	v_next_pending = _core_add(v_pending, 1)
-	v_next_bytes = _core_add(v_queued_bytes, v_envelope_bytes)
-	v_pending_ok = _core_lte(v_next_pending, v_max_pending)
-	v_queue_ok = _core_lte(v_next_bytes, v_max_queued_bytes)
-	v_envelope_ok = _core_lte(v_envelope_bytes, v_max_envelope_bytes)
-	v_queue_capacity = _core_and(v_pending_ok, v_queue_ok)
-	v_accepted = _core_and(v_queue_capacity, v_envelope_ok)
-	if err := coreSet(v_out, "accepted", v_accepted); err != nil { return nil, err }
-	if err := coreSet(v_out, "nextPending", v_next_pending); err != nil { return nil, err }
-	if err := coreSet(v_out, "nextQueuedBytes", v_next_bytes); err != nil { return nil, err }
-	if err := coreSet(v_out, "reason", "capacity"); err != nil { return nil, err }
-	if coreTruthy(v_envelope_ok) {
-	// empty
-	} else {
-		if err := coreSet(v_out, "reason", "envelope_too_large"); err != nil { return nil, err }
 	}
 	return v_out, nil
 }
@@ -110150,6 +110138,62 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 		}
 	}
 	return v_bindings, nil
+}
+
+func event_capacity_transition(args ...Value) (Value, error) {
+	axirCoverageMark("event_capacity_transition")
+	var v_pending Value
+	var v_queued_bytes Value
+	var v_envelope_bytes Value
+	var v_max_pending Value
+	var v_max_queued_bytes Value
+	var v_max_envelope_bytes Value
+	var v_accepted Value
+	var v_envelope_ok Value
+	var v_next_bytes Value
+	var v_next_pending Value
+	var v_out Value
+	var v_pending_ok Value
+	var v_queue_capacity Value
+	var v_queue_ok Value
+	if len(args) > 0 { v_pending = args[0] }
+	_ = v_pending
+	if len(args) > 1 { v_queued_bytes = args[1] }
+	_ = v_queued_bytes
+	if len(args) > 2 { v_envelope_bytes = args[2] }
+	_ = v_envelope_bytes
+	if len(args) > 3 { v_max_pending = args[3] }
+	_ = v_max_pending
+	if len(args) > 4 { v_max_queued_bytes = args[4] }
+	_ = v_max_queued_bytes
+	if len(args) > 5 { v_max_envelope_bytes = args[5] }
+	_ = v_max_envelope_bytes
+	_ = v_accepted
+	_ = v_envelope_ok
+	_ = v_next_bytes
+	_ = v_next_pending
+	_ = v_out
+	_ = v_pending_ok
+	_ = v_queue_capacity
+	_ = v_queue_ok
+	v_out = Object()
+	v_next_pending = _core_add(v_pending, 1)
+	v_next_bytes = _core_add(v_queued_bytes, v_envelope_bytes)
+	v_pending_ok = _core_lte(v_next_pending, v_max_pending)
+	v_queue_ok = _core_lte(v_next_bytes, v_max_queued_bytes)
+	v_envelope_ok = _core_lte(v_envelope_bytes, v_max_envelope_bytes)
+	v_queue_capacity = _core_and(v_pending_ok, v_queue_ok)
+	v_accepted = _core_and(v_queue_capacity, v_envelope_ok)
+	if err := coreSet(v_out, "accepted", v_accepted); err != nil { return nil, err }
+	if err := coreSet(v_out, "nextPending", v_next_pending); err != nil { return nil, err }
+	if err := coreSet(v_out, "nextQueuedBytes", v_next_bytes); err != nil { return nil, err }
+	if err := coreSet(v_out, "reason", "capacity"); err != nil { return nil, err }
+	if coreTruthy(v_envelope_ok) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "reason", "envelope_too_large"); err != nil { return nil, err }
+	}
+	return v_out, nil
 }
 
 func event_debounce_transition(args ...Value) (Value, error) {
@@ -123646,6 +123690,27 @@ func (s *conformanceEventSink) Write(output Value, context map[string]Value) err
 func runConformanceEvent(fixture map[string]Value) {
 	operation := display(coreGet(fixture, "operation", ""))
 	switch operation {
+	case "identity_validation":
+		for _, item := range asSlice(fixture["cases"]) {
+			c := asMap(item)
+			event := asMap(c["event"])
+			_, err := event_route_commands(event, Array(), "anonymous", "untrusted")
+			var message Value
+			if err != nil { message = err.Error() }
+			assertEqual(message, c["expected_error"], "event identity validation")
+			id, idOK := event["id"].(string)
+			source, sourceOK := event["source"].(string)
+			eventType, typeOK := event["type"].(string)
+			if idOK && sourceOK && typeOK {
+				runtime, runtimeErr := NewAxEventRuntime(nil, nil)
+				if runtimeErr != nil { panic(runtimeErr) }
+				if startErr := runtime.Start(); startErr != nil { panic(startErr) }
+				_, publishErr := runtime.Publish(AxEventEnvelope{SpecVersion:"1.0", ID:id, Source:source, Type:eventType}, "anonymous", "untrusted")
+				message = nil
+				if publishErr != nil { message = publishErr.Error() }
+				assertEqual(message, c["expected_error"], "native event identity validation")
+			}
+		}
 	case "routing":
 		actual := mustCore(event_route_commands(coreGet(fixture, "event", Object()), coreGet(fixture, "routes", Array()), coreGet(fixture, "identity_scope", ""), coreGet(fixture, "trust", "untrusted")))
 		assertEqual(actual, coreGet(fixture, "expected", Array()), "event routing")

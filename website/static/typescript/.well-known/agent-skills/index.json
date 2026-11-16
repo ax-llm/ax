@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:7a0352003bd15688a0806e8e372e1ece50681ed15eedf27f6f749b2461eb87b8"
+      "digest": "sha256:908772ecdd1a71913c14f1060794c855b672144beb8238084da760a4cce63a45"
     },
     {
       "name": "ax-ai",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use AxEventRuntime to ingest events, explicitly wake or resume AxGen, AxAgent, and AxFlow, persist state and results, and route outputs safely.",
       "url": "ax-event-runtime/SKILL.md",
-      "digest": "sha256:1b6fa59664397099c4624c18933caa10c9fb01625a88d64cc0984ba553c3f1ef"
+      "digest": "sha256:f89ab4a12d96eff520d1d3e411645dfca328f6af9c51a6811ae27dab13a14f1c"
     },
     {
       "name": "ax-gepa",

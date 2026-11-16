@@ -25,7 +25,7 @@ function filterTokens(
  * @returns A Counter object mapping each token to its count.
  */
 function countTokens(tokens: readonly string[]): Record<string, number> {
-  const counter: Record<string, number> = {};
+  const counter: Record<string, number> = Object.create(null);
   for (const token of tokens) {
     counter[token] = (counter[token] || 0) + 1;
   }

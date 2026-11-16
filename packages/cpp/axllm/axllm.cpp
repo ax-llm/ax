@@ -53609,6 +53609,26 @@ Value Core::mcp_execution_context_descriptor(Value namespaces, Value inheritance
 
 Value Core::event_route_commands(Value event, Value routes, Value identity_scope, Value trust) {
   axir_coverage_mark("event_route_commands");
+  Value identity_fields = Value::array();
+  Core::append(identity_fields, Value("id"));
+  Core::append(identity_fields, Value("source"));
+  Core::append(identity_fields, Value("type"));
+  for (auto field : Core::iter(identity_fields)) {
+    Value value = Core::get(event, field, Value());
+    Value message = Core::string_format(Value("AxEventEnvelope.{} must be a non-empty string"), field);
+    Value is_string = Core::type_is(value, Value("string"));
+    Value not_string = Core::not_(is_string);
+    if (Core::truthy(not_string)) {
+      Value type_error = Core::validation_error(message);
+      Core::raise_error(type_error);
+    }
+    Value trimmed = Core::string_trim(value);
+    Value empty = Core::eq(trimmed, Value(""));
+    if (Core::truthy(empty)) {
+      Value empty_error = Core::validation_error(message);
+      Core::raise_error(empty_error);
+    }
+  }
   Value commands = Value::array();
   Value event_type = Core::get(event, Value("type"), Value(""));
   Value event_source = Core::get(event, Value("source"), Value(""));
@@ -53995,6 +54015,41 @@ Value Core::mcp_build_request_meta(Value existing, Value protocol_version, Value
   return out;
 }
 
+Value Core::mcp_client_capabilities(Value has_roots, Value has_sampling, Value has_elicitation, Value era, Value tasks_extension) {
+  axir_coverage_mark("mcp_client_capabilities");
+  Value out = Value::object();
+  if (Core::truthy(has_roots)) {
+    Value roots = Value::object();
+    Core::set(roots, Value("listChanged"), Value(true));
+    Core::set(out, Value("roots"), roots);
+  }
+  if (Core::truthy(has_sampling)) {
+    Value sampling = Value::object();
+    Value sampling_context = Value::object();
+    Value sampling_tools = Value::object();
+    Core::set(sampling, Value("context"), sampling_context);
+    Core::set(sampling, Value("tools"), sampling_tools);
+    Core::set(out, Value("sampling"), sampling);
+  }
+  if (Core::truthy(has_elicitation)) {
+    Value elicitation = Value::object();
+    Value elicitation_form = Value::object();
+    Value elicitation_url = Value::object();
+    Core::set(elicitation, Value("form"), elicitation_form);
+    Core::set(elicitation, Value("url"), elicitation_url);
+    Core::set(out, Value("elicitation"), elicitation);
+  }
+  Value modern = Core::eq(era, Value("modern"));
+  Value add_tasks = Core::and_(modern, tasks_extension);
+  if (Core::truthy(add_tasks)) {
+    Value extensions = Value::object();
+    Value tasks = Value::object();
+    Core::set(extensions, Value("io.modelcontextprotocol/tasks"), tasks);
+    Core::set(out, Value("extensions"), extensions);
+  }
+  return out;
+}
+
 Value Core::event_normalize_input(Value input, Value signature_fields) {
   axir_coverage_mark("event_normalize_input");
   Value none = Core::none();
@@ -54036,37 +54091,31 @@ Value Core::event_normalize_input(Value input, Value signature_fields) {
   return result;
 }
 
-Value Core::mcp_client_capabilities(Value has_roots, Value has_sampling, Value has_elicitation, Value era, Value tasks_extension) {
-  axir_coverage_mark("mcp_client_capabilities");
+Value Core::mcp_negotiate_extensions(Value client_ext, Value server_ext) {
+  axir_coverage_mark("mcp_negotiate_extensions");
   Value out = Value::object();
-  if (Core::truthy(has_roots)) {
-    Value roots = Value::object();
-    Core::set(roots, Value("listChanged"), Value(true));
-    Core::set(out, Value("roots"), roots);
-  }
-  if (Core::truthy(has_sampling)) {
-    Value sampling = Value::object();
-    Value sampling_context = Value::object();
-    Value sampling_tools = Value::object();
-    Core::set(sampling, Value("context"), sampling_context);
-    Core::set(sampling, Value("tools"), sampling_tools);
-    Core::set(out, Value("sampling"), sampling);
-  }
-  if (Core::truthy(has_elicitation)) {
-    Value elicitation = Value::object();
-    Value elicitation_form = Value::object();
-    Value elicitation_url = Value::object();
-    Core::set(elicitation, Value("form"), elicitation_form);
-    Core::set(elicitation, Value("url"), elicitation_url);
-    Core::set(out, Value("elicitation"), elicitation);
-  }
-  Value modern = Core::eq(era, Value("modern"));
-  Value add_tasks = Core::and_(modern, tasks_extension);
-  if (Core::truthy(add_tasks)) {
-    Value extensions = Value::object();
-    Value tasks = Value::object();
-    Core::set(extensions, Value("io.modelcontextprotocol/tasks"), tasks);
-    Core::set(out, Value("extensions"), extensions);
+  Value client_object = Core::type_is(client_ext, Value("object"));
+  Value server_object = Core::type_is(server_ext, Value("object"));
+  Value both_objects = Core::and_(client_object, server_object);
+  if (Core::truthy(both_objects)) {
+    Value names = Core::map_keys(client_ext);
+    for (auto name : Core::iter(names)) {
+      Value server_has = Core::map_contains(server_ext, name);
+      if (Core::truthy(server_has)) {
+        Value client_value = Core::get(client_ext, name, Value());
+        Value server_value = Core::get(server_ext, name, Value());
+        Value client_value_object = Core::type_is(client_value, Value("object"));
+        Value server_value_object = Core::type_is(server_value, Value("object"));
+        Value values_objects = Core::and_(client_value_object, server_value_object);
+        if (Core::truthy(values_objects)) {
+          Value merged = Core::map_merge(client_value, server_value);
+          Core::set(out, name, merged);
+        }
+        if (!Core::truthy(values_objects)) {
+          Core::set(out, name, server_value);
+        }
+      }
+    }
   }
   return out;
 }
@@ -54104,43 +54153,6 @@ Value Core::event_continuation_match(Value continuations, Value identity_scope, 
   return result;
 }
 
-Value Core::mcp_negotiate_extensions(Value client_ext, Value server_ext) {
-  axir_coverage_mark("mcp_negotiate_extensions");
-  Value out = Value::object();
-  Value client_object = Core::type_is(client_ext, Value("object"));
-  Value server_object = Core::type_is(server_ext, Value("object"));
-  Value both_objects = Core::and_(client_object, server_object);
-  if (Core::truthy(both_objects)) {
-    Value names = Core::map_keys(client_ext);
-    for (auto name : Core::iter(names)) {
-      Value server_has = Core::map_contains(server_ext, name);
-      if (Core::truthy(server_has)) {
-        Value client_value = Core::get(client_ext, name, Value());
-        Value server_value = Core::get(server_ext, name, Value());
-        Value client_value_object = Core::type_is(client_value, Value("object"));
-        Value server_value_object = Core::type_is(server_value, Value("object"));
-        Value values_objects = Core::and_(client_value_object, server_value_object);
-        if (Core::truthy(values_objects)) {
-          Value merged = Core::map_merge(client_value, server_value);
-          Core::set(out, name, merged);
-        }
-        if (!Core::truthy(values_objects)) {
-          Core::set(out, name, server_value);
-        }
-      }
-    }
-  }
-  return out;
-}
-
-Value Core::event_delivery_due(Value status, Value available_at, Value now) {
-  axir_coverage_mark("event_delivery_due");
-  Value queued = Core::eq(status, Value("queued"));
-  Value ready = Core::lte(available_at, now);
-  Value due = Core::and_(queued, ready);
-  return due;
-}
-
 Value Core::mcp_request_name(Value method, Value params) {
   axir_coverage_mark("mcp_request_name");
   Value params_object = Core::type_is(params, Value("object"));
@@ -54165,6 +54177,14 @@ Value Core::mcp_request_name(Value method, Value params) {
     }
   }
   return Value("");
+}
+
+Value Core::event_delivery_due(Value status, Value available_at, Value now) {
+  axir_coverage_mark("event_delivery_due");
+  Value queued = Core::eq(status, Value("queued"));
+  Value ready = Core::lte(available_at, now);
+  Value due = Core::and_(queued, ready);
+  return due;
 }
 
 Value Core::event_strict_delivery_eligible(Value candidate, Value deliveries) {
@@ -54221,29 +54241,6 @@ Value Core::mcp_header_value_plan(Value value) {
   }
   if (!Core::truthy(encode)) {
     Core::set(out, Value("mode"), Value("plain"));
-  }
-  return out;
-}
-
-Value Core::event_capacity_transition(Value pending, Value queued_bytes, Value envelope_bytes, Value max_pending, Value max_queued_bytes, Value max_envelope_bytes) {
-  axir_coverage_mark("event_capacity_transition");
-  Value out = Value::object();
-  Value next_pending = Core::add(pending, Value(1));
-  Value next_bytes = Core::add(queued_bytes, envelope_bytes);
-  Value pending_ok = Core::lte(next_pending, max_pending);
-  Value queue_ok = Core::lte(next_bytes, max_queued_bytes);
-  Value envelope_ok = Core::lte(envelope_bytes, max_envelope_bytes);
-  Value queue_capacity = Core::and_(pending_ok, queue_ok);
-  Value accepted = Core::and_(queue_capacity, envelope_ok);
-  Core::set(out, Value("accepted"), accepted);
-  Core::set(out, Value("nextPending"), next_pending);
-  Core::set(out, Value("nextQueuedBytes"), next_bytes);
-  Core::set(out, Value("reason"), Value("capacity"));
-  if (Core::truthy(envelope_ok)) {
-    // empty
-  }
-  if (!Core::truthy(envelope_ok)) {
-    Core::set(out, Value("reason"), Value("envelope_too_large"));
   }
   return out;
 }
@@ -54383,6 +54380,29 @@ Value Core::mcp_param_header_bindings(Value input_schema) {
     }
   }
   return bindings;
+}
+
+Value Core::event_capacity_transition(Value pending, Value queued_bytes, Value envelope_bytes, Value max_pending, Value max_queued_bytes, Value max_envelope_bytes) {
+  axir_coverage_mark("event_capacity_transition");
+  Value out = Value::object();
+  Value next_pending = Core::add(pending, Value(1));
+  Value next_bytes = Core::add(queued_bytes, envelope_bytes);
+  Value pending_ok = Core::lte(next_pending, max_pending);
+  Value queue_ok = Core::lte(next_bytes, max_queued_bytes);
+  Value envelope_ok = Core::lte(envelope_bytes, max_envelope_bytes);
+  Value queue_capacity = Core::and_(pending_ok, queue_ok);
+  Value accepted = Core::and_(queue_capacity, envelope_ok);
+  Core::set(out, Value("accepted"), accepted);
+  Core::set(out, Value("nextPending"), next_pending);
+  Core::set(out, Value("nextQueuedBytes"), next_bytes);
+  Core::set(out, Value("reason"), Value("capacity"));
+  if (Core::truthy(envelope_ok)) {
+    // empty
+  }
+  if (!Core::truthy(envelope_ok)) {
+    Core::set(out, Value("reason"), Value("envelope_too_large"));
+  }
+  return out;
 }
 
 Value Core::event_debounce_transition(Value now, Value debounce_ms, Value has_queued_predecessor) {

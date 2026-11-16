@@ -113,11 +113,32 @@ module @ax.event version "0.1" {
   op ax.event.semantic @event_route_commands {
     attr body_source = "core"
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "mcp"
     attr public = true
     tag "axevent"
-    type signature = "(event:json, routes:list<json>, identity_scope:string, trust:string) -> list<json>"
+    type signature = "(event:json, routes:list<json>, identity_scope:string, trust:string) -> list<json> throws"
     body @entry(%event: json, %routes: list<json>, %identity_scope: string, %trust: string) {
+      %identity_fields = core.list
+      core.append %identity_fields, "id"
+      core.append %identity_fields, "source"
+      core.append %identity_fields, "type"
+      core.for %field in %identity_fields {
+        %value = core.get %event[%field] default null
+        %message = core.call intrinsic.string.format("AxEventEnvelope.{} must be a non-empty string", %field)
+        %is_string = core.type_is %value type "string"
+        %not_string = core.call intrinsic.not(%is_string)
+        core.if %not_string {
+          %type_error = core.call intrinsic.error.validation(%message)
+          core.raise %type_error
+        }
+        %trimmed = core.string_trim %value
+        %empty = core.call intrinsic.eq(%trimmed, "")
+        core.if %empty {
+          %empty_error = core.call intrinsic.error.validation(%message)
+          core.raise %empty_error
+        }
+      }
       %commands = core.list
       %event_type = core.get %event["type"] default ""
       %event_source = core.get %event["source"] default ""

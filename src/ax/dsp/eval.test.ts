@@ -53,3 +53,19 @@ describe('AxEvalUtil.novelF1ScoreOptimized', () => {
     expect(AxEvalUtil.emScore('ALBATROSS!', 'albatross')).toBe(1);
   });
 });
+
+describe('AxEvalUtil.f1Score', () => {
+  it.each([
+    ['constructor', 'constructor', 1],
+    ['constructor', 'cat', 0],
+    ['cat', 'constructor', 0],
+    ['constructor cat', 'constructor dog', 0.5],
+    ['constructor constructor cat', 'constructor dog', 0.4],
+    ['constructor', 'constructor constructor', 2 / 3],
+    ['cat', 'cat', 1],
+    ['cat', 'dog', 0],
+    ['cat cat dog', 'cat bird', 0.4],
+  ])('scores prediction=%j, truth=%j', (prediction, groundTruth, expected) => {
+    expect(AxEvalUtil.f1Score(prediction, groundTruth)).toBeCloseTo(expected);
+  });
+});
