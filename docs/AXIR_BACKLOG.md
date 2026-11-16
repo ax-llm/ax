@@ -30,13 +30,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
   - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
-  - Status: open
-  - Source PR: #901
-  - Source commit: `71900b89b7bbd92915494f2b2d97f1853e91a7f8`
-  - TS paths: `src/ax/event/util.ts`, `src/ax/event/envelope-validation.test.ts`
-  - Impact: Reject non-string id/source/type values with clear field-specific validation errors before routing or persistence. Preserve valid envelopes and empty-string rejection across generated languages.
-  - Suggested AxIR work: Add TS-derived conformance cases for numeric and object identity fields plus valid and empty-string controls.; Implement equivalent runtime validation in AxIR/Core and generated event ingress paths including dynamically typed and JSON inputs.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -1572,26 +1565,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-13
   - Completed by: `dcbe2fb57eb6b40c6e287031fa43ca7a41829eef`
   - Verification: `34 TypeScript-derived Hydrogen fixtures pass in all five generated languages. Full release verification passes for Python, Java, C++, Go, and Rust, each executing all 2,154 conformance fixtures; Java and Go were rerun after fixing per-call streaming options. Live Hydrogen calls pass in all five generated languages. The TypeScript workspace suite passes (4,123 tests, one existing skip), as do build, conformance sync, strict Core checking, lint, provenance, lowering, generated package consistency, generated examples, skills, and website checks.`
-- `axir-2026-11-14-keep-anthropic-document-citations-instead-of-dropping-them` [axai] Keep Anthropic document citations instead of dropping them
-  - Status: done
-  - Source PR: #894
-  - Source commit: `cb4d34eba5b2a0c661126ee0fd31d61846715ec4`
-  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.citations.test.ts`, `src/ax/ai/types.ts`
-  - Impact: Anthropic document citations (char_location, page_location, content_block_location) carry a cited span instead of a url; normalization must keep that span and its document index/title for both streaming and non-streaming responses.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-14
-  - Completed by: `5736c56dde36a30a97dd5adaefdd7636e2e990f8`
-  - Verification: `Merged #895 ports citation normalization and text-block snapshots to Core. CI passed full conformance for Python, Java, C++, Go, and Rust, including TypeScript-derived ordinary/streaming cases for character, page, and content-block locations, file IDs, URL citations, invalid citations, and immutable snapshots.`
-- `axir-2026-11-14-render-document-citations-without-urls-in-default-loggers` [axgen] Render document citations without URLs in default loggers
-  - Status: done
-  - Source PR: #894
-  - Source commit: `51dfd05ab98357e5b876b5a84bd6107cc05a49ae`
-  - TS paths: `src/ax/dsp/loggers.ts`
-  - Impact: Default loggers render a document title or fallback label when a citation has no URL.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-14
-  - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
-  - Verification: `Generated clients expose structured chat logs rather than the TypeScript terminal formatter; they do not perform URL-dependent display lookups. Core now retains URL-less document citation titles and source ranges in per-request usage.citations and text_blocks. TypeScript-derived forward and streaming log fixtures pass in all five languages, and live examples print these records successfully in all five.`
 - `axir-2026-11-14-keep-a-shared-value-in-truncated-runtime-output-instead-of-repor` [axagent] Keep a shared value in truncated runtime output instead of reporting a cycle
   - Status: done
   - Source PR: #893
@@ -1602,6 +1575,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-14
   - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
   - Verification: `Core uses an ancestor stack and native reference identity, preserving shared siblings while marking genuine cycles. Nine formatter cases pass in Python, Java, C++, Go, and Rust, covering shared objects/arrays, self and nested cycles, equal distinct values, depth limits, and large-array budgets. The generated Go native test also distinguishes an empty slice view from a self-containing slice.`
+- `axir-2026-11-14-keep-anthropic-document-citations-instead-of-dropping-them` [axai] Keep Anthropic document citations instead of dropping them
+  - Status: done
+  - Source PR: #894
+  - Source commit: `cb4d34eba5b2a0c661126ee0fd31d61846715ec4`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.citations.test.ts`, `src/ax/ai/types.ts`
+  - Impact: Anthropic document citations (char_location, page_location, content_block_location) carry a cited span instead of a url; normalization must keep that span and its document index/title for both streaming and non-streaming responses.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-14
+  - Completed by: `5736c56dde36a30a97dd5adaefdd7636e2e990f8`
+  - Verification: `Merged #895 ports citation normalization and text-block snapshots to Core. CI passed full conformance for Python, Java, C++, Go, and Rust, including TypeScript-derived ordinary/streaming cases for character, page, and content-block locations, file IDs, URL citations, invalid citations, and immutable snapshots.`
 - `axir-2026-11-14-port-anthropic-native-document-inputs-and-cited-text-blocks` [axai] Port Anthropic native document inputs and cited text blocks
   - Status: done
   - Source PR: #895
@@ -1622,3 +1605,23 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-14
   - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
   - Verification: `TypeScript-derived AxGen forward and streaming fixtures pass in all five languages with native file-valued document inputs, indexed text-block snapshots, and deduplicated URL-less citations in per-request log usage. All five public examples pass ordinary and streaming live Anthropic calls with source-offset checks. Generated logs keep request-local document identities in separate entries; TypeScript getUsage has no direct generated AxGen method equivalent.`
+- `axir-2026-11-14-render-document-citations-without-urls-in-default-loggers` [axgen] Render document citations without URLs in default loggers
+  - Status: done
+  - Source PR: #894
+  - Source commit: `51dfd05ab98357e5b876b5a84bd6107cc05a49ae`
+  - TS paths: `src/ax/dsp/loggers.ts`
+  - Impact: Default loggers render a document title or fallback label when a citation has no URL.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-14
+  - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
+  - Verification: `Generated clients expose structured chat logs rather than the TypeScript terminal formatter; they do not perform URL-dependent display lookups. Core now retains URL-less document citation titles and source ranges in per-request usage.citations and text_blocks. TypeScript-derived forward and streaming log fixtures pass in all five languages, and live examples print these records successfully in all five.`
+- `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
+  - Status: done
+  - Source PR: #901
+  - Source commit: `71900b89b7bbd92915494f2b2d97f1853e91a7f8`
+  - TS paths: `src/ax/event/util.ts`, `src/ax/event/envelope-validation.test.ts`
+  - Impact: Reject non-string id/source/type values with clear field-specific validation errors before routing or persistence. Preserve valid envelopes and empty-string rejection across generated languages.
+  - Suggested AxIR work: Add TS-derived conformance cases for numeric and object identity fields plus valid and empty-string controls.; Implement equivalent runtime validation in AxIR/Core and generated event ingress paths including dynamically typed and JSON inputs.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-16
+  - Completed by: `10e8f6ff78c8ff893dceb4fc1e78bd84306de84d`
+  - Verification: `Event conformance passed in Python, Java, C++, Go, and Rust, including the 34-case identity fixture and public publish checks. Focused TypeScript and backlog tests, 72 fast AxIR checks, strict Core validation, provenance audits, generated package freshness, and full fixture synchronization passed. The local aggregate test:axir run timed out during broader C++ verification; PR CI supplies full-suite validation.`
