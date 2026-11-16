@@ -11835,6 +11835,22 @@ fn run_event_fixture(fixture:&Value)->AxResult<()>{
     let operation=fixture.get("operation").and_then(Value::as_str).unwrap_or_default();
     let call=|result:Result<CoreValue,AxError>,expected:&Value,label:&str|->AxResult<()>{let actual=core_value_to_json(&result?);if &actual!=expected{return Err(AxError::new("fixture",format!("{label} mismatch: expected {expected}, got {actual}")));}Ok(())};
     match operation {
+        "identity_validation"=>{
+            for case in fixture["cases"].as_array().ok_or_else(||AxError::new("fixture","missing identity cases"))? {
+                let event=&case["event"];
+                let result=event_route_commands(&[core_value_from_json(event),core_value_from_json(&json!([])),core_value_from_json(&json!("anonymous")),core_value_from_json(&json!("untrusted"))]);
+                let error=result.err().map(|e|json!(e.message)).unwrap_or(Value::Null);
+                if error!=case["expected_error"] {return Err(AxError::new("fixture",format!("event identity validation: expected {}, got {error}",case["expected_error"])))}
+                if let (Some(id),Some(source),Some(event_type))=(event["id"].as_str(),event["source"].as_str(),event["type"].as_str()) {
+                    let envelope=AxEventEnvelope{specversion:"1.0".into(),id:id.into(),source:source.into(),r#type:event_type.into(),subject:None,data:Value::Null,extensions:Map::new(),correlation:vec![]};
+                    let mut runtime=AxEventRuntime::new(vec![],json!({}))?;runtime.start()?;
+                    let error=runtime.publish(envelope,"anonymous","untrusted").err().map(|e|json!(e.message)).unwrap_or(Value::Null);
+                    if error!=case["expected_error"] {return Err(AxError::new("fixture",format!("native event identity validation: expected {}, got {error}",case["expected_error"])))}
+                    runtime.close()?;
+                }
+            }
+            Ok(())
+        },
         "routing"=>call(event_route_commands(&[core_value_from_json(&fixture["event"]),core_value_from_json(&fixture["routes"]),core_value_from_json(&fixture["identity_scope"]),core_value_from_json(&fixture["trust"])]),&fixture["expected"],"event routing"),
         "retry"=>{for case in fixture["cases"].as_array().cloned().unwrap_or_default(){call(event_retry_transition(&[core_value_from_json(&case["invocation_started"]),core_value_from_json(&case["retry_safety"]),core_value_from_json(&case["attempt"]),core_value_from_json(&case["max_attempts"])]),&case["expected"],"event retry")?;}Ok(())},
         "continuation"=>{let actual=core_value_to_json(&event_continuation_match(&[core_value_from_json(&fixture["continuations"]),core_value_from_json(&fixture["identity_scope"]),core_value_from_json(&fixture["correlation"]["kind"]),core_value_from_json(&fixture["correlation"]["value"]),core_value_from_json(&fixture["now"])])?);if actual.get("id")!=fixture.get("expected_id"){return Err(AxError::new("fixture","event continuation mismatch"));}Ok(())},

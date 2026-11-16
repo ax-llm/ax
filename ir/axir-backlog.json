@@ -3898,6 +3898,28 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-11-16-validate-event-envelope-identity-field-types",
+      "status": "done",
+      "title": "Validate event envelope identity field types",
+      "createdAt": "2026-11-16",
+      "sourcePR": 901,
+      "sourceCommit": "71900b89b7bbd92915494f2b2d97f1853e91a7f8",
+      "tsPaths": [
+        "src/ax/event/util.ts",
+        "src/ax/event/envelope-validation.test.ts"
+      ],
+      "portableSurface": "axevent",
+      "impact": "Reject non-string id/source/type values with clear field-specific validation errors before routing or persistence. Preserve valid envelopes and empty-string rejection across generated languages.",
+      "suggestedAxirWork": [
+        "Add TS-derived conformance cases for numeric and object identity fields plus valid and empty-string controls.",
+        "Implement equivalent runtime validation in AxIR/Core and generated event ingress paths including dynamically typed and JSON inputs.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-11-16",
+      "completedByCommit": "10e8f6ff78c8ff893dceb4fc1e78bd84306de84d",
+      "verification": "Event conformance passed in Python, Java, C++, Go, and Rust, including the 34-case identity fixture and public publish checks. Focused TypeScript and backlog tests, 72 fast AxIR checks, strict Core validation, provenance audits, generated package freshness, and full fixture synchronization passed. The local aggregate test:axir run timed out during broader C++ verification; PR CI supplies full-suite validation."
     }
   ],
   "nonPortableExemptions": [

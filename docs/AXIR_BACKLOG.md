@@ -1615,3 +1615,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-14
   - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
   - Verification: `TypeScript-derived AxGen forward and streaming fixtures pass in all five languages with native file-valued document inputs, indexed text-block snapshots, and deduplicated URL-less citations in per-request log usage. All five public examples pass ordinary and streaming live Anthropic calls with source-offset checks. Generated logs keep request-local document identities in separate entries; TypeScript getUsage has no direct generated AxGen method equivalent.`
+- `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
+  - Status: done
+  - Source PR: #901
+  - Source commit: `71900b89b7bbd92915494f2b2d97f1853e91a7f8`
+  - TS paths: `src/ax/event/util.ts`, `src/ax/event/envelope-validation.test.ts`
+  - Impact: Reject non-string id/source/type values with clear field-specific validation errors before routing or persistence. Preserve valid envelopes and empty-string rejection across generated languages.
+  - Suggested AxIR work: Add TS-derived conformance cases for numeric and object identity fields plus valid and empty-string controls.; Implement equivalent runtime validation in AxIR/Core and generated event ingress paths including dynamically typed and JSON inputs.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-16
+  - Completed by: `10e8f6ff78c8ff893dceb4fc1e78bd84306de84d`
+  - Verification: `Event conformance passed in Python, Java, C++, Go, and Rust, including the 34-case identity fixture and public publish checks. Focused TypeScript and backlog tests, 72 fast AxIR checks, strict Core validation, provenance audits, generated package freshness, and full fixture synchronization passed. The local aggregate test:axir run timed out during broader C++ verification; PR CI supplies full-suite validation.`

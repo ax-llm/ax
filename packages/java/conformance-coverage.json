@@ -233,6 +233,13 @@
       {
         "suite": "axevent",
         "kind": "event",
+        "operation": "identity_validation",
+        "runner": "java:axevent.identity_validation",
+        "category": "validation-error"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
         "operation": "retry",
         "runner": "java:axevent.retry",
         "category": "semantic"

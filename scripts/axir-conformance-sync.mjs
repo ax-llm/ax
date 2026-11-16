@@ -557,6 +557,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'event-identity-goldens.ts',
+      'AxEvent identity validation'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'optimize-goldens.ts',
       'AxOptimize'
     );
@@ -579,6 +585,7 @@ async function runSync({ repoRoot, write }) {
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axflow', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axprogram', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axmcp', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axevent', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent-real', write),

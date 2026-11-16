@@ -187,6 +187,27 @@ def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) ->
 
 def event_route_commands(event: Any, routes: list[Any], identity_scope: str, trust: str) -> list[Any]:
     _core_coverage_mark("event_route_commands")
+    identity_fields = []
+    identity_fields.append("id")
+    identity_fields.append("source")
+    identity_fields.append("type")
+    for field in identity_fields:
+        value = _core_get(event, field, None)
+        message = _core_string_format("AxEventEnvelope.{} must be a non-empty string", field)
+        is_string = _core_type_is(value, "string")
+        not_string = _core_not(is_string)
+        if not_string:
+            type_error = _core_validation_error(message)
+            raise type_error
+        else:
+            pass
+        trimmed = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        empty = _core_eq(trimmed, "")
+        if empty:
+            empty_error = _core_validation_error(message)
+            raise empty_error
+        else:
+            pass
     commands = []
     event_type = _core_get(event, "type", "")
     event_source = _core_get(event, "source", "")
@@ -587,41 +608,6 @@ def mcp_build_request_meta(existing: Any, protocol_version: str, client_capabili
     return out
 
 
-def event_normalize_input(input: Any, signature_fields: list[Any]) -> Any:
-    _core_coverage_mark("event_normalize_input")
-    none = _core_none()
-    out = {}
-    result = {}
-    error = none
-    is_object = _core_type_is(input, "object")
-    if is_object:
-        for field in signature_fields:
-            name = _core_get(field, "name", "")
-            optional = _core_get(field, "optional", False)
-            value = _core_get(input, name, none)
-            missing = _core_is_none(value)
-            if missing:
-                if optional:
-                    pass
-                else:
-                    error = _core_string_format("Required signature input {} was not present", name)
-            else:
-                encoded = _core_json_stringify(value)
-                clone = _core_json_parse(encoded)
-                out[name] = clone
-    else:
-        error = "Mapped event input must be an object"
-    failed = _core_is_not_none(error)
-    result["ok"] = True
-    result["value"] = out
-    if failed:
-        result["ok"] = False
-        result["error"] = error
-    else:
-        pass
-    return result
-
-
 def mcp_client_capabilities(has_roots: bool, has_sampling: bool, has_elicitation: bool, era: str, tasks_extension: bool) -> Any:
     _core_coverage_mark("mcp_client_capabilities")
     out = {}
@@ -661,33 +647,38 @@ def mcp_client_capabilities(has_roots: bool, has_sampling: bool, has_elicitation
     return out
 
 
-def event_continuation_match(continuations: list[Any], identity_scope: str, kind: str, value: str, now: float) -> Any:
-    _core_coverage_mark("event_continuation_match")
-    result = _core_none()
-    for continuation in continuations:
-        scope = _core_get(continuation, "identityScope", "")
-        scope_match = _core_eq(scope, identity_scope)
-        expires = _core_get(continuation, "expiresAt", None)
-        no_expiry = _core_is_none(expires)
-        active = no_expiry
-        if no_expiry:
-            pass
-        else:
-            active = _core_lt(now, expires)
-        correlations_empty = []
-        correlations = _core_get(continuation, "correlation", correlations_empty)
-        for correlation in correlations:
-            candidate_kind = _core_get(correlation, "kind", "")
-            candidate_value = _core_get(correlation, "value", "")
-            kind_match = _core_eq(candidate_kind, kind)
-            value_match = _core_eq(candidate_value, value)
-            key_match = _core_and(kind_match, value_match)
-            scope_active = _core_and(scope_match, active)
-            match = _core_and(scope_active, key_match)
-            if match:
-                result = continuation
+def event_normalize_input(input: Any, signature_fields: list[Any]) -> Any:
+    _core_coverage_mark("event_normalize_input")
+    none = _core_none()
+    out = {}
+    result = {}
+    error = none
+    is_object = _core_type_is(input, "object")
+    if is_object:
+        for field in signature_fields:
+            name = _core_get(field, "name", "")
+            optional = _core_get(field, "optional", False)
+            value = _core_get(input, name, none)
+            missing = _core_is_none(value)
+            if missing:
+                if optional:
+                    pass
+                else:
+                    error = _core_string_format("Required signature input {} was not present", name)
             else:
-                pass
+                encoded = _core_json_stringify(value)
+                clone = _core_json_parse(encoded)
+                out[name] = clone
+    else:
+        error = "Mapped event input must be an object"
+    failed = _core_is_not_none(error)
+    result["ok"] = True
+    result["value"] = out
+    if failed:
+        result["ok"] = False
+        result["error"] = error
+    else:
+        pass
     return result
 
 
@@ -719,12 +710,34 @@ def mcp_negotiate_extensions(client_ext: Any, server_ext: Any) -> Any:
     return out
 
 
-def event_delivery_due(status: str, available_at: float, now: float) -> bool:
-    _core_coverage_mark("event_delivery_due")
-    queued = _core_eq(status, "queued")
-    ready = _core_lte(available_at, now)
-    due = _core_and(queued, ready)
-    return due
+def event_continuation_match(continuations: list[Any], identity_scope: str, kind: str, value: str, now: float) -> Any:
+    _core_coverage_mark("event_continuation_match")
+    result = _core_none()
+    for continuation in continuations:
+        scope = _core_get(continuation, "identityScope", "")
+        scope_match = _core_eq(scope, identity_scope)
+        expires = _core_get(continuation, "expiresAt", None)
+        no_expiry = _core_is_none(expires)
+        active = no_expiry
+        if no_expiry:
+            pass
+        else:
+            active = _core_lt(now, expires)
+        correlations_empty = []
+        correlations = _core_get(continuation, "correlation", correlations_empty)
+        for correlation in correlations:
+            candidate_kind = _core_get(correlation, "kind", "")
+            candidate_value = _core_get(correlation, "value", "")
+            kind_match = _core_eq(candidate_kind, kind)
+            value_match = _core_eq(candidate_value, value)
+            key_match = _core_and(kind_match, value_match)
+            scope_active = _core_and(scope_match, active)
+            match = _core_and(scope_active, key_match)
+            if match:
+                result = continuation
+            else:
+                pass
+    return result
 
 
 def mcp_request_name(method: str, params: Any) -> str:
@@ -756,6 +769,14 @@ def mcp_request_name(method: str, params: Any) -> str:
     else:
         pass
     return ""
+
+
+def event_delivery_due(status: str, available_at: float, now: float) -> bool:
+    _core_coverage_mark("event_delivery_due")
+    queued = _core_eq(status, "queued")
+    ready = _core_lte(available_at, now)
+    due = _core_and(queued, ready)
+    return due
 
 
 def event_strict_delivery_eligible(candidate: Any, deliveries: list[Any]) -> bool:
@@ -812,27 +833,6 @@ def mcp_header_value_plan(value: str) -> Any:
         out["mode"] = "encode"
     else:
         out["mode"] = "plain"
-    return out
-
-
-def event_capacity_transition(pending: int, queued_bytes: int, envelope_bytes: int, max_pending: int, max_queued_bytes: int, max_envelope_bytes: int) -> Any:
-    _core_coverage_mark("event_capacity_transition")
-    out = {}
-    next_pending = _core_add(pending, 1)
-    next_bytes = _core_add(queued_bytes, envelope_bytes)
-    pending_ok = _core_lte(next_pending, max_pending)
-    queue_ok = _core_lte(next_bytes, max_queued_bytes)
-    envelope_ok = _core_lte(envelope_bytes, max_envelope_bytes)
-    queue_capacity = _core_and(pending_ok, queue_ok)
-    accepted = _core_and(queue_capacity, envelope_ok)
-    out["accepted"] = accepted
-    out["nextPending"] = next_pending
-    out["nextQueuedBytes"] = next_bytes
-    out["reason"] = "capacity"
-    if envelope_ok:
-        pass
-    else:
-        out["reason"] = "envelope_too_large"
     return out
 
 
@@ -983,6 +983,27 @@ def mcp_param_header_bindings(input_schema: Any) -> Any:
         else:
             pass
     return bindings
+
+
+def event_capacity_transition(pending: int, queued_bytes: int, envelope_bytes: int, max_pending: int, max_queued_bytes: int, max_envelope_bytes: int) -> Any:
+    _core_coverage_mark("event_capacity_transition")
+    out = {}
+    next_pending = _core_add(pending, 1)
+    next_bytes = _core_add(queued_bytes, envelope_bytes)
+    pending_ok = _core_lte(next_pending, max_pending)
+    queue_ok = _core_lte(next_bytes, max_queued_bytes)
+    envelope_ok = _core_lte(envelope_bytes, max_envelope_bytes)
+    queue_capacity = _core_and(pending_ok, queue_ok)
+    accepted = _core_and(queue_capacity, envelope_ok)
+    out["accepted"] = accepted
+    out["nextPending"] = next_pending
+    out["nextQueuedBytes"] = next_bytes
+    out["reason"] = "capacity"
+    if envelope_ok:
+        pass
+    else:
+        out["reason"] = "envelope_too_large"
+    return out
 
 
 def event_debounce_transition(now: float, debounce_ms: float, has_queued_predecessor: bool) -> Any:
@@ -3038,7 +3059,7 @@ class AxEventRuntime:
     ) -> AxEventPublishReceipt:
         if not self.started: raise RuntimeError("AxEventRuntime must be started first")
         envelope = event if isinstance(event, AxEventEnvelope) else AxEventEnvelope(
-            str(event.get("id", "")), str(event.get("source", "")), str(event.get("type", "")),
+            event.get("id"), event.get("source"), event.get("type"),
             event.get("data"), event.get("subject"), str(event.get("specversion", "1.0")),
             dict(event.get("extensions") or {}), list(event.get("correlation") or []))
         commands = self.plan(envelope, identity_scope=identity_scope, trust=trust)

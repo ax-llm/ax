@@ -45,6 +45,10 @@ await source.publish({ event, identity, trust: 'authenticated' });
 ## Rules
 
 - Supply identity from authenticated adapter state, never from event data.
+- Event envelope `id`, `source`, and `type` must be strings with at least one
+  non-whitespace character. Generated runtimes reject invalid values before
+  routing or enqueueing, with field-specific validation errors; Python dictionary
+  inputs are validated without converting their identity fields to strings.
 - Treat events without verified identity as anonymous and untrusted.
 - Map event data into signature inputs; do not synthesize a user message.
 - Use `eventPath.data('field')` and other segment-safe selectors. Do not use

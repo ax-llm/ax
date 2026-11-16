@@ -15,6 +15,7 @@ export const PORTABLE_SURFACES = new Set([
   'axagent',
   'axflow',
   'axmcp',
+  'axevent',
   'axmem',
   'axoptimize',
   'axprogram',
@@ -37,6 +38,7 @@ const portableRoots = [
   ['src/ax/agent/', 'axagent'],
   ['src/ax/flow/', 'axflow'],
   ['src/ax/mcp/', 'axmcp'],
+  ['src/ax/event/', 'axevent'],
   ['src/ax/mem/', 'axmem'],
 ];
 
@@ -71,6 +73,7 @@ const portableRootIrModules = new Map([
   ],
   ['src/ax/flow/', ['ir/axcore/flow.axir', 'ir/axcore/program.axir']],
   ['src/ax/mcp/', ['ir/axcore/mcp.axir', 'ir/axcore/tool.axir']],
+  ['src/ax/event/', ['ir/axcore/event.axir']],
   ['src/ax/mem/', ['ir/axcore/api.axir']],
 ]);
 
