@@ -3941,7 +3941,7 @@
       ],
       "completedAt": "2026-11-16",
       "completedByCommit": "595820951a3d72aacc14afc7d98e01ff5d1b5e3a",
-      "verification": "The runtime helper is regenerated directly from the TypeScript scanner and embedded in all five generated packages. 150 focused TypeScript tests, 137 AxIR maintenance tests, and eight native Goja scanner cases pass, including Unicode and escaped identifiers. Full TypeScript workspace checks passed with 4,222 tests and one existing skip. Full PR CI, including generated-language verification and real-engine checks, is required before merge."
+      "verification": "The runtime helper is regenerated directly from the TypeScript scanner and embedded in all five generated packages. 150 focused TypeScript tests, 137 AxIR maintenance tests, and eight native Goja scanner cases pass, including Unicode and escaped identifiers. Full TypeScript workspace checks passed with 4,222 tests and one existing skip. Build/test CI passed on 1cde3c78d888b40e6e0ee6f77927b13e3e2f80f8, including all five generated-language verification and example suites, package freshness, and all five real-engine checks."
     }
   ],
   "nonPortableExemptions": [
