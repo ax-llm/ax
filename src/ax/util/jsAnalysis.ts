@@ -2,6 +2,108 @@ function isIdentifierChar(ch: string | undefined): boolean {
   return !!ch && /[A-Za-z0-9_$]/.test(ch);
 }
 
+// A `/` opens a regular expression only where an expression may start. After a value (an
+// identifier, `)`, `]`, a literal) it is division, and reading it as a pattern would swallow
+// the code up to the next slash. Keywords that take an expression are listed because they end
+// in an identifier character.
+const REGEX_PRECEDING_PUNCTUATION = new Set([
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  '}',
+  ';',
+  '+',
+  '-',
+  '*',
+  '%',
+  '<',
+  '>',
+  '~',
+  '^',
+]);
+const REGEX_PRECEDING_KEYWORDS = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+  'throw',
+]);
+
+/** Whether the `/` at `index` can begin a regular expression, judged from the sanitized code
+ * emitted so far: strings and comments are already blanks there, so the last significant
+ * character is real code. */
+function startsRegex(emitted: string): boolean {
+  let cursor = emitted.length - 1;
+  while (cursor >= 0 && (emitted[cursor] === ' ' || emitted[cursor] === '\t')) {
+    cursor--;
+  }
+  if (cursor < 0) {
+    return true;
+  }
+  const previous = emitted[cursor] ?? '';
+  if (REGEX_PRECEDING_PUNCTUATION.has(previous)) {
+    return true;
+  }
+  if (!isIdentifierChar(previous)) {
+    return false;
+  }
+  let start = cursor;
+  while (start > 0 && isIdentifierChar(emitted[start - 1])) {
+    start--;
+  }
+  return REGEX_PRECEDING_KEYWORDS.has(emitted.slice(start, cursor + 1));
+}
+
+/** Index just past the regular expression literal that starts at `start`, or -1 when the line
+ * ends first — a `/` that begins division never has a closing slash on the same line. */
+function findRegexEnd(code: string, start: number): number {
+  let inCharacterClass = false;
+  for (let i = start + 1; i < code.length; i++) {
+    const ch = code[i] ?? '';
+    if (ch === '\n' || ch === '\r') {
+      return -1;
+    }
+    if (ch === '\\') {
+      i++;
+      continue;
+    }
+    if (inCharacterClass) {
+      if (ch === ']') {
+        inCharacterClass = false;
+      }
+      continue;
+    }
+    if (ch === '[') {
+      inCharacterClass = true;
+      continue;
+    }
+    if (ch === '/') {
+      let end = i + 1;
+      while (end < code.length && /[a-z]/i.test(code[end] ?? '')) {
+        end++;
+      }
+      return end;
+    }
+  }
+  return -1;
+}
+
 function isIdentifierStart(ch: string | undefined): boolean {
   return !!ch && /[A-Za-z_$]/.test(ch);
 }
@@ -82,6 +184,17 @@ export function stripJsStringsAndComments(code: string): string {
       i += 2;
       state = 'blockComment';
       continue;
+    }
+
+    // A regular expression literal is not code: `/['"]/` used to open a string at its quote and
+    // blank every line after it, hiding the calls the callers of this function look for.
+    if (ch === '/' && startsRegex(out)) {
+      const end = findRegexEnd(code, i);
+      if (end !== -1) {
+        out += ' '.repeat(end - i);
+        i = end;
+        continue;
+      }
     }
 
     if (ch === "'") {
