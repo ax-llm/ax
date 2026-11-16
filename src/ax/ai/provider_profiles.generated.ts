@@ -757,6 +757,11 @@ export const axAIProviderProfiles = {
         "dialect": "openai-chat"
       }
     },
+    "request": {
+      "renameFields": {
+        "max_completion_tokens": "max_tokens"
+      }
+    },
     "modelRules": [
       {
         "match": {
@@ -835,9 +840,10 @@ export const axAIProviderProfiles = {
       }
     ],
     "sources": [
-      "https://api-docs.deepseek.com/guides/thinking_mode/"
+      "https://api-docs.deepseek.com/guides/thinking_mode/",
+      "https://api-docs.deepseek.com/api/create-chat-completion"
     ],
-    "reviewedAt": "2026-08-18"
+    "reviewedAt": "2026-11-16"
   },
   "deepseek-responses": {
     "id": "deepseek-responses",

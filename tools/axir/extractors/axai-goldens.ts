@@ -2443,6 +2443,78 @@ writeFixture('deepseek-service-default-thinking', {
   },
 });
 
+// DeepSeek's chat-completions API documents and enforces only `max_tokens`. It
+// accepts `max_completion_tokens` without an error and ignores it, so the
+// OpenAI field leaves the request with no output cap (live-probed 2026-11-16
+// on deepseek-v4-flash and deepseek-v4-pro, streaming and non-streaming).
+writeFixture('deepseek-max-tokens-chat', {
+  kind: 'ai_chat',
+  provider: 'deepseek',
+  model: 'deepseek-v4-pro',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'cap the answer' }],
+    model_config: { stream: false, maxTokens: 64 },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_deepseek_cap', 'deepseek-v4-pro'),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'deepseek',
+    'chatcmpl_deepseek_cap',
+    'deepseek-v4-pro'
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: {
+      model: 'deepseek-v4-pro',
+      messages: [{ role: 'user', content: 'cap the answer' }],
+      max_tokens: 64,
+    },
+  },
+  expected_transport_json_absent: ['max_completion_tokens'],
+});
+
+writeFixture('deepseek-max-tokens-stream', {
+  kind: 'ai_stream',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Stream a capped answer.' }],
+    model_config: { maxTokens: 64 },
+  },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        `data: {"id":"chatcmpl_deepseek_cap_stream","model":"${deepseekDefaultModel}","choices":[{"index":0,"delta":{"role":"assistant","content":"capped"},"finish_reason":"stop"}]}\n\n` +
+        'data: [DONE]\n\n',
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: 'capped',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'chatcmpl_deepseek_cap_stream',
+      model_usage: null,
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: { max_tokens: 64, stream: true },
+  },
+  expected_transport_json_absent: ['max_completion_tokens'],
+});
+
 for (const profileCase of [
   {
     name: 'grok-default-max-thinking',
