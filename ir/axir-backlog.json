@@ -3879,6 +3879,25 @@
       "completedAt": "2026-11-14",
       "completedByCommit": "13e83f8e6981753d7a68fe119e80593947d83b80",
       "verification": "TypeScript-derived AxGen forward and streaming fixtures pass in all five languages with native file-valued document inputs, indexed text-block snapshots, and deduplicated URL-less citations in per-request log usage. All five public examples pass ordinary and streaming live Anthropic calls with source-offset checks. Generated logs keep request-local document identities in separate entries; TypeScript getUsage has no direct generated AxGen method equivalent."
+    },
+    {
+      "id": "axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr",
+      "status": "open",
+      "title": "Keep ordinary F1 token counts independent of inherited object properties",
+      "createdAt": "2026-11-15",
+      "sourcePR": 898,
+      "sourceCommit": "269f5b998721d4f22bf3081b1c86df0f33952067",
+      "tsPaths": ["src/ax/dsp/eval.ts", "src/ax/dsp/eval.test.ts"],
+      "portableSurface": "axgen",
+      "impact": "Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
