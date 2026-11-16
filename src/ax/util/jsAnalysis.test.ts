@@ -125,6 +125,7 @@ describe('regex versus division token context', () => {
     'of',
     'yield',
     'await',
+    // cspell:ignore πreturn 𐐀return
     'πreturn',
     '𐐀return',
     '1e-3',
