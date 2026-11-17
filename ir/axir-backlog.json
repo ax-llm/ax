@@ -3948,7 +3948,7 @@
       "status": "open",
       "title": "Retry an agent actor turn after a cut-off model reply",
       "createdAt": "2026-11-17",
-      "sourceCommit": "fa693cd4b94c3bcaeff81ad5d5e327ada4405723",
+      "sourcePR": 906,
       "tsPaths": [
         "src/ax/agent/agentInternal/cutOffReply.ts",
         "src/ax/agent/agentInternal/actorLoopTurn.ts",
