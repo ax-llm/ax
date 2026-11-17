@@ -1,6 +1,6 @@
 # Changelog
 
-## [25.4.12](https://github.com/ax-llm/ax/compare/25.4.10...25.4.11) (2026-11-17)
+## [25.4.12](https://github.com/ax-llm/ax/compare/25.4.11...25.4.12) (2026-11-16)
 
 ### Bug Fixes
 
