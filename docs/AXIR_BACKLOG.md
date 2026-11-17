@@ -30,12 +30,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
   - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply` [axagent] Retry an agent actor turn after a cut-off model reply
-  - Status: open
-  - Source PR: #906
-  - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
-  - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
-  - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
 
 ## Done
 
@@ -1641,3 +1635,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-16
   - Completed by: `595820951a3d72aacc14afc7d98e01ff5d1b5e3a`
   - Verification: `The runtime helper is regenerated directly from the TypeScript scanner and embedded in all five generated packages. 150 focused TypeScript tests, 137 AxIR maintenance tests, and eight native Goja scanner cases pass, including Unicode and escaped identifiers. Full TypeScript workspace checks passed with 4,222 tests and one existing skip. Build/test CI passed on 1cde3c78d888b40e6e0ee6f77927b13e3e2f80f8, including all five generated-language verification and example suites, package freshness, and all five real-engine checks.`
+- `axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply` [axagent] Retry an agent actor turn after a cut-off model reply
+  - Status: done
+  - Source PR: #906
+  - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
+  - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
+  - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
+  - Completed at: 2026-11-17
+  - Completed by: `0b7e5b8446ad3350222c22b27900a6bca49c17f9`
+  - Verification: `npm run axir:verify:dev passed for Python, Java, C++, Go and Rust (2,209 conformance fixtures each, including nine new TypeScript-derived cut-off fixtures). axir:conformance:check, axir:check-packages, the 72 fast AxIR Go tests, the response-perturbation gate and the TypeScript workspace tests (4,243 passed, 1 skipped) passed. The real-engine agent suite passed on Go, Java, C++ and Rust (14 fixtures each); Python's was not run locally because the quickjs module is not installed.`

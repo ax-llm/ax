@@ -3945,7 +3945,7 @@
     },
     {
       "id": "axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply",
-      "status": "open",
+      "status": "done",
       "title": "Retry an agent actor turn after a cut-off model reply",
       "createdAt": "2026-11-17",
       "sourcePR": 906,
@@ -3960,7 +3960,10 @@
         "Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries",
         "Add a TS-derived conformance fixture whose first executor reply has finish reason length",
         "Run npm run axir:conformance:check and npm run test:axir"
-      ]
+      ],
+      "completedAt": "2026-11-17",
+      "completedByCommit": "0b7e5b8446ad3350222c22b27900a6bca49c17f9",
+      "verification": "npm run axir:verify:dev passed for Python, Java, C++, Go and Rust (2,209 conformance fixtures each, including nine new TypeScript-derived cut-off fixtures). axir:conformance:check, axir:check-packages, the 72 fast AxIR Go tests, the response-perturbation gate and the TypeScript workspace tests (4,243 passed, 1 skipped) passed. The real-engine agent suite passed on Go, Java, C++ and Rust (14 fixtures each); Python's was not run locally because the quickjs module is not installed."
     }
   ],
   "nonPortableExemptions": [
