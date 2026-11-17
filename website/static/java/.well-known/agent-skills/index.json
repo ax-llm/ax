@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-java-llm/skill.tar.gz",
-      "digest": "sha256:2d51780141d48fe04f397a6bcedf2bce1a92a7b8c441827a748d9baa3f133fd1"
+      "digest": "sha256:8d030d18f07ee740db894a4a506cc7298229ae1a0fddbb025ce9d54402a02fc0"
     },
     {
       "name": "ax-java-ai",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-java-agent/SKILL.md",
-      "digest": "sha256:cd9968eca0edd7633a6c939c018eff6df2bac5c0a8c319c280b3f6606a62a56d"
+      "digest": "sha256:0bc1e442dd8dec616d5b8501cfcd989a6d803ec121922a035f3a898977db13dd"
     },
     {
       "name": "ax-java-agent-rlm",

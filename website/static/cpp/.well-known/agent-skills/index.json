@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/skill.tar.gz",
-      "digest": "sha256:99b4aedd208ed5100b0b5e5c5b120eadc282ccb67e50d96627120e61e4b745b9"
+      "digest": "sha256:3574097b305d00cdbcbf82debff6b8d0f7468a87a76872d837db1bf0e3ec718f"
     },
     {
       "name": "ax-cpp-ai",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:8f6e942fb71e4b8d65595a8923032e79bec85757c3866c0c9c44b8f0c1f4d9b3"
+      "digest": "sha256:bb5e6401a909203bc8f520756a745daaa68f0e83a829512896c68ec8359c2755"
     },
     {
       "name": "ax-cpp-agent-rlm",

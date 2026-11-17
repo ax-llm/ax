@@ -67,9 +67,15 @@ const clone = <T>(value: T): T =>
   value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
 
 // ----- scripted model -----
-// {content} answers in one response; {stream: [...]} streams its chunks.
+// {content} answers in one response; {stream: [...]} streams its chunks;
+// {results: [...]} answers in one response with its own finish reason; and
+// {error: {type: 'plain', message}} fails the call with that message.
 type ChunkSpec = { results: JsonMap[] };
-type ResponseSpec = { content: string } | { stream: ChunkSpec[] };
+type ResponseSpec =
+  | { content: string }
+  | { stream: ChunkSpec[] }
+  | { results: JsonMap[] }
+  | { error: { type: 'plain'; message: string } };
 
 function tsChunk(chunk: ChunkSpec): AxChatResponse {
   return {
@@ -138,6 +144,8 @@ function scriptedAI(
           results: [{ index: 0, content: next.content, finishReason: 'stop' }],
         } as AxChatResponse;
       }
+      if ('error' in next) throw new Error(next.error.message);
+      if ('results' in next) return tsChunk(next);
       const chunks = [...next.stream];
       return new ReadableStream<AxChatResponse>({
         pull(controller) {
@@ -605,6 +613,10 @@ const baseRuntime = (): ScriptStep[] => [
   step(EXECUTE, 'final', 'Answer the question', EVIDENCE),
 ];
 const baseActors = (): ResponseSpec[] => [actor(DISTILL), actor(EXECUTE)];
+// A reply the output limit cut off, with the text that arrived before it.
+const cutOff = (content = ''): ResponseSpec => ({
+  results: [{ index: 0, content, finish_reason: 'length' }],
+});
 
 const RESPOND =
   'respond("Refunds take 30 days.", {policy: "Refunds take 30 days."})';
@@ -1187,6 +1199,114 @@ const cases: Record<string, Case> = {
     runtime_script: baseRuntime(),
     first_requests: true,
   }),
+  // ----- an actor reply cut off at the output limit -----
+  // TS's forwardWithCutOffRetry (agentInternal/cutOffReply.ts): the turn asks
+  // again, up to three more times.
+  'agent-forward-cut-off-reply-retried': legacyCompletionFixture({
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor(DISTILL),
+      cutOff(),
+      actor(EXECUTE),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: baseRuntime(),
+  }),
+  // Three cut-off replies, the most a turn recovers from. Every executor
+  // request is pinned: the first retry's prompt is the first request's, and
+  // the second and third carry the note after the action log.
+  'agent-forward-cut-off-reply-note': legacyCompletionFixture({
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor(DISTILL),
+      cutOff(),
+      cutOff(),
+      cutOff(),
+      actor(EXECUTE),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+    pin_stage_requests: ['executor'],
+  }),
+  // A reply that stays cut off fails the run after four calls, with the
+  // generation's own error.
+  'agent-forward-cut-off-reply-exhausted': legacyCompletionFixture({
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [actor(DISTILL), cutOff(), cutOff(), cutOff(), cutOff()],
+    runtime_script: [step(DISTILL, 'final', 'Answer the question', {})],
+  }),
+  // A cut-off reply whose text still parses is cut off all the same: its code
+  // does not run, and the turn asks again.
+  'agent-forward-cut-off-reply-with-content': legacyCompletionFixture({
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor(DISTILL),
+      cutOff(JSON.stringify({ javascriptCode: 'console.log("partial")' })),
+      actor(EXECUTE),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: baseRuntime(),
+  }),
+  // The distiller's turn recovers the same way; its requests are pinned.
+  'agent-forward-cut-off-reply-distiller': legacyCompletionFixture({
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      cutOff(),
+      cutOff(),
+      actor(DISTILL),
+      actor(EXECUTE),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+    pin_stage_requests: ['distiller'],
+  }),
+  // A truncated tool-call payload, as TS reports it, is retried too.
+  'agent-forward-cut-off-reply-function-arguments': legacyCompletionFixture({
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor(DISTILL),
+      {
+        error: {
+          type: 'plain',
+          message: 'Invalid function arguments: {"javascriptCode": "co',
+        },
+      },
+      actor(EXECUTE),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: baseRuntime(),
+  }),
+  // Any other failure ends the run at once.
+  'agent-forward-cut-off-reply-other-error': legacyCompletionFixture({
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor(DISTILL),
+      { error: { type: 'plain', message: 'Upstream model unavailable' } },
+    ],
+    runtime_script: [step(DISTILL, 'final', 'Answer the question', {})],
+  }),
+  // The streaming forward shares the actor loop.
+  'agent-streaming-forward-cut-off-reply-retried': {
+    options: { directResponse: 'off' },
+    responses: [actor(DISTILL), cutOff(), actor(EXECUTE), answerStream()],
+    runtime_script: baseRuntime(),
+  },
   // ----- streaming -----
   'agent-streaming-forward-plain': {
     options: { directResponse: 'off' },

@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-rust-llm/skill.tar.gz",
-      "digest": "sha256:5143e4738135bc36e39f4e70f9121a97be9162956b583574b4f41f84e075ef1b"
+      "digest": "sha256:ee597be022bb339ab3d4981530ff30938c0031367aad1bb335732f0896900b59"
     },
     {
       "name": "ax-rust-ai",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:ca20f1932c95db7297dd427bc5de63ba43fe46e23b21fa077ededa432d6bedf1"
+      "digest": "sha256:3f6717a11f0fddf9133674e27e37bd908b4aed67387eb0faf69e626579e3f3a5"
     },
     {
       "name": "ax-rust-agent-rlm",

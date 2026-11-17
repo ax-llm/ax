@@ -53411,7 +53411,7 @@ func _forward_impl(args ...Value) (Value, error) {
 			v_parse_state = Object()
 			{
 				__flow, __err := func() (coreFlow, error) {
-					{ v, err := _parse_sample_outputs(v_gen, v_output_fields, v_response, v_validate_exact_json, v_thought_field, v_thought_prefix, v_text_contract, v_strict_mode, v_parse_state); if err != nil { return coreFlow{}, err }; v_parsed = v }
+					{ v, err := _parse_answer_outputs(v_gen, v_output_fields, v_response, v_validate_exact_json, v_thought_field, v_thought_prefix, v_text_contract, v_strict_mode, v_parse_state); if err != nil { return coreFlow{}, err }; v_parsed = v }
 					v_parsed_bundle = v_parsed
 					return coreFlow{}, nil
 				}()
@@ -74398,6 +74398,128 @@ func _stream_feedback_text_impl(args ...Value) (Value, error) {
 	}
 	{ v, err := _stream_js_string_impl(v_result); if err != nil { return nil, err }; v_text = v }
 	return v_text, nil
+}
+
+func _parse_answer_outputs(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_answer_outputs")
+	var v_gen Value
+	var v_output_fields Value
+	var v_response Value
+	var v_validate_exact_json Value
+	var v_thought_field Value
+	var v_thought_prefix Value
+	var v_text_contract Value
+	var v_strict_mode Value
+	var v_parse_state Value
+	var v_completion Value
+	var v_completion_count Value
+	var v_completions Value
+	var v_content Value
+	var v_cut Value
+	var v_cut_bundle Value
+	var v_cut_error Value
+	var v_earlier Value
+	var v_earlier_bundle Value
+	var v_earlier_count Value
+	var v_earlier_failed Value
+	var v_earlier_failure Value
+	var v_earlier_response Value
+	var v_empty_cut Value
+	var v_empty_results Value
+	var v_finish Value
+	var v_finish_snake Value
+	var v_has_content Value
+	var v_has_earlier Value
+	var v_missing_completions Value
+	var v_no_content Value
+	var v_parsed Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_output_fields = args[1] }
+	_ = v_output_fields
+	if len(args) > 2 { v_response = args[2] }
+	_ = v_response
+	if len(args) > 3 { v_validate_exact_json = args[3] }
+	_ = v_validate_exact_json
+	if len(args) > 4 { v_thought_field = args[4] }
+	_ = v_thought_field
+	if len(args) > 5 { v_thought_prefix = args[5] }
+	_ = v_thought_prefix
+	if len(args) > 6 { v_text_contract = args[6] }
+	_ = v_text_contract
+	if len(args) > 7 { v_strict_mode = args[7] }
+	_ = v_strict_mode
+	if len(args) > 8 { v_parse_state = args[8] }
+	_ = v_parse_state
+	_ = v_completion
+	_ = v_completion_count
+	_ = v_completions
+	_ = v_content
+	_ = v_cut
+	_ = v_cut_bundle
+	_ = v_cut_error
+	_ = v_earlier
+	_ = v_earlier_bundle
+	_ = v_earlier_count
+	_ = v_earlier_failed
+	_ = v_earlier_failure
+	_ = v_earlier_response
+	_ = v_empty_cut
+	_ = v_empty_results
+	_ = v_finish
+	_ = v_finish_snake
+	_ = v_has_content
+	_ = v_has_earlier
+	_ = v_missing_completions
+	_ = v_no_content
+	_ = v_parsed
+	v_empty_results = MutableArray()
+	v_completions = coreGet(v_response, "results", v_empty_results)
+	v_completion_count = _core_len(v_completions)
+	v_missing_completions = _core_eq(v_completion_count, 0)
+	if coreTruthy(v_missing_completions) {
+		v_completions = MutableArray()
+		v_completions = coreAppend(v_completions, v_response)
+	} else {
+	// empty
+	}
+	v_earlier = MutableArray()
+	for _, v_completion = range coreIter(v_completions) {
+		v_content = coreGet(v_completion, "content", "")
+		v_has_content = _core_truthy(v_content)
+		v_no_content = _core_not(v_has_content)
+		v_finish_snake = coreGet(v_completion, "finish_reason", nil)
+		v_finish = coreGet(v_completion, "finishReason", v_finish_snake)
+		v_cut = _core_eq(v_finish, "length")
+		v_empty_cut = _core_and(v_no_content, v_cut)
+		if coreTruthy(v_empty_cut) {
+			v_earlier_count = _core_len(v_earlier)
+			v_has_earlier = _core_gt(v_earlier_count, 0)
+			if coreTruthy(v_has_earlier) {
+				v_earlier_response = Object()
+				if err := coreSet(v_earlier_response, "results", v_earlier); err != nil { return nil, err }
+				{ v, err := _parse_sample_outputs(v_gen, v_output_fields, v_earlier_response, v_validate_exact_json, v_thought_field, v_thought_prefix, v_text_contract, v_strict_mode, v_parse_state); if err != nil { return nil, err }; v_earlier_bundle = v }
+				v_earlier_failure = coreGet(v_earlier_bundle, "assertion_failure", nil)
+				v_earlier_failed = _core_is_not_none(v_earlier_failure)
+				if coreTruthy(v_earlier_failed) {
+					return v_earlier_bundle, nil
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			v_cut_error = _core_runtime_error("Max tokens reached before completion\nContent: ")
+			v_cut_bundle = Object()
+			if err := coreSet(v_cut_bundle, "assertion_failure", v_cut_error); err != nil { return nil, err }
+			return v_cut_bundle, nil
+		} else {
+		// empty
+		}
+		v_earlier = coreAppend(v_earlier, v_completion)
+	}
+	{ v, err := _parse_sample_outputs(v_gen, v_output_fields, v_response, v_validate_exact_json, v_thought_field, v_thought_prefix, v_text_contract, v_strict_mode, v_parse_state); if err != nil { return nil, err }; v_parsed = v }
+	return v_parsed, nil
 }
 
 func _stream_run_processors_impl(args ...Value) (Value, error) {
@@ -96893,7 +97015,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 			if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
 			if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
-			{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+			{ v, err := _agent_actor_stage_forward(v_state, "distiller", v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
 			if err := coreSet(v_state, "restore_notice", ""); err != nil { return nil, err }
 			v_distiller_response_event = Object()
 			if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
@@ -97063,7 +97185,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 			if err := coreSet(v_executor_request_event, "values", v_executor_values); err != nil { return nil, err }
 			if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
-			{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
+			{ v, err := _agent_actor_stage_forward(v_state, "executor", v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
 			if err := coreSet(v_state, "restore_notice", ""); err != nil { return nil, err }
 			v_shared_notice_set = false
 			v_executor_response_event = Object()
@@ -102802,6 +102924,132 @@ func _agent_stage_step_turn(args ...Value) (Value, error) {
 	}
 	v_turn = _core_add(v_steps, 1)
 	return v_turn, nil
+}
+
+func _agent_is_cut_off_reply_error(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_is_cut_off_reply_error")
+	var v_error Value
+	var v_bad_arguments Value
+	var v_cut_off Value
+	var v_max_tokens Value
+	var v_message Value
+	if len(args) > 0 { v_error = args[0] }
+	_ = v_error
+	_ = v_bad_arguments
+	_ = v_cut_off
+	_ = v_max_tokens
+	_ = v_message
+	v_message = _core_exception_message(v_error)
+	v_max_tokens = _core_contains(v_message, "Max tokens reached before completion")
+	v_bad_arguments = _core_contains(v_message, "Invalid function arguments")
+	v_cut_off = _core_or(v_max_tokens, v_bad_arguments)
+	return v_cut_off, nil
+}
+
+func _agent_actor_stage_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_actor_stage_forward")
+	var v_state Value
+	var v_stage_name Value
+	var v_stage Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_action_log Value
+	var v_answered Value
+	var v_attempt Value
+	var v_attempt_values Value
+	var v_cut_off Value
+	var v_distiller_reply Value
+	var v_empty_map Value
+	var v_executor_reply Value
+	var v_is_executor Value
+	var v_noted_log Value
+	var v_noted_values Value
+	var v_output Value
+	var v_reply_error Value
+	var v_retries_spent Value
+	var v_with_note Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_stage_name = args[1] }
+	_ = v_stage_name
+	if len(args) > 2 { v_stage = args[2] }
+	_ = v_stage
+	if len(args) > 3 { v_client = args[3] }
+	_ = v_client
+	if len(args) > 4 { v_values = args[4] }
+	_ = v_values
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	_ = v_action_log
+	_ = v_answered
+	_ = v_attempt
+	_ = v_attempt_values
+	_ = v_cut_off
+	_ = v_distiller_reply
+	_ = v_empty_map
+	_ = v_executor_reply
+	_ = v_is_executor
+	_ = v_noted_log
+	_ = v_noted_values
+	_ = v_output
+	_ = v_reply_error
+	_ = v_retries_spent
+	_ = v_with_note
+	v_is_executor = _core_eq(v_stage_name, "executor")
+	v_output = _core_none()
+	v_attempt = 0
+	for {
+		v_attempt_values = v_values
+		v_with_note = _core_gte(v_attempt, 2)
+		if coreTruthy(v_with_note) {
+			v_empty_map = Object()
+			v_noted_values = _core_map_merge(v_values, v_empty_map)
+			v_action_log = coreGet(v_values, "actionLog", "")
+			v_noted_log = _core_string_format("{}\n\n{}", v_action_log, "[NOTE: Your last reply could not be used: it was cut off at the output limit or was incomplete, so nothing ran. Think briefly and return a shorter, complete step now; continue the rest on later turns.]")
+			if err := coreSet(v_noted_values, "actionLog", v_noted_log); err != nil { return nil, err }
+			v_attempt_values = v_noted_values
+		} else {
+		// empty
+		}
+		v_answered = false
+		{
+			__flow, __err := func() (coreFlow, error) {
+				if coreTruthy(v_is_executor) {
+					{ v, err := _agent_executor_stage_forward(v_state, v_stage, v_client, v_attempt_values, v_options); if err != nil { return coreFlow{}, err }; v_executor_reply = v }
+					v_output = v_executor_reply
+				} else {
+					{ v, err := _agent_controlled_stage_forward(v_stage, v_client, v_attempt_values, v_options); if err != nil { return coreFlow{}, err }; v_distiller_reply = v }
+					v_output = v_distiller_reply
+				}
+				v_answered = true
+				return coreFlow{}, nil
+			}()
+			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+			if __err != nil {
+				v_reply_error = errorValue(__err)
+				v_retries_spent = _core_gte(v_attempt, 3)
+				if coreTruthy(v_retries_spent) {
+					return nil, asError(v_reply_error)
+				} else {
+				// empty
+				}
+				{ v, err := _agent_is_cut_off_reply_error(v_reply_error); if err != nil { return nil, err }; v_cut_off = v }
+				if coreTruthy(v_cut_off) {
+				// empty
+				} else {
+					return nil, asError(v_reply_error)
+				}
+			}
+		}
+		if coreTruthy(v_answered) {
+			break
+		} else {
+		// empty
+		}
+		v_attempt = _core_add(v_attempt, 1)
+	}
+	return v_output, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {

@@ -1,0 +1,85 @@
+{
+  "expected_error_contains": "Generate failed: Max tokens reached before completion",
+  "expected_request_count": 5,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"]
+  ],
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:executor",
+    "request:executor",
+    "request:executor"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-cut-off-reply-exhausted",
+  "options": {
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "length",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "length",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "length",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "length",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
