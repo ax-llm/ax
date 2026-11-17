@@ -245,3 +245,30 @@ func TestTruncateDiagnosticRespectsSmallBudgetsAndUTF8(t *testing.T) {
 		t.Errorf("short line changed to %q", got)
 	}
 }
+
+func TestCodeAnalysisKeepsRegexAndDivisionBoundaries(t *testing.T) {
+	session := newTestSession(t)
+	cases := []struct {
+		code string
+		readsPayload bool
+	}{
+		{`const quote = /["']/; const parsed = JSON.parse(payload);`, true},
+		{`const ratio = count++ / payload / 2;`, true},
+		{`const ratio = "12" / payload / 2;`, true},
+		{`const ratio = obj.of / payload / 2;`, true},
+		{`const ratio = obj.#return / payload / 2;`, true},
+		{`const ratio = 𐐀return / payload / 2;`, true},
+		{`const ratio = \u{61}return / payload / 2;`, true},
+		{`const pattern = /final(payload)|respond(other)/gi;`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.code, func(t *testing.T) {
+			analysis := payloadMap(t, session.codeAnalysis(tc.code))
+			encoded, err := json.Marshal(analysis["readVars"])
+			if err != nil { t.Fatal(err) }
+			if found := strings.Contains(string(encoded), `"payload"`); found != tc.readsPayload {
+				t.Fatalf("readVars = %s, want reads payload = %v", encoded, tc.readsPayload)
+			}
+		})
+	}
+}

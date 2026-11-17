@@ -1625,3 +1625,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-16
   - Completed by: `10e8f6ff78c8ff893dceb4fc1e78bd84306de84d`
   - Verification: `Event conformance passed in Python, Java, C++, Go, and Rust, including the 34-case identity fixture and public publish checks. Focused TypeScript and backlog tests, 72 fast AxIR checks, strict Core validation, provenance audits, generated package freshness, and full fixture synchronization passed. The local aggregate test:axir run timed out during broader C++ verification; PR CI supplies full-suite validation.`
+- `axir-2026-11-16-preserve-regex-and-division-semantics-in-agent-javascript-analys` [axagent] Preserve regex and division semantics in agent JavaScript analysis
+  - Status: done
+  - Source PR: #900
+  - Source commit: `452cf6cf8726d0f70481f5a815f73d640321049d`
+  - TS paths: `src/ax/util/jsAnalysis.ts`, `src/ax/util/jsAnalysis.test.ts`
+  - Impact: PR #900 changes the shared TypeScript scanner used for completion-call detection and referenced/read-variable analysis. The generated runtimeSupport.js scanner must gain equivalent regex masking and token-aware division handling, with fixtures for quote-bearing patterns, literal operands, postfix updates, member keywords, comments, and Unicode identifiers.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-16
+  - Completed by: `595820951a3d72aacc14afc7d98e01ff5d1b5e3a`
+  - Verification: `The runtime helper is regenerated directly from the TypeScript scanner and embedded in all five generated packages. 150 focused TypeScript tests, 137 AxIR maintenance tests, and eight native Goja scanner cases pass, including Unicode and escaped identifiers. Full TypeScript workspace checks passed with 4,222 tests and one existing skip. Build/test CI passed on 1cde3c78d888b40e6e0ee6f77927b13e3e2f80f8, including all five generated-language verification and example suites, package freshness, and all five real-engine checks.`

@@ -2,6 +2,114 @@ function isIdentifierChar(ch: string | undefined): boolean {
   return !!ch && /[A-Za-z0-9_$]/.test(ch);
 }
 
+// Track input tokens separately from the blanked output: a removed literal still
+// ends an expression. This lightweight scanner is not a JavaScript parser; after
+// ambiguous closing braces/parentheses it conservatively keeps `/` as code.
+const REGEX_PRECEDING_PUNCTUATION = new Set([
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  ';',
+  '+',
+  '-',
+  '*',
+  '%',
+  '<',
+  '>',
+  '~',
+  '^',
+  '/',
+]);
+const REGEX_PRECEDING_KEYWORDS = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'new',
+  'delete',
+  'void',
+  'case',
+  'do',
+  'else',
+  'throw',
+]);
+
+// Contextual words (of/yield/await) can also be identifiers. Without parsing
+// their enclosing grammar, do not use them as evidence for a regex opener.
+const JS_UNICODE_ESCAPE = /\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\})/y;
+
+function readJsIdentifier(code: string, start: number): string {
+  let end = start;
+  while (end < code.length) {
+    const ch = code[end]!;
+    const asciiIdentifier =
+      end === start ? isIdentifierStart(ch) : isIdentifierChar(ch);
+    // Keep non-ASCII names together without requiring Unicode property tables
+    // from embedded JS engines. Non-whitespace non-ASCII input is conservatively
+    // treated as a name here; validating JavaScript remains the runtime's job.
+    if (asciiIdentifier || (ch.charCodeAt(0) > 127 && !/\s/.test(ch))) {
+      end++;
+      continue;
+    }
+    if (ch === '\\') {
+      JS_UNICODE_ESCAPE.lastIndex = end;
+      const unicodeEscape = JS_UNICODE_ESCAPE.exec(code)?.[0];
+      if (unicodeEscape) {
+        end += unicodeEscape.length;
+        continue;
+      }
+    }
+    break;
+  }
+  return code.slice(start, end);
+}
+
+function isLineTerminator(ch: string | undefined): boolean {
+  return ch === '\n' || ch === '\r' || ch === '\u2028' || ch === '\u2029';
+}
+
+/** Find a single-line regex terminator, respecting escapes and character classes.
+ * Call only when the preceding token allows a new expression. */
+function findRegexEnd(code: string, start: number): number {
+  let inCharacterClass = false;
+  for (let i = start + 1; i < code.length; i++) {
+    const ch = code[i] ?? '';
+    if (isLineTerminator(ch)) {
+      return -1;
+    }
+    if (ch === '\\') {
+      if (isLineTerminator(code[i + 1])) return -1;
+      i++;
+      continue;
+    }
+    if (inCharacterClass) {
+      if (ch === ']') {
+        inCharacterClass = false;
+      }
+      continue;
+    }
+    if (ch === '[') {
+      inCharacterClass = true;
+      continue;
+    }
+    if (ch === '/') {
+      let end = i + 1;
+      while (end < code.length && /[a-z]/i.test(code[end] ?? '')) {
+        end++;
+      }
+      return end;
+    }
+  }
+  return -1;
+}
+
 function isIdentifierStart(ch: string | undefined): boolean {
   return !!ch && /[A-Za-z_$]/.test(ch);
 }
@@ -17,6 +125,8 @@ export function stripJsStringsAndComments(code: string): string {
     | 'lineComment'
     | 'blockComment' = 'normal';
   let escaped = false;
+  let expressionAllowed = true;
+  let previousToken = '';
 
   while (i < code.length) {
     const ch = code[i] ?? '';
@@ -84,10 +194,25 @@ export function stripJsStringsAndComments(code: string): string {
       continue;
     }
 
+    // A regular expression literal is not code: `/['"]/` used to open a string at its quote and
+    // blank every line after it, hiding the calls the callers of this function look for.
+    if (ch === '/' && expressionAllowed) {
+      const end = findRegexEnd(code, i);
+      if (end !== -1) {
+        out += ' '.repeat(end - i);
+        i = end;
+        expressionAllowed = false;
+        previousToken = 'value';
+        continue;
+      }
+    }
+
     if (ch === "'") {
       out += ' ';
       i++;
       state = 'single';
+      expressionAllowed = false;
+      previousToken = 'value';
       continue;
     }
 
@@ -95,6 +220,8 @@ export function stripJsStringsAndComments(code: string): string {
       out += ' ';
       i++;
       state = 'double';
+      expressionAllowed = false;
+      previousToken = 'value';
       continue;
     }
 
@@ -102,9 +229,54 @@ export function stripJsStringsAndComments(code: string): string {
       out += ' ';
       i++;
       state = 'template';
+      expressionAllowed = false;
+      previousToken = 'value';
       continue;
     }
 
+    if (/\s/u.test(ch)) {
+      out += ch;
+      i++;
+      continue;
+    }
+
+    const identifier = readJsIdentifier(code, i);
+    if (identifier) {
+      expressionAllowed =
+        previousToken !== '.' && REGEX_PRECEDING_KEYWORDS.has(identifier);
+      previousToken = identifier;
+      out += identifier;
+      i += identifier.length;
+      continue;
+    }
+
+    if ((ch === '+' || ch === '-') && next === ch) {
+      // Prefix updates still expect an operand; postfix updates end a value.
+      // Neither changes the expression state that preceded the update token.
+      previousToken = ch + next;
+      out += previousToken;
+      i += 2;
+      continue;
+    }
+    if (code.startsWith('...', i)) {
+      expressionAllowed = true;
+      previousToken = '...';
+      out += previousToken;
+      i += 3;
+      continue;
+    }
+    if (ch === '?' && next === '.') {
+      expressionAllowed = false;
+      previousToken = '.';
+      out += '?.';
+      i += 2;
+      continue;
+    }
+
+    expressionAllowed = REGEX_PRECEDING_PUNCTUATION.has(ch);
+    // Private property names can be keyword-shaped, just like dot properties.
+    // 35 is #; a quoted hash would end the generated Rust raw string.
+    previousToken = ch.charCodeAt(0) === 35 ? '.' : ch;
     out += ch;
     i++;
   }

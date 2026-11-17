@@ -380,6 +380,7 @@ Public flow rules:
 
 - `forward()` and `streamingForward()` throw `AxAgentClarificationError` when the actor calls `askClarification(...)`.
 - Successful `final(...)` completions always continue through the responder in public flows.
+- Runtime source analysis ignores regex literals in unambiguous expression positions, so quote-bearing patterns do not hide later completion calls or variable references. Division after literals, updates, and keyword-shaped properties remains visible. This lightweight analysis is not a full JavaScript parser.
 - `AxAgentClarificationError.question` is the user-facing question text.
 - `AxAgentClarificationError.clarification` is the normalized structured payload.
 - `AxAgentClarificationError.getState()` returns the saved continuation state captured at throw time.
