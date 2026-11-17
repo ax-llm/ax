@@ -30,6 +30,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
   - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply` [axagent] Retry an agent actor turn after a cut-off model reply
+  - Status: open
+  - Source commit: `fa693cd4b94c3bcaeff81ad5d5e327ada4405723`
+  - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
+  - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
+  - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
 
 ## Done
 
