@@ -1,5 +1,31 @@
 # Changelog
 
+## [25.4.12](https://github.com/ax-llm/ax/compare/25.4.10...25.4.11) (2026-11-17)
+
+### Bug Fixes
+
+* **axir:** validate event identity fields across generated runtimes ([#902](https://github.com/ax-llm/ax/issues/902)) ([13f264b](https://github.com/ax-llm/ax/commit/13f264b2b1652aced68dcece75390ab9cc75f519))
+* **deepseek:** send max_tokens so the output limit is enforced ([#904](https://github.com/ax-llm/ax/issues/904)) ([8888263](https://github.com/ax-llm/ax/commit/88882632282d15f9c17181cd863fe12eeabd82df))
+* **eval:** keep F1 finite for constructor tokens ([#898](https://github.com/ax-llm/ax/issues/898)) ([60e0e6a](https://github.com/ax-llm/ax/commit/60e0e6a12d7781d294d09acdbc041c94bf7ccdad))
+* **event:** reject non-string envelope id/source/type with a clear error ([#901](https://github.com/ax-llm/ax/issues/901)) ([71900b8](https://github.com/ax-llm/ax/commit/71900b89b7bbd92915494f2b2d97f1853e91a7f8))
+* **funcs:** forward embedding callback context consistently ([#899](https://github.com/ax-llm/ax/issues/899)) ([71372a3](https://github.com/ax-llm/ax/commit/71372a30d3eb8cdd5ea9d24a1c3a42595398c7a1))
+* **util:** preserve regex and division boundaries across runtimes ([#903](https://github.com/ax-llm/ax/issues/903)) ([a3f7abc](https://github.com/ax-llm/ax/commit/a3f7abc93423104db349f8630f9693a8626f7105))
+
+## [25.4.11](https://github.com/ax-llm/ax/compare/25.4.10...25.4.11) (2026-11-15)
+
+### Features
+
+* add Gemini 4 Hydrogen across Ax languages ([#892](https://github.com/ax-llm/ax/issues/892)) ([0df7042](https://github.com/ax-llm/ax/commit/0df70420a4a8cc77eafe97f399a7a344ec247e72))
+* **anthropic:** add native document citations to chat and generation ([#895](https://github.com/ax-llm/ax/issues/895)) ([5736c56](https://github.com/ax-llm/ax/commit/5736c56dde36a30a97dd5adaefdd7636e2e990f8))
+* **axir:** port document citations and shared-reference output ([#896](https://github.com/ax-llm/ax/issues/896)) ([2142f57](https://github.com/ax-llm/ax/commit/2142f5713a622fe2d4d564f078c395405bbb8956))
+
+### Bug Fixes
+
+* **agent:** keep a value shared by two siblings from reading as a cycle ([#893](https://github.com/ax-llm/ax/issues/893)) ([b0014b8](https://github.com/ax-llm/ax/commit/b0014b8704cf9ce773e6498f3361d9a51288d017))
+* **anthropic:** keep document citations instead of dropping them ([#894](https://github.com/ax-llm/ax/issues/894)) ([144d17e](https://github.com/ax-llm/ax/commit/144d17e620d7a8b809e71114a986064618ff49ee))
+* **axgen:** preserve streamed text accompanying tool calls ([#887](https://github.com/ax-llm/ax/issues/887)) ([282da19](https://github.com/ax-llm/ax/commit/282da191feba977b36500a14854e52ef266fb35b))
+* **axir:** preserve text alongside streamed tool calls ([#891](https://github.com/ax-llm/ax/issues/891)) ([084c7b8](https://github.com/ax-llm/ax/commit/084c7b893f5a7d2215e8f6d331596f2af98ef98f))
+
 ## [25.4.11](https://github.com/ax-llm/ax/compare/25.4.10...25.4.11) (2026-11-14)
 
 ### Features
