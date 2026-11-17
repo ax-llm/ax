@@ -7,19 +7,7 @@ export interface AxDockerContainer {
   ImageID: string;
   Command: string;
   Created: number;
-  State: {
-    Status: string;
-    Running: boolean;
-    Paused: boolean;
-    Restarting: boolean;
-    OOMKilled: boolean;
-    Dead: boolean;
-    Pid: number;
-    ExitCode: number;
-    Error: string;
-    StartedAt: Date;
-    FinishedAt: Date;
-  };
+  State: string;
   Status: string;
   Ports: Array<{
     IP: string;
@@ -51,6 +39,10 @@ export interface AxDockerContainer {
     RW: boolean;
     Propagation: string;
   }>;
+}
+
+interface DockerContainerInfo {
+  State: { Status: string };
 }
 
 export class AxDockerSession {
@@ -216,7 +208,7 @@ export class AxDockerSession {
 
     for (const container of targetContainers) {
       // Stop the container if it's running
-      if (container.State.Status === 'running') {
+      if (container.State === 'running') {
         const stopResponse = await this.fetchDockerAPI(
           `/containers/${container.Id}/stop?t=${timeout}`,
           { method: 'POST' }
@@ -335,14 +327,14 @@ export class AxDockerSession {
 
   private async getContainerInfo(
     containerId: string
-  ): Promise<AxDockerContainer> {
+  ): Promise<DockerContainerInfo> {
     const response = await this.fetchDockerAPI(
       `/containers/${containerId}/json`
     );
     if (!response.ok) {
       throw new Error(`Failed to get container info: ${response.statusText}`);
     }
-    return response.json() as Promise<AxDockerContainer>;
+    return response.json() as Promise<DockerContainerInfo>;
   }
 
   private async waitForContainerToBeRunning(
