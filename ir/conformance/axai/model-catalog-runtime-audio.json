@@ -639,7 +639,7 @@
             "highest"
           ]
         },
-        "defaultModel": "deepseek-v4-flash",
+        "defaultModel": "deepseek-flash",
         "displayName": "DeepSeek",
         "isDynamic": false,
         "models": [],
@@ -658,7 +658,7 @@
             "highest"
           ]
         },
-        "defaultModel": "deepseek-v4-flash",
+        "defaultModel": "deepseek-flash",
         "displayName": "DeepSeek Responses",
         "isDynamic": false,
         "models": [],

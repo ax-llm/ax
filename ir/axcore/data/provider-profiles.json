@@ -856,7 +856,7 @@
         "required": true
       },
       "defaults": {
-        "model": "deepseek-v4-flash"
+        "model": "deepseek-flash"
       },
       "capabilities": {
         "functions": true,
@@ -884,6 +884,7 @@
         {
           "match": {
             "exact": [
+              "deepseek-flash",
               "deepseek-v4-flash",
               "deepseek-v4-pro"
             ]
@@ -959,7 +960,8 @@
       ],
       "sources": [
         "https://api-docs.deepseek.com/guides/thinking_mode/",
-        "https://api-docs.deepseek.com/api/create-chat-completion"
+        "https://api-docs.deepseek.com/api/create-chat-completion",
+        "https://api-docs.deepseek.com/quick_start/pricing"
       ],
       "reviewedAt": "2026-11-16"
     },
@@ -978,7 +980,7 @@
         "required": true
       },
       "defaults": {
-        "model": "deepseek-v4-flash"
+        "model": "deepseek-flash"
       },
       "capabilities": {
         "functions": true,
@@ -1009,9 +1011,10 @@
       },
       "modelRules": [],
       "sources": [
-        "https://api-docs.deepseek.com/api/create-chat-completion"
+        "https://api-docs.deepseek.com/api/create-chat-completion",
+        "https://api-docs.deepseek.com/quick_start/pricing"
       ],
-      "reviewedAt": "2026-08-17"
+      "reviewedAt": "2026-11-16"
     },
     "meta": {
       "id": "meta",

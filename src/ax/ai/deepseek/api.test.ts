@@ -64,13 +64,13 @@ function createMockFetch(
 }
 
 describe('deepseek profile model defaults', () => {
-  it('uses the current V4 model from the deployment profile', () => {
+  it('uses the current Flash model from the deployment profile', () => {
     expect(axGetAIProfile('deepseek').defaultModel).toBe(
-      AxAIDeepSeekModel.DeepSeekV4Flash
+      AxAIDeepSeekModel.DeepSeekFlash
     );
   });
 
-  it('sends V4 Flash with maximum thinking by default', async () => {
+  it('sends Flash with maximum thinking by default', async () => {
     const ai = new AxAIOpenAIProfile({
       name: 'deepseek',
       apiKey: 'key',
@@ -86,7 +86,7 @@ describe('deepseek profile model defaults', () => {
       { stream: false }
     );
 
-    expect(capture.lastBody?.model).toBe(AxAIDeepSeekModel.DeepSeekV4Flash);
+    expect(capture.lastBody?.model).toBe(AxAIDeepSeekModel.DeepSeekFlash);
     expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
     expect(capture.lastBody?.reasoning_effort).toBe('max');
   });

@@ -24,7 +24,7 @@
     "url": "https://api.deepseek.com/chat/completions"
   },
   "kind": "ai_stream",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "name": "deepseek-max-tokens-stream",
   "options": {
     "stream": true
@@ -43,7 +43,7 @@
   },
   "transport_responses": [
     {
-      "body": "data: {\"id\":\"chatcmpl_deepseek_cap_stream\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"capped\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "body": "data: {\"id\":\"chatcmpl_deepseek_cap_stream\",\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"capped\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
       "status": 200
     }
   ]
