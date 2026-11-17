@@ -35,7 +35,7 @@
     }
   ],
   "kind": "ai_stream",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "name": "deepseek-openai-compatible-streaming-reasoning",
   "options": {
     "stream": true
@@ -54,7 +54,7 @@
   },
   "transport_responses": [
     {
-      "body": "data: {\"id\":\"chatcmpl_deepseek_stream\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"reasoning_content\":\"plan\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl_deepseek_stream\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "body": "data: {\"id\":\"chatcmpl_deepseek_stream\",\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"reasoning_content\":\"plan\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl_deepseek_stream\",\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
       "status": 200
     }
   ]

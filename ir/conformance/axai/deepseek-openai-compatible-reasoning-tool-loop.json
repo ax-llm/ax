@@ -58,7 +58,7 @@
           "tool_call_id": "call-0"
         }
       ],
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "reasoning_effort": "high",
       "thinking": {
         "type": "enabled"
@@ -77,7 +77,7 @@
     "url": "https://api.deepseek.com/chat/completions"
   },
   "kind": "ai_chat",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "name": "deepseek-openai-compatible-reasoning-tool-loop",
   "provider": "deepseek",
   "request": {
@@ -145,7 +145,7 @@
           }
         ],
         "id": "chatcmpl_deepseek_reasoning",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-flash",
         "object": "chat.completion"
       },
       "status": 200

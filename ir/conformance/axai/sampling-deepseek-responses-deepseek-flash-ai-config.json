@@ -6,15 +6,20 @@
   ],
   "expected_transport_request": {
     "json": {
-      "max_output_tokens": 77,
-      "temperature": 0.5,
-      "top_p": 0.8
+      "max_output_tokens": 123,
+      "temperature": 0.7,
+      "top_p": 0.9
     }
   },
   "expected_warnings": [],
   "kind": "ai_chat",
-  "model": "deepseek-v4-flash",
-  "name": "sampling-deepseek-responses-deepseek-v4-flash-request-config",
+  "model": "deepseek-flash",
+  "model_config": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9
+  },
+  "name": "sampling-deepseek-responses-deepseek-flash-ai-config",
   "provider": "deepseek-responses",
   "request": {
     "chat_prompt": [
@@ -24,17 +29,14 @@
       }
     ],
     "model_config": {
-      "maxTokens": 77,
-      "stream": false,
-      "temperature": 0.5,
-      "topP": 0.8
+      "stream": false
     }
   },
   "transport_responses": [
     {
       "json": {
         "id": "resp_sampling",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-flash",
         "output": [
           {
             "content": [

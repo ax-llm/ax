@@ -2,7 +2,7 @@
   "expected_output": {
     "model_usage": {
       "ai": "deepseek-responses",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "tokens": {
         "completion_tokens": 4,
         "prompt_tokens": 10,
@@ -67,7 +67,7 @@
           "type": "function_call_output"
         }
       ],
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "reasoning": {
         "effort": "high"
       },
@@ -86,7 +86,7 @@
     "url": "https://api.deepseek.com/responses"
   },
   "kind": "ai_chat",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "name": "deepseek-responses-reasoning-tool-loop",
   "provider": "deepseek-responses",
   "request": {
@@ -133,7 +133,7 @@
     {
       "json": {
         "id": "resp_deepseek_responses",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-flash",
         "output": [
           {
             "content": "Use the warehouse query.",

@@ -267,15 +267,29 @@ describe('axGetSupportedAIModels', () => {
     });
 
     const deepseek = providers.find((provider) => provider.name === 'deepseek');
+    const deepseekFlash = deepseek?.models.find(
+      (model) => model.name === AxAIDeepSeekModel.DeepSeekFlash
+    );
     const deepseekV4Flash = deepseek?.models.find(
       (model) => model.name === AxAIDeepSeekModel.DeepSeekV4Flash
     );
 
-    expect(deepseek?.defaultModel).toBe(AxAIDeepSeekModel.DeepSeekV4Flash);
-    expect(deepseekV4Flash).toMatchObject({
+    expect(deepseek?.defaultModel).toBe(AxAIDeepSeekModel.DeepSeekFlash);
+    expect(deepseekFlash).toMatchObject({
       provider: 'deepseek',
       type: 'text',
       isDefault: true,
+      capabilities: {
+        thinkingBudget: true,
+        showThoughts: true,
+        imageInput: true,
+      },
+    });
+    expect(deepseekV4Flash).toMatchObject({
+      provider: 'deepseek',
+      type: 'text',
+      isDefault: false,
+      isDeprecated: true,
       aliases: [
         AxAIDeepSeekModel.DeepSeekChat,
         AxAIDeepSeekModel.DeepSeekReasoner,

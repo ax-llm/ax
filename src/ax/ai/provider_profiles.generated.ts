@@ -737,7 +737,7 @@ export const axAIProviderProfiles = {
       "required": true
     },
     "defaults": {
-      "model": "deepseek-v4-flash"
+      "model": "deepseek-flash"
     },
     "capabilities": {
       "functions": true,
@@ -766,6 +766,7 @@ export const axAIProviderProfiles = {
       {
         "match": {
           "exact": [
+            "deepseek-flash",
             "deepseek-v4-flash",
             "deepseek-v4-pro"
           ]
@@ -841,7 +842,8 @@ export const axAIProviderProfiles = {
     ],
     "sources": [
       "https://api-docs.deepseek.com/guides/thinking_mode/",
-      "https://api-docs.deepseek.com/api/create-chat-completion"
+      "https://api-docs.deepseek.com/api/create-chat-completion",
+      "https://api-docs.deepseek.com/quick_start/pricing"
     ],
     "reviewedAt": "2026-11-16"
   },
@@ -860,7 +862,7 @@ export const axAIProviderProfiles = {
       "required": true
     },
     "defaults": {
-      "model": "deepseek-v4-flash"
+      "model": "deepseek-flash"
     },
     "capabilities": {
       "functions": true,
@@ -892,9 +894,10 @@ export const axAIProviderProfiles = {
     },
     "modelRules": [],
     "sources": [
-      "https://api-docs.deepseek.com/api/create-chat-completion"
+      "https://api-docs.deepseek.com/api/create-chat-completion",
+      "https://api-docs.deepseek.com/quick_start/pricing"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-11-16"
   },
   "meta": {
     "id": "meta",

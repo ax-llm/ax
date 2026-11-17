@@ -192,13 +192,13 @@ const axKnownModelCatalogProviderDefinitions = {
   },
   deepseek: {
     displayName: 'DeepSeek',
-    defaultModel: AxAIDeepSeekModel.DeepSeekV4Flash,
+    defaultModel: AxAIDeepSeekModel.DeepSeekFlash,
     isDynamic: false,
     modelInfo: axModelInfoDeepSeek,
   },
   'deepseek-responses': {
     displayName: 'DeepSeek Responses',
-    defaultModel: AxAIDeepSeekModel.DeepSeekV4Flash,
+    defaultModel: AxAIDeepSeekModel.DeepSeekFlash,
     isDynamic: false,
     modelInfo: axModelInfoDeepSeek,
   },

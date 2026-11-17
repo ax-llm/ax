@@ -1,7 +1,7 @@
 // ax-example:start
 // title: TypeScript Data Analyst (Large Context + Tools)
 // group: long-agents
-// description: Combines a large data dictionary held in contextFields with typed fn() warehouse tools, so the agent answers business questions over a big dataset it never has to inline. Set AX_DEEPSEEK_API=chat (default) or responses and AX_DEEPSEEK_MODEL=deepseek-v4-flash (default) or deepseek-v4-pro.
+// description: Combines a large data dictionary held in contextFields with typed fn() warehouse tools, so the agent answers business questions over a big dataset it never has to inline. Set AX_DEEPSEEK_API=chat (default) or responses and AX_DEEPSEEK_MODEL=deepseek-flash (default) or deepseek-v4-pro.
 // provider: deepseek
 // env: DEEPSEEK_API_KEY
 // level: advanced
@@ -16,7 +16,7 @@ if (!apiKey) {
 
 const api = process.env.AX_DEEPSEEK_API ?? 'chat';
 const model = (process.env.AX_DEEPSEEK_MODEL ??
-  AxAIDeepSeekModel.DeepSeekV4Flash) as AxAIDeepSeekModel;
+  AxAIDeepSeekModel.DeepSeekFlash) as AxAIDeepSeekModel;
 
 const llm =
   api === 'responses'
