@@ -3882,7 +3882,7 @@
     },
     {
       "id": "axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr",
-      "status": "open",
+      "status": "done",
       "title": "Keep ordinary F1 token counts independent of inherited object properties",
       "createdAt": "2026-11-15",
       "sourcePR": 898,
@@ -3895,9 +3895,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-11-17",
+      "completedByCommit": "278a22558e5227ac54103682a1959eadb15945ec",
+      "verification": "The generated packages had no ordinary F1, so it was added: @eval_f1 in eval.axir, exposed as f1_score (Python, C++, Rust), F1Score (Go) and Ax.f1Score (Java). eval-f1.json: 24 TypeScript-derived cases pass through all five public functions, covering constructor and other inherited-property names, stopwords, empty and whitespace-only inputs, empty tokens left by articles and punctuation, and Unicode. Five-language dev verification passed with 2,201 fixtures per language; fixture synchronization and package freshness pass. The Python runner rejects a deliberately wrong expected score."
     },
     {
       "id": "axir-2026-11-16-validate-event-envelope-identity-field-types",
