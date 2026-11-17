@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:76c63266f11452e53a64e17d2011c5f6627f7ba35a180ae85ab3269e6bf50894"
+      "digest": "sha256:4388de3acb0b1906fd3b033fb68089a2f9224f00cca49a3724d25bbd12659fa2"
     },
     {
       "name": "ax-ai",
@@ -69,7 +69,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.",
       "url": "ax-agent-rlm/SKILL.md",
-      "digest": "sha256:4c15051890042fc2dd0e25e4d8100a3833e0a6afa33d2ffc6ca45e1b6dca6ccb"
+      "digest": "sha256:ee506ca2d728f73127ee31b768cb738170bee241ed3428c97fc678694b9c2c80"
     },
     {
       "name": "ax-agent-memory-skills",

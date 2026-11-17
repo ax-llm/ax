@@ -27,6 +27,7 @@ import {
   validateActorTurnCodePolicy,
 } from '../runtime.js';
 import type { ActorLoopContext } from './actorLoopContext.js';
+import { forwardWithCutOffRetry } from './cutOffReply.js';
 import {
   appendDiscoveryTurnSummary,
   stripDiscoveryTurnOutput,
@@ -328,16 +329,22 @@ export async function runActorTurn<_IN extends AxGenIn>(
   const usageBefore = s.actorProgram.getUsage()?.length ?? 0;
   const actorTurnCallback = rlm.actorTurnCallback;
 
-  const executorResult = await s.actorProgram.forward(
-    ai,
-    buildActorPromptValues(
-      actionLogText,
-      guidanceLogText,
-      mutableState.runtimeStateSummary,
-      summarizedActorLogText,
-      contextPressureText
-    ),
-    actorCallOptions
+  // One reply cut off at the output limit must not end the run: nothing has
+  // executed yet, so the same turn can simply ask again.
+  const executorResult = await forwardWithCutOffRetry<Record<string, unknown>>(
+    (turnActionLogText) =>
+      s.actorProgram.forward(
+        ai,
+        buildActorPromptValues(
+          turnActionLogText,
+          guidanceLogText,
+          mutableState.runtimeStateSummary,
+          summarizedActorLogText,
+          contextPressureText
+        ),
+        actorCallOptions
+      ),
+    actionLogText
   );
   if (!debugHideSystemPrompt) {
     mutableState.lastDebugLoggedActorInstruction = actorInstruction;
