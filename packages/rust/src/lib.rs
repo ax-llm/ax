@@ -112265,7 +112265,7 @@ fn _agent_policy_vocabulary_registry(args: &[CoreValue]) -> Result<CoreValue, Ax
     core_set(
         &v_context,
         CoreValue::from("default_max_runtime_chars"),
-        CoreValue::Num(3000f64),
+        CoreValue::Num(12000f64),
     )?;
     core_set(
         &v_context,
@@ -115613,7 +115613,7 @@ fn _resolve_agent_context_policy(args: &[CoreValue]) -> Result<CoreValue, AxErro
         v_max_runtime_chars = core_get(
             &v_context_registry,
             &CoreValue::from("default_max_runtime_chars"),
-            CoreValue::Num(3000f64),
+            CoreValue::Num(12000f64),
         );
     }
     v_context_hygiene = CoreValue::new_map();
@@ -119299,7 +119299,7 @@ fn _agent_prepare_actor_context(args: &[CoreValue]) -> Result<CoreValue, AxError
     v_max_runtime = core_get(
         &v_policy,
         &CoreValue::from("maxRuntimeChars"),
-        CoreValue::Num(3000f64),
+        CoreValue::Num(12000f64),
     );
     v_dynamic_runtime_chars = _agent_compute_dynamic_runtime_chars(&[
         v_action_log.clone(),
@@ -119921,7 +119921,7 @@ fn _agent_context_fixture_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
         v_max_runtime = core_get(
             &v_fixture,
             &CoreValue::from("max_runtime_chars"),
-            CoreValue::Num(3000f64),
+            CoreValue::Num(12000f64),
         );
         v_effective = _agent_compute_effective_chat_budget(&[v_base.clone(), v_fixed.clone()])?;
         v_dynamic = _agent_compute_dynamic_runtime_chars(&[
@@ -125533,7 +125533,7 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
         v_max_chars = core_get(
             &v_context_policy,
             &CoreValue::from("maxRuntimeChars"),
-            CoreValue::Num(3000f64),
+            CoreValue::Num(12000f64),
         );
         v_rendered = _agent_smart_stringify(&[v_output.clone(), v_max_chars.clone()])?;
         v_length = core_len(&[v_rendered.clone()])?;

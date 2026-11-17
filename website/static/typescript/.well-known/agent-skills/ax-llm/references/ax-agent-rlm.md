@@ -141,7 +141,7 @@ Use these top-level controls consistently:
 - `recursionOptions.model`, `modelConfig`, and other forward options: tune the AxGen call used by `llmQuery(...)`.
 - `maxSubAgentCalls`: shared `llmQuery(...)` sub-query budget across the whole run. Default is `100`.
 - `maxBatchedLlmQueryConcurrency`: caps batched `llmQuery([...])` concurrency.
-- `maxRuntimeChars`: runtime/output truncation ceiling for console logs, tool results, and interpreter output replay. The effective limit is computed dynamically each turn based on remaining context budget.
+- `maxRuntimeChars`: runtime/output truncation ceiling for console logs, tool results, and interpreter output replay. Default is `12000`, sized so a turn that reads several tool results or reference documents can show them whole. The effective limit is computed dynamically each turn based on remaining context budget.
 - `summarizerOptions`: default model/options for the internal checkpoint summarizer.
 - `contextPolicy`: replay/checkpointing/compression policy.
 - `contextMap`: optional persistent orientation cache injected into the distiller and updated once after each successful run. `AxAgentContextMap` evolves indefinitely by default; use `{ infiniteEvolve: false, evolveSteps: N }` on the map object for finite warmup followed by reuse.
@@ -162,7 +162,7 @@ const researchAgent = agent('query:string -> answer:string', {
   recursionOptions: {
     model: 'gpt-6-luna',
   },
-  maxRuntimeChars: 3000,
+  maxRuntimeChars: 12000,
   summarizerOptions: {
     model: 'gpt-6-luna',
     modelConfig: { temperature: 0.1, maxTokens: 180 },

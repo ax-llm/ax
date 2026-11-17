@@ -3756,7 +3756,7 @@ def _agent_policy_vocabulary_registry() -> Any:
     context["default_preset"] = "checkpointed"
     context["default_budget"] = "balanced"
     context["full_preset"] = "full"
-    context["default_max_runtime_chars"] = 3000
+    context["default_max_runtime_chars"] = 12000
     context["state_summary_max_chars"] = 1200
     option_keys = {}
     option_keys["camel"] = "contextPolicy"
@@ -4761,7 +4761,7 @@ def _resolve_agent_context_policy(options: Any) -> Any:
     if has_max_runtime:
         pass
     else:
-        max_runtime_chars = _core_get(context_registry, "default_max_runtime_chars", 3000)
+        max_runtime_chars = _core_get(context_registry, "default_max_runtime_chars", 12000)
     context_hygiene = {}
     context_hygiene["defaultMode"] = hygiene_default
     has_pressure = _core_is_not_none(hygiene_pressure)
@@ -6413,7 +6413,7 @@ def _agent_prepare_actor_context(state: Any) -> Any:
         pressure_text = ""
     else:
         pressure_text = _agent_render_context_pressure(pressure)
-    max_runtime = _core_get(policy, "maxRuntimeChars", 3000)
+    max_runtime = _core_get(policy, "maxRuntimeChars", 12000)
     dynamic_runtime_chars = _agent_compute_dynamic_runtime_chars(action_log, target, max_runtime)
     out = {}
     out["summarizedActorLog"] = summary
@@ -6692,7 +6692,7 @@ def _agent_context_fixture_result(state: Any, fixture: Any) -> Any:
         fixed = _core_get(fixture, "fixed_overhead_chars", 0)
         empty_entries = []
         entries = _core_get(fixture, "action_log", empty_entries)
-        max_runtime = _core_get(fixture, "max_runtime_chars", 3000)
+        max_runtime = _core_get(fixture, "max_runtime_chars", 12000)
         effective = _agent_compute_effective_chat_budget(base, fixed)
         dynamic = _agent_compute_dynamic_runtime_chars(entries, base, max_runtime)
         mutable_prompt_chars = _core_get(fixture, "mutable_prompt_chars", 0)
@@ -8984,7 +8984,7 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
         pass
     else:
         context_policy = _resolve_agent_context_policy(options)
-        max_chars = _core_get(context_policy, "maxRuntimeChars", 3000)
+        max_chars = _core_get(context_policy, "maxRuntimeChars", 12000)
         rendered = _agent_smart_stringify(output, max_chars)
         length = _core_len(rendered)
         too_long = _core_gt(length, max_chars)
