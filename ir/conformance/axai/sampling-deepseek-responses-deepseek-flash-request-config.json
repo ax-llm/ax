@@ -1,19 +1,20 @@
 {
   "expected_transport_json_absent": [
-    "temperature",
-    "top_p",
-    "max_output_tokens",
     "presence_penalty",
     "frequency_penalty",
     "reasoning.effort"
   ],
   "expected_transport_request": {
-    "json": {}
+    "json": {
+      "max_output_tokens": 77,
+      "temperature": 0.5,
+      "top_p": 0.8
+    }
   },
   "expected_warnings": [],
   "kind": "ai_chat",
-  "model": "deepseek-v4-flash",
-  "name": "sampling-deepseek-responses-deepseek-v4-flash-defaults",
+  "model": "deepseek-flash",
+  "name": "sampling-deepseek-responses-deepseek-flash-request-config",
   "provider": "deepseek-responses",
   "request": {
     "chat_prompt": [
@@ -23,14 +24,17 @@
       }
     ],
     "model_config": {
-      "stream": false
+      "maxTokens": 77,
+      "stream": false,
+      "temperature": 0.5,
+      "topP": 0.8
     }
   },
   "transport_responses": [
     {
       "json": {
         "id": "resp_sampling",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-flash",
         "output": [
           {
             "content": [

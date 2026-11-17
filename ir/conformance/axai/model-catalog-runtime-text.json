@@ -1503,192 +1503,6 @@
       },
       {
         "capabilities": {
-          "serviceTiers": [],
-          "thinking": true,
-          "thinkingLevels": [
-            "none",
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
-        },
-        "defaultModel": "deepseek-v4-flash",
-        "displayName": "DeepSeek",
-        "isDynamic": false,
-        "models": [
-          {
-            "aliases": ["deepseek-chat", "deepseek-reasoner"],
-            "cacheReadTokenCostPer1M": 0.0028,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.28,
-            "contextWindow": 1000000,
-            "currency": "USD",
-            "isDefault": true,
-            "maxTokens": 384000,
-            "name": "deepseek-v4-flash",
-            "promptTokenCostPer1M": 0.14,
-            "provider": "deepseek",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "cacheReadTokenCostPer1M": 0.003625,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.87,
-            "contextWindow": 1000000,
-            "currency": "USD",
-            "isDefault": false,
-            "maxTokens": 384000,
-            "name": "deepseek-v4-pro",
-            "promptTokenCostPer1M": 0.435,
-            "provider": "deepseek",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          }
-        ],
-        "name": "deepseek"
-      },
-      {
-        "capabilities": {
-          "serviceTiers": [],
-          "thinking": true,
-          "thinkingLevels": [
-            "none",
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "highest"
-          ]
-        },
-        "defaultModel": "deepseek-v4-flash",
-        "displayName": "DeepSeek Responses",
-        "isDynamic": false,
-        "models": [
-          {
-            "aliases": ["deepseek-chat", "deepseek-reasoner"],
-            "cacheReadTokenCostPer1M": 0.0028,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.28,
-            "contextWindow": 1000000,
-            "currency": "USD",
-            "isDefault": true,
-            "maxTokens": 384000,
-            "name": "deepseek-v4-flash",
-            "promptTokenCostPer1M": 0.14,
-            "provider": "deepseek-responses",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "cacheReadTokenCostPer1M": 0.003625,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.87,
-            "contextWindow": 1000000,
-            "currency": "USD",
-            "isDefault": false,
-            "maxTokens": 384000,
-            "name": "deepseek-v4-pro",
-            "promptTokenCostPer1M": 0.435,
-            "provider": "deepseek-responses",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": false,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          }
-        ],
-        "name": "deepseek-responses"
-      },
-      {
-        "capabilities": {
           "serviceTiers": ["standard", "flex", "priority"],
           "thinking": true,
           "thinkingLevels": [
@@ -7028,6 +6842,302 @@
       {
         "capabilities": {
           "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
+        "defaultModel": "deepseek-flash",
+        "displayName": "DeepSeek",
+        "isDynamic": false,
+        "models": [
+          {
+            "cacheReadTokenCostPer1M": 0.006,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true,
+              "videoInput": false
+            },
+            "completionTokenCostPer1M": 1.2,
+            "contextWindow": 1048576,
+            "currency": "USD",
+            "isDefault": true,
+            "maxTokens": 393216,
+            "modalities": {
+              "input": ["text", "image"],
+              "output": ["text"]
+            },
+            "name": "deepseek-flash",
+            "promptTokenCostPer1M": 0.3,
+            "provider": "deepseek",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "cacheReadTokenCostPer1M": 0.006,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 1.2,
+            "contextWindow": 1048576,
+            "currency": "USD",
+            "isDefault": false,
+            "isDeprecated": true,
+            "maxTokens": 393216,
+            "name": "deepseek-v4-flash",
+            "promptTokenCostPer1M": 0.3,
+            "provider": "deepseek",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.044,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageInput": false,
+              "imageOutput": false,
+              "pdfInput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true,
+              "videoInput": false
+            },
+            "completionTokenCostPer1M": 3.96,
+            "contextWindow": 1048576,
+            "currency": "USD",
+            "isDefault": false,
+            "maxTokens": 393216,
+            "modalities": {
+              "input": ["text"],
+              "output": ["text"]
+            },
+            "name": "deepseek-v4-pro",
+            "promptTokenCostPer1M": 1.32,
+            "provider": "deepseek",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          }
+        ],
+        "name": "deepseek"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
+        "defaultModel": "deepseek-flash",
+        "displayName": "DeepSeek Responses",
+        "isDynamic": false,
+        "models": [
+          {
+            "cacheReadTokenCostPer1M": 0.006,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true,
+              "videoInput": false
+            },
+            "completionTokenCostPer1M": 1.2,
+            "contextWindow": 1048576,
+            "currency": "USD",
+            "isDefault": true,
+            "maxTokens": 393216,
+            "modalities": {
+              "input": ["text", "image"],
+              "output": ["text"]
+            },
+            "name": "deepseek-flash",
+            "promptTokenCostPer1M": 0.3,
+            "provider": "deepseek-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "cacheReadTokenCostPer1M": 0.006,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 1.2,
+            "contextWindow": 1048576,
+            "currency": "USD",
+            "isDefault": false,
+            "isDeprecated": true,
+            "maxTokens": 393216,
+            "name": "deepseek-v4-flash",
+            "promptTokenCostPer1M": 0.3,
+            "provider": "deepseek-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.044,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageInput": false,
+              "imageOutput": false,
+              "pdfInput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true,
+              "videoInput": false
+            },
+            "completionTokenCostPer1M": 3.96,
+            "contextWindow": 1048576,
+            "currency": "USD",
+            "isDefault": false,
+            "maxTokens": 393216,
+            "modalities": {
+              "input": ["text"],
+              "output": ["text"]
+            },
+            "name": "deepseek-v4-pro",
+            "promptTokenCostPer1M": 1.32,
+            "provider": "deepseek-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          }
+        ],
+        "name": "deepseek-responses"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8104,7 +8214,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 219,
+    "modelCount": 221,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
     "providerCount": 52,
@@ -8114,14 +8224,14 @@
       "google-gemini-decisions",
       "openai-decisions",
       "mistral",
-      "deepseek",
-      "deepseek-responses",
       "openai",
       "openai-responses",
       "anthropic",
       "grok",
       "cohere",
       "reka",
+      "deepseek",
+      "deepseek-responses",
       "openai-compatible",
       "azure-openai",
       "meta",
