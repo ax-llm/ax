@@ -233,6 +233,9 @@ export async function runOfflineScenario(
     functions: [stubFn],
     runtime: makeRuntime(),
     maxTurns: scenario.maxTurns,
+    // The scenarios' logged blobs are sized against a 3,000-char output
+    // ceiling; pin it so the sweep keeps comparing presets, not the default.
+    maxRuntimeChars: 3000,
     contextPolicy: { preset, budget: 'compact' },
     onContextEvent: collector.onEvent,
   });

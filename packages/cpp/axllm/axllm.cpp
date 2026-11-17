@@ -39215,7 +39215,7 @@ Value Core::_agent_policy_vocabulary_registry() {
   Core::set(context, Value("default_preset"), Value("checkpointed"));
   Core::set(context, Value("default_budget"), Value("balanced"));
   Core::set(context, Value("full_preset"), Value("full"));
-  Core::set(context, Value("default_max_runtime_chars"), Value(3000));
+  Core::set(context, Value("default_max_runtime_chars"), Value(12000));
   Core::set(context, Value("state_summary_max_chars"), Value(1200));
   Value option_keys = Value::object();
   Core::set(option_keys, Value("camel"), Value("contextPolicy"));
@@ -40240,7 +40240,7 @@ Value Core::_resolve_agent_context_policy(Value options) {
     // empty
   }
   if (!Core::truthy(has_max_runtime)) {
-    max_runtime_chars = Core::get(context_registry, Value("default_max_runtime_chars"), Value(3000));
+    max_runtime_chars = Core::get(context_registry, Value("default_max_runtime_chars"), Value(12000));
   }
   Value context_hygiene = Value::object();
   Core::set(context_hygiene, Value("defaultMode"), hygiene_default);
@@ -41857,7 +41857,7 @@ Value Core::_agent_prepare_actor_context(Value state) {
   if (!Core::truthy(is_full)) {
     pressure_text = Core::_agent_render_context_pressure(pressure);
   }
-  Value max_runtime = Core::get(policy, Value("maxRuntimeChars"), Value(3000));
+  Value max_runtime = Core::get(policy, Value("maxRuntimeChars"), Value(12000));
   Value dynamic_runtime_chars = Core::_agent_compute_dynamic_runtime_chars(action_log, target, max_runtime);
   Value out = Value::object();
   Core::set(out, Value("summarizedActorLog"), summary);
@@ -42113,7 +42113,7 @@ Value Core::_agent_context_fixture_result(Value state, Value fixture) {
     Value fixed = Core::get(fixture, Value("fixed_overhead_chars"), Value(0));
     Value empty_entries = Value::array();
     Value entries = Core::get(fixture, Value("action_log"), empty_entries);
-    Value max_runtime = Core::get(fixture, Value("max_runtime_chars"), Value(3000));
+    Value max_runtime = Core::get(fixture, Value("max_runtime_chars"), Value(12000));
     Value effective = Core::_agent_compute_effective_chat_budget(base, fixed);
     Value dynamic = Core::_agent_compute_dynamic_runtime_chars(entries, base, max_runtime);
     Value mutable_prompt_chars = Core::get(fixture, Value("mutable_prompt_chars"), Value(0));
@@ -44433,7 +44433,7 @@ Value Core::_agent_runtime_execute_step(Value state, Value runtime, Value sessio
   }
   if (!Core::truthy(output_is_string)) {
     Value context_policy = Core::_resolve_agent_context_policy(options);
-    Value max_chars = Core::get(context_policy, Value("maxRuntimeChars"), Value(3000));
+    Value max_chars = Core::get(context_policy, Value("maxRuntimeChars"), Value(12000));
     Value rendered = Core::_agent_smart_stringify(output, max_chars);
     Value length = Core::len(rendered);
     Value too_long = Core::gt(length, max_chars);

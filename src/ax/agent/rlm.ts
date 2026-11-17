@@ -500,7 +500,7 @@ export interface AxRLMConfig {
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
-  /** Maximum characters to keep from runtime output and console/log replay (default: 3000). */
+  /** Maximum characters to keep from runtime output and console/log replay (default: 12000). */
   maxRuntimeChars?: number;
   /**
    * Maximum serialized characters for a `final(task, evidence)` evidence

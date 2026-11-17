@@ -37423,7 +37423,7 @@ final class Core {
     Core.set(context, "default_preset", "checkpointed");
     Core.set(context, "default_budget", "balanced");
     Core.set(context, "full_preset", "full");
-    Core.set(context, "default_max_runtime_chars", 3000);
+    Core.set(context, "default_max_runtime_chars", 12000);
     Core.set(context, "state_summary_max_chars", 1200);
     Object option_keys = new java.util.LinkedHashMap<String, Object>();
     Core.set(option_keys, "camel", "contextPolicy");
@@ -38464,7 +38464,7 @@ final class Core {
       // empty
     }
     if (!Core.truthy(has_max_runtime)) {
-      max_runtime_chars = Core.get(context_registry, "default_max_runtime_chars", 3000);
+      max_runtime_chars = Core.get(context_registry, "default_max_runtime_chars", 12000);
     }
     Object context_hygiene = new java.util.LinkedHashMap<String, Object>();
     Core.set(context_hygiene, "defaultMode", hygiene_default);
@@ -40081,7 +40081,7 @@ final class Core {
     if (!Core.truthy(is_full)) {
       pressure_text = Core._agent_render_context_pressure(pressure);
     }
-    Object max_runtime = Core.get(policy, "maxRuntimeChars", 3000);
+    Object max_runtime = Core.get(policy, "maxRuntimeChars", 12000);
     Object dynamic_runtime_chars = Core._agent_compute_dynamic_runtime_chars(action_log, target, max_runtime);
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "summarizedActorLog", summary);
@@ -40337,7 +40337,7 @@ final class Core {
       Object fixed = Core.get(fixture, "fixed_overhead_chars", 0);
       Object empty_entries = new java.util.ArrayList<Object>();
       Object entries = Core.get(fixture, "action_log", empty_entries);
-      Object max_runtime = Core.get(fixture, "max_runtime_chars", 3000);
+      Object max_runtime = Core.get(fixture, "max_runtime_chars", 12000);
       Object effective = Core._agent_compute_effective_chat_budget(base, fixed);
       Object dynamic = Core._agent_compute_dynamic_runtime_chars(entries, base, max_runtime);
       Object mutable_prompt_chars = Core.get(fixture, "mutable_prompt_chars", 0);
@@ -42656,7 +42656,7 @@ final class Core {
     }
     if (!Core.truthy(output_is_string)) {
       Object context_policy = Core._resolve_agent_context_policy(options);
-      Object max_chars = Core.get(context_policy, "maxRuntimeChars", 3000);
+      Object max_chars = Core.get(context_policy, "maxRuntimeChars", 12000);
       Object rendered = Core._agent_smart_stringify(output, max_chars);
       Object length = Core.len(rendered);
       Object too_long = Core.gt(length, max_chars);

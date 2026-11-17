@@ -11,7 +11,7 @@
       "defaultMode": "none",
       "pressureMode": "pressure"
     },
-    "maxRuntimeChars": 3000,
+    "maxRuntimeChars": 12000,
     "preset": "checkpointed",
     "recentFullActions": 3,
     "stateInspection": {

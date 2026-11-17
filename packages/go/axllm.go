@@ -78310,7 +78310,7 @@ func _agent_policy_vocabulary_registry(args ...Value) (Value, error) {
 	if err := coreSet(v_context, "default_preset", "checkpointed"); err != nil { return nil, err }
 	if err := coreSet(v_context, "default_budget", "balanced"); err != nil { return nil, err }
 	if err := coreSet(v_context, "full_preset", "full"); err != nil { return nil, err }
-	if err := coreSet(v_context, "default_max_runtime_chars", 3000); err != nil { return nil, err }
+	if err := coreSet(v_context, "default_max_runtime_chars", 12000); err != nil { return nil, err }
 	if err := coreSet(v_context, "state_summary_max_chars", 1200); err != nil { return nil, err }
 	v_option_keys = Object()
 	if err := coreSet(v_option_keys, "camel", "contextPolicy"); err != nil { return nil, err }
@@ -80326,7 +80326,7 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 	if coreTruthy(v_has_max_runtime) {
 	// empty
 	} else {
-		v_max_runtime_chars = coreGet(v_context_registry, "default_max_runtime_chars", 3000)
+		v_max_runtime_chars = coreGet(v_context_registry, "default_max_runtime_chars", 12000)
 	}
 	v_context_hygiene = Object()
 	if err := coreSet(v_context_hygiene, "defaultMode", v_hygiene_default); err != nil { return nil, err }
@@ -83771,7 +83771,7 @@ func _agent_prepare_actor_context(args ...Value) (Value, error) {
 	} else {
 		{ v, err := _agent_render_context_pressure(v_pressure); if err != nil { return nil, err }; v_pressure_text = v }
 	}
-	v_max_runtime = coreGet(v_policy, "maxRuntimeChars", 3000)
+	v_max_runtime = coreGet(v_policy, "maxRuntimeChars", 12000)
 	{ v, err := _agent_compute_dynamic_runtime_chars(v_action_log, v_target, v_max_runtime); if err != nil { return nil, err }; v_dynamic_runtime_chars = v }
 	v_out = Object()
 	if err := coreSet(v_out, "summarizedActorLog", v_summary); err != nil { return nil, err }
@@ -84418,7 +84418,7 @@ func _agent_context_fixture_result(args ...Value) (Value, error) {
 		v_fixed = coreGet(v_fixture, "fixed_overhead_chars", 0)
 		v_empty_entries = MutableArray()
 		v_entries = coreGet(v_fixture, "action_log", v_empty_entries)
-		v_max_runtime = coreGet(v_fixture, "max_runtime_chars", 3000)
+		v_max_runtime = coreGet(v_fixture, "max_runtime_chars", 12000)
 		{ v, err := _agent_compute_effective_chat_budget(v_base, v_fixed); if err != nil { return nil, err }; v_effective = v }
 		{ v, err := _agent_compute_dynamic_runtime_chars(v_entries, v_base, v_max_runtime); if err != nil { return nil, err }; v_dynamic = v }
 		v_mutable_prompt_chars = coreGet(v_fixture, "mutable_prompt_chars", 0)
@@ -89045,7 +89045,7 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	// empty
 	} else {
 		{ v, err := _resolve_agent_context_policy(v_options); if err != nil { return nil, err }; v_context_policy = v }
-		v_max_chars = coreGet(v_context_policy, "maxRuntimeChars", 3000)
+		v_max_chars = coreGet(v_context_policy, "maxRuntimeChars", 12000)
 		{ v, err := _agent_smart_stringify(v_output, v_max_chars); if err != nil { return nil, err }; v_rendered = v }
 		v_length = _core_len(v_rendered)
 		v_too_long = _core_gt(v_length, v_max_chars)

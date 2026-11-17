@@ -805,7 +805,7 @@ module @ax.agent version "0.1" {
       core.set %context["default_preset"] = "checkpointed"
       core.set %context["default_budget"] = "balanced"
       core.set %context["full_preset"] = "full"
-      core.set %context["default_max_runtime_chars"] = 3000
+      core.set %context["default_max_runtime_chars"] = 12000
       core.set %context["state_summary_max_chars"] = 1200
       %option_keys = core.map
       core.set %option_keys["camel"] = "contextPolicy"
@@ -1960,7 +1960,7 @@ module @ax.agent version "0.1" {
       %has_max_runtime = core.call intrinsic.is_not_none(%max_runtime_chars)
       core.if %has_max_runtime {
       } else {
-        %max_runtime_chars = core.get %context_registry["default_max_runtime_chars"] default 3000
+        %max_runtime_chars = core.get %context_registry["default_max_runtime_chars"] default 12000
       }
       %context_hygiene = core.map
       core.set %context_hygiene["defaultMode"] = %hygiene_default
@@ -3481,7 +3481,7 @@ module @ax.agent version "0.1" {
       } else {
         %pressure_text = core.call @agent_render_context_pressure(%pressure)
       }
-      %max_runtime = core.get %policy["maxRuntimeChars"] default 3000
+      %max_runtime = core.get %policy["maxRuntimeChars"] default 12000
       %dynamic_runtime_chars = core.call @agent_compute_dynamic_runtime_chars(%action_log, %target, %max_runtime)
       %out = core.map
       core.set %out["summarizedActorLog"] = %summary
@@ -3745,7 +3745,7 @@ module @ax.agent version "0.1" {
         %fixed = core.get %fixture["fixed_overhead_chars"] default 0
         %empty_entries = core.list
         %entries = core.get %fixture["action_log"] default %empty_entries
-        %max_runtime = core.get %fixture["max_runtime_chars"] default 3000
+        %max_runtime = core.get %fixture["max_runtime_chars"] default 12000
         %effective = core.call @agent_compute_effective_chat_budget(%base, %fixed)
         %dynamic = core.call @agent_compute_dynamic_runtime_chars(%entries, %base, %max_runtime)
         %mutable_prompt_chars = core.get %fixture["mutable_prompt_chars"] default 0
@@ -6282,7 +6282,7 @@ module @ax.agent version "0.1" {
       %output_is_string = core.type_is %output type "string"
       core.if %output_is_string {} else {
         %context_policy = core.call @resolve_agent_context_policy(%options)
-        %max_chars = core.get %context_policy["maxRuntimeChars"] default 3000
+        %max_chars = core.get %context_policy["maxRuntimeChars"] default 12000
         %rendered = core.call @agent_smart_stringify(%output, %max_chars)
         %length = core.call intrinsic.len(%rendered)
         %too_long = core.call intrinsic.gt(%length, %max_chars)

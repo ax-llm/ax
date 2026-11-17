@@ -10524,6 +10524,8 @@ describe('actor turn callbacks', () => {
       ai: testMockAI,
       contextFields: [],
       runtime,
+      // The runtime logs 3,500 chars; pin the ceiling so the turn shows truncation.
+      maxRuntimeChars: 3000,
       contextPolicy: { budget: 'compact' },
       actorTurnCallback: async (turn) => {
         callbackResults.push(turn as unknown as Record<string, unknown>);

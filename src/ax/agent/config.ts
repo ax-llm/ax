@@ -13,8 +13,13 @@ import type {
 
 /** Global ceiling on total `llmQuery` child invocations per forward — guards runaway recursion. */
 export const DEFAULT_RLM_MAX_LLM_CALLS = 100;
-/** Max chars of turn output surfaced back to the actor; longer output gets truncated to force narrowing. */
-export const DEFAULT_RLM_MAX_RUNTIME_CHARS = 3_000;
+/**
+ * Max chars of turn output surfaced back to the actor; longer output gets
+ * truncated to force narrowing. Sized so a turn that reads several tool
+ * results or reference documents can show them whole: at 3,000 the tail of
+ * each result was cut, and the actor repeated lookups until it ran out of turns.
+ */
+export const DEFAULT_RLM_MAX_RUNTIME_CHARS = 12_000;
 /** Max chars for the live-runtime-state summary injected into the actor prompt. */
 export const DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS = 1_200;
 /** Concurrency for batched `llmQuery` items within a single actor turn. */
