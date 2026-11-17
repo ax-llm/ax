@@ -1,0 +1,150 @@
+{
+  "cases": [
+    {
+      "expected": 1,
+      "ground_truth": "constructor",
+      "name": "constructor-match",
+      "prediction": "constructor"
+    },
+    {
+      "expected": 0,
+      "ground_truth": "cat",
+      "name": "constructor-prediction-only",
+      "prediction": "constructor"
+    },
+    {
+      "expected": 0,
+      "ground_truth": "constructor",
+      "name": "constructor-truth-only",
+      "prediction": "cat"
+    },
+    {
+      "expected": 0.5,
+      "ground_truth": "constructor dog",
+      "name": "constructor-partial",
+      "prediction": "constructor cat"
+    },
+    {
+      "expected": 0.4,
+      "ground_truth": "constructor dog",
+      "name": "constructor-repeated-prediction",
+      "prediction": "constructor constructor cat"
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "constructor constructor",
+      "name": "constructor-repeated-truth",
+      "prediction": "constructor"
+    },
+    {
+      "expected": 0.4,
+      "ground_truth": "constructor toString",
+      "name": "prototype-names",
+      "prediction": "__proto__ hasOwnProperty toString"
+    },
+    {
+      "expected": 1,
+      "ground_truth": "cat",
+      "name": "match",
+      "prediction": "cat"
+    },
+    {
+      "expected": 0,
+      "ground_truth": "dog",
+      "name": "disjoint",
+      "prediction": "cat"
+    },
+    {
+      "expected": 0.4,
+      "ground_truth": "cat bird",
+      "name": "multiset-overlap",
+      "prediction": "cat cat dog"
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "kiwi mango mango",
+      "name": "repeated-both",
+      "prediction": "kiwi kiwi mango"
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "kiwi or mango",
+      "name": "stopwords-count",
+      "prediction": "kiwi and mango"
+    },
+    {
+      "expected": 1,
+      "ground_truth": "",
+      "name": "empty-both",
+      "prediction": ""
+    },
+    {
+      "expected": 0,
+      "ground_truth": "kiwi",
+      "name": "empty-prediction",
+      "prediction": ""
+    },
+    {
+      "expected": 0,
+      "ground_truth": "",
+      "name": "empty-truth",
+      "prediction": "kiwi"
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "",
+      "name": "whitespace-only",
+      "prediction": " "
+    },
+    {
+      "expected": 1,
+      "ground_truth": "a",
+      "name": "articles-only",
+      "prediction": "the"
+    },
+    {
+      "expected": 0.5,
+      "ground_truth": "kiwi",
+      "name": "leading-article",
+      "prediction": "the and kiwi"
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "kiwi",
+      "name": "trailing-article",
+      "prediction": "kiwi the"
+    },
+    {
+      "expected": 0.8,
+      "ground_truth": "kiwi mango",
+      "name": "spaced-punctuation",
+      "prediction": "kiwi , mango"
+    },
+    {
+      "expected": 0,
+      "ground_truth": "kiwimango",
+      "name": "literal-backslash",
+      "prediction": "kiwi\\mango"
+    },
+    {
+      "expected": 1,
+      "ground_truth": "café",
+      "name": "unicode-nfd",
+      "prediction": "CAFÉ"
+    },
+    {
+      "expected": 1,
+      "ground_truth": "ος",
+      "name": "unicode-case",
+      "prediction": "ΟΣ"
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "kiwi mango",
+      "name": "whitespace",
+      "prediction": "﻿kiwi mango "
+    }
+  ],
+  "kind": "eval_f1",
+  "name": "eval-f1"
+}

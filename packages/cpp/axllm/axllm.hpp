@@ -34,6 +34,7 @@
 
 namespace axllm {
 double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall = false);
+double f1_score(const std::string& prediction, const std::string& ground_truth);
 
 struct Value;
 using Array = std::vector<Value>;
@@ -1065,6 +1066,7 @@ struct Core {
   static Value _normalize_optimization_dataset(Value dataset);
   static Value _date_parse_named_datetime_impl(Value text, Value units, Value start, Value end);
   static Value _stream_extract_block_impl(Value input);
+  static Value eval_f1(Value prediction, Value ground_truth);
   static Value _normalize_optimization_metric_scores(Value raw);
   static Value _scalarize_optimization_scores(Value scores, Value options);
   static Value _stream_strip_leading_fence_impl(Value text);

@@ -1751,3 +1751,8 @@ def _core_decision_refusal_error(path, provenance):
 def novel_f1_score(history: str, prediction: str, ground_truth: str, return_recall: bool = False) -> float:
     """Score novel token overlap, excluding history and stopwords; two empty inputs score one."""
     return eval_novel_f1(history, prediction, ground_truth, return_recall)
+
+
+def f1_score(prediction: str, ground_truth: str) -> float:
+    """Score multiset token overlap between a prediction and the ground truth."""
+    return eval_f1(prediction, ground_truth)

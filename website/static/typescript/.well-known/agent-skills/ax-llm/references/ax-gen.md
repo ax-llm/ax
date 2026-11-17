@@ -657,3 +657,8 @@ Generated Python, C++, and Rust expose `novel_f1_score`; Go exposes
 `NovelF1Score`; Java exposes `Ax.novelF1Score`. They share the same Core metric,
 including Unicode normalization and finite empty-input scores. The optimization
 examples show scoring a rationale returned by a real provider.
+
+`AxEvalUtil.f1Score(prediction, groundTruth)` is the ordinary F1: the same
+normalization and multiset overlap, but nothing is excluded, so stopwords count.
+Generated Python, C++, and Rust expose `f1_score`; Go exposes `F1Score`; Java
+exposes `Ax.f1Score`.

@@ -11719,6 +11719,15 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
                 }
             }
         }
+        "eval_f1" => {
+            for item in fixture["cases"].as_array().ok_or_else(|| AxError::new("fixture", "missing metric cases"))? {
+                let score = f1_score(item["prediction"].as_str().unwrap(), item["ground_truth"].as_str().unwrap())?;
+                let expected = item["expected"].as_f64().ok_or_else(|| AxError::new("fixture", "expected a numeric F1 score"))?;
+                if !score.is_finite() || (score - expected).abs() > 1e-12 {
+                    return Err(AxError::new("fixture", format!("F1 {}: expected {expected}, got {score}", item["name"])));
+                }
+            }
+        }
         "stream" => run_stream_fixture(&fixture)?,
         "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
         "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
@@ -29710,4 +29719,10 @@ fn core_decision_refusal_error(args: &[CoreValue]) -> Result<CoreValue, AxError>
 pub fn novel_f1_score(history: &str, prediction: &str, ground_truth: &str, return_recall: bool) -> AxResult<f64> {
     let value = core_value_to_json(&eval_novel_f1(&[core_value_from_json(&json!(history)), core_value_from_json(&json!(prediction)), core_value_from_json(&json!(ground_truth)), core_value_from_json(&json!(return_recall))])?);
     value.as_f64().ok_or_else(|| AxError::new("eval", "novel F1 returned a non-number"))
+}
+
+/// Multiset token overlap between a prediction and the ground truth.
+pub fn f1_score(prediction: &str, ground_truth: &str) -> AxResult<f64> {
+    let value = core_value_to_json(&eval_f1(&[core_value_from_json(&json!(prediction)), core_value_from_json(&json!(ground_truth))])?);
+    value.as_f64().ok_or_else(|| AxError::new("eval", "F1 returned a non-number"))
 }

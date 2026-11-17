@@ -35,7 +35,7 @@ def _fixture_function_result_formatter(spec):
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
 from .ai import _REQUEST_RETRY_HOOKS, _core_ai_capture_warnings, _core_axgen_capture_deprecations, _check_cancelled
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
-from .gen import novel_f1_score
+from .gen import f1_score, novel_f1_score
 from .gen import (
     _parse_text_output_fields_impl,
     _stream_field_value_impl,
@@ -768,6 +768,9 @@ def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
         elif kind == "eval_novel_f1":
             for item in fixture["cases"]:
                 _assert_equal(novel_f1_score(item["history"], item["prediction"], item["ground_truth"], item.get("return_recall", False)), item["expected"], "novel F1: " + item["name"])
+        elif kind == "eval_f1":
+            for item in fixture["cases"]:
+                _assert_equal(f1_score(item["prediction"], item["ground_truth"]), item["expected"], "F1: " + item["name"])
         elif kind == "stream":
             _run_stream(fixture)
         elif kind == "validate_value":

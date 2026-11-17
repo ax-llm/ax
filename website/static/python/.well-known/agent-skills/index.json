@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/skill.tar.gz",
-      "digest": "sha256:4d1bcbe1f23d33d9f87f06cbd5d92a2b1bc379debe955836483d2c1cd1ebca85"
+      "digest": "sha256:ca8b0ac1691e41b9b228ee9b699c4e8735e6f4c2e159e976bf735a501dc30a4e"
     },
     {
       "name": "ax-python-ai",
@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-python-typesafe/SKILL.md",
-      "digest": "sha256:2a7e231183a733ffa90b24d67ca9b954bd44974d1fd9c0208cc52908e999ddf2"
+      "digest": "sha256:d5b7798e170d5be7d47c28285c082bce5d088348e9b7a20686439e6e584f644a"
     },
     {
       "name": "ax-python-audio",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:1f3a0bee522870c7fb0bc0e5522408d0d5d2eefc5c2f94ccde357474f734ed3c"
+      "digest": "sha256:6109b42820beadcb88646377e16af73c5b0ff5d108010ff275049178f5e965f0"
     },
     {
       "name": "ax-python-flow",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-python-refine/SKILL.md",
-      "digest": "sha256:8ad12e202ba83d5174c483caf21305e1beb548d437bc7631337c7e8c6ec89d12"
+      "digest": "sha256:215e325d14652d0b6854d1cb59501254932f7400a154ad3292c39411c8ccb29c"
     },
     {
       "name": "ax-python-playbook",
