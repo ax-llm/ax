@@ -927,7 +927,7 @@ module @ax.gen version "0.1" {
           %parsed_bundle = core.map
           %parse_state = core.map
           core.try {
-            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode, %parse_state)
+            %parsed = core.call @parse_answer_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode, %parse_state)
             %parsed_bundle = core.let %parsed
           } catch %validation_error {
             %refusal_message = core.call intrinsic.exception.message(%validation_error)
@@ -3375,6 +3375,60 @@ module @ax.gen version "0.1" {
         core.set %entry["usage"] = %usage
       }
       core.return
+    }
+  }
+
+  op ax.gen.semantic @parse_answer_outputs {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/nonStreaming.ts"
+    type signature = "(AxGen, list<Field>, json, bool, string, string, bool, bool, json) -> json throws"
+    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool, %strict_mode: bool, %parse_state: json) {
+      // @parse_sample_outputs for an answer without tool calls. As in TS, a
+      // sample with no content is not parsed, so one the token limit cut off
+      // fails as cut off, outside the validation retries, not as a missing
+      // field. TS takes the samples in order, so the ones before it are
+      // parsed first and their failures come first.
+      %empty_results = core.list
+      %completions = core.get %response["results"] default %empty_results
+      %completion_count = core.call intrinsic.len(%completions)
+      %missing_completions = core.call intrinsic.eq(%completion_count, 0)
+      core.if %missing_completions {
+        %completions = core.list
+        core.append %completions, %response
+      }
+      %earlier = core.list
+      core.for %completion in %completions {
+        %content = core.get %completion["content"] default ""
+        %has_content = core.call intrinsic.truthy(%content)
+        %no_content = core.call intrinsic.not(%has_content)
+        %finish_snake = core.get %completion["finish_reason"]
+        %finish = core.get %completion["finishReason"] default %finish_snake
+        %cut = core.call intrinsic.eq(%finish, "length")
+        %empty_cut = core.call intrinsic.and(%no_content, %cut)
+        core.if %empty_cut {
+          %earlier_count = core.call intrinsic.len(%earlier)
+          %has_earlier = core.call intrinsic.gt(%earlier_count, 0)
+          core.if %has_earlier {
+            %earlier_response = core.map
+            core.set %earlier_response["results"] = %earlier
+            %earlier_bundle = core.call @parse_sample_outputs(%gen, %output_fields, %earlier_response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode, %parse_state)
+            %earlier_failure = core.get %earlier_bundle["assertion_failure"]
+            %earlier_failed = core.call intrinsic.is_not_none(%earlier_failure)
+            core.if %earlier_failed {
+              core.return %earlier_bundle
+            }
+          }
+          %cut_error = core.call intrinsic.error.runtime("Max tokens reached before completion\nContent: ")
+          %cut_bundle = core.map
+          core.set %cut_bundle["assertion_failure"] = %cut_error
+          core.return %cut_bundle
+        }
+        core.append %earlier, %completion
+      }
+      %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode, %parse_state)
+      core.return %parsed
     }
   }
 

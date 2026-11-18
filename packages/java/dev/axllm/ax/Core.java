@@ -26003,7 +26003,7 @@ final class Core {
         Object parsed_bundle = new java.util.LinkedHashMap<String, Object>();
         Object parse_state = new java.util.LinkedHashMap<String, Object>();
         try {
-          Object parsed = Core._parse_sample_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
+          Object parsed = Core._parse_answer_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
           parsed_bundle = parsed;
         } catch (RuntimeException validation_error) {
           Object refusal_message = Core.exceptionMessage(validation_error);
@@ -35720,6 +35720,49 @@ final class Core {
     }
     Object text = Core._stream_js_string_impl(result);
     return text;
+  }
+
+  static Object _parse_answer_outputs(Object gen, Object output_fields, Object response, Object validate_exact_json, Object thought_field, Object thought_prefix, Object text_contract, Object strict_mode, Object parse_state) {
+    axirCoverageMark("_parse_answer_outputs");
+    Object empty_results = new java.util.ArrayList<Object>();
+    Object completions = Core.get(response, "results", empty_results);
+    Object completion_count = Core.len(completions);
+    Object missing_completions = Core.eq(completion_count, 0);
+    if (Core.truthy(missing_completions)) {
+      completions = new java.util.ArrayList<Object>();
+      Core.append(completions, response);
+    }
+    Object earlier = new java.util.ArrayList<Object>();
+    for (Object completion : Core.iter(completions)) {
+      Object content = Core.get(completion, "content", "");
+      Object has_content = Core.truthyValue(content);
+      Object no_content = Core.not(has_content);
+      Object finish_snake = Core.get(completion, "finish_reason", null);
+      Object finish = Core.get(completion, "finishReason", finish_snake);
+      Object cut = Core.eq(finish, "length");
+      Object empty_cut = Core.and(no_content, cut);
+      if (Core.truthy(empty_cut)) {
+        Object earlier_count = Core.len(earlier);
+        Object has_earlier = Core.gt(earlier_count, 0);
+        if (Core.truthy(has_earlier)) {
+          Object earlier_response = new java.util.LinkedHashMap<String, Object>();
+          Core.set(earlier_response, "results", earlier);
+          Object earlier_bundle = Core._parse_sample_outputs(gen, output_fields, earlier_response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
+          Object earlier_failure = Core.get(earlier_bundle, "assertion_failure", null);
+          Object earlier_failed = Core.isNotNone(earlier_failure);
+          if (Core.truthy(earlier_failed)) {
+            return earlier_bundle;
+          }
+        }
+        Object cut_error = Core.runtimeError("Max tokens reached before completion\nContent: ");
+        Object cut_bundle = new java.util.LinkedHashMap<String, Object>();
+        Core.set(cut_bundle, "assertion_failure", cut_error);
+        return cut_bundle;
+      }
+      Core.append(earlier, completion);
+    }
+    Object parsed = Core._parse_sample_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
+    return parsed;
   }
 
   static Object _stream_run_processors_impl(Object gen, Object kind, Object state, Object content, Object done) {
@@ -46313,7 +46356,7 @@ final class Core {
         Core.set(distiller_request_event, "values", distiller_values);
         Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
         Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
-        Object distiller_output = Core._agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
+        Object distiller_output = Core._agent_actor_stage_forward(state, "distiller", distiller, client, distiller_values, distiller_options);
         Core.set(state, "restore_notice", "");
         Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
         Core.set(distiller_response_event, "stage", "distiller");
@@ -46470,7 +46513,7 @@ final class Core {
         Core.set(executor_request_event, "values", executor_values);
         Core.set(executor_request_event, "component_id", "agent.stage.executor");
         Core._agent_record_trace_event(state, "stage_request", executor_request_event);
-        Object executor_output = Core._agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
+        Object executor_output = Core._agent_actor_stage_forward(state, "executor", executor, client, executor_values, executor_options);
         Core.set(state, "restore_notice", "");
         shared_notice_set = Boolean.FALSE;
         Object executor_response_event = new java.util.LinkedHashMap<String, Object>();
@@ -49204,6 +49247,63 @@ final class Core {
     }
     Object turn = Core.add(steps, 1);
     return turn;
+  }
+
+  static Object _agent_is_cut_off_reply_error(Object error) {
+    axirCoverageMark("_agent_is_cut_off_reply_error");
+    Object message = Core.exceptionMessage(error);
+    Object max_tokens = Core.contains(message, "Max tokens reached before completion");
+    Object bad_arguments = Core.contains(message, "Invalid function arguments");
+    Object cut_off = Core.or(max_tokens, bad_arguments);
+    return cut_off;
+  }
+
+  static Object _agent_actor_stage_forward(Object state, Object stage_name, Object stage, Object client, Object values, Object options) {
+    axirCoverageMark("_agent_actor_stage_forward");
+    Object is_executor = Core.eq(stage_name, "executor");
+    Object output = Core.none();
+    Object attempt = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object attempt_values = values;
+      Object with_note = Core.gte(attempt, 2);
+      if (Core.truthy(with_note)) {
+        Object empty_map = new java.util.LinkedHashMap<String, Object>();
+        Object noted_values = Core.mapMerge(values, empty_map);
+        Object action_log = Core.get(values, "actionLog", "");
+        Object noted_log = Core.stringFormat("{}\n\n{}", action_log, "[NOTE: Your last reply could not be used: it was cut off at the output limit or was incomplete, so nothing ran. Think briefly and return a shorter, complete step now; continue the rest on later turns.]");
+        Core.set(noted_values, "actionLog", noted_log);
+        attempt_values = noted_values;
+      }
+      Object answered = Boolean.FALSE;
+      try {
+        if (Core.truthy(is_executor)) {
+          Object executor_reply = Core._agent_executor_stage_forward(state, stage, client, attempt_values, options);
+          output = executor_reply;
+        }
+        if (!Core.truthy(is_executor)) {
+          Object distiller_reply = Core._agent_controlled_stage_forward(stage, client, attempt_values, options);
+          output = distiller_reply;
+        }
+        answered = Boolean.TRUE;
+      } catch (RuntimeException reply_error) {
+        Object retries_spent = Core.gte(attempt, 3);
+        if (Core.truthy(retries_spent)) {
+          throw Core.asRuntime(reply_error);
+        }
+        Object cut_off = Core._agent_is_cut_off_reply_error(reply_error);
+        if (Core.truthy(cut_off)) {
+          // empty
+        }
+        if (!Core.truthy(cut_off)) {
+          throw Core.asRuntime(reply_error);
+        }
+      }
+      if (Core.truthy(answered)) {
+        break;
+      }
+      attempt = Core.add(attempt, 1);
+    }
+    return output;
   }
 
   static Object _flow_factory(Object options) {

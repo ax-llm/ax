@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/skill.tar.gz",
-      "digest": "sha256:ca8b0ac1691e41b9b228ee9b699c4e8735e6f4c2e159e976bf735a501dc30a4e"
+      "digest": "sha256:354a7707a2e58539cfee7a832e84e3d3063b9fa6a095a297a4a90ef450416765"
     },
     {
       "name": "ax-python-ai",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-python-agent/SKILL.md",
-      "digest": "sha256:853c12084b86639b44fb23cf8eecf57836284dc079e09421eeb1bf9e0d0bb37d"
+      "digest": "sha256:c714e84931a85003c2287904827bed382c92b3649a1098fff0e0e49e537e185e"
     },
     {
       "name": "ax-python-agent-rlm",

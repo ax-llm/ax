@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-go-llm/skill.tar.gz",
-      "digest": "sha256:ec671ae2de2dfa4ceeec611d0b4115be805ece18c593dc9a6d17f476338fbbd8"
+      "digest": "sha256:27cc77726c870e3c024f852afcbd6b4c7e6189e36d9ecb44038785ebe01f88eb"
     },
     {
       "name": "ax-go-ai",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-go-agent/SKILL.md",
-      "digest": "sha256:26e6db3811fb3e7d25d9da36cb92d13894763da6c174c565cb7c14333a7da2f7"
+      "digest": "sha256:5818231650d8893c45d8750da0683ce7fbc845c61f479b9ccc5fe0b5c2349dce"
     },
     {
       "name": "ax-go-agent-rlm",

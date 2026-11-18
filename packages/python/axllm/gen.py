@@ -6161,7 +6161,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             parsed_bundle = {}
             parse_state = {}
             try:
-                parsed = _parse_sample_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state)
+                parsed = _parse_answer_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state)
                 parsed_bundle = parsed
             except Exception as validation_error:
                 refusal_message = _core_exception_message(validation_error)
@@ -16410,6 +16410,52 @@ def _stream_feedback_text_impl(result: Any) -> Any:
         pass
     text = _stream_js_string_impl(result)
     return text
+
+
+def _parse_answer_outputs(gen: AxGen, output_fields: list[Any], response: Any, validate_exact_json: bool, thought_field: str, thought_prefix: str, text_contract: bool, strict_mode: bool, parse_state: Any) -> Any:
+    _core_coverage_mark("_parse_answer_outputs")
+    empty_results = []
+    completions = _core_get(response, "results", empty_results)
+    completion_count = _core_len(completions)
+    missing_completions = _core_eq(completion_count, 0)
+    if missing_completions:
+        completions = []
+        completions.append(response)
+    else:
+        pass
+    earlier = []
+    for completion in completions:
+        content = _core_get(completion, "content", "")
+        has_content = _core_truthy(content)
+        no_content = _core_not(has_content)
+        finish_snake = _core_get(completion, "finish_reason", None)
+        finish = _core_get(completion, "finishReason", finish_snake)
+        cut = _core_eq(finish, "length")
+        empty_cut = _core_and(no_content, cut)
+        if empty_cut:
+            earlier_count = _core_len(earlier)
+            has_earlier = _core_gt(earlier_count, 0)
+            if has_earlier:
+                earlier_response = {}
+                earlier_response["results"] = earlier
+                earlier_bundle = _parse_sample_outputs(gen, output_fields, earlier_response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state)
+                earlier_failure = _core_get(earlier_bundle, "assertion_failure", None)
+                earlier_failed = _core_is_not_none(earlier_failure)
+                if earlier_failed:
+                    return earlier_bundle
+                else:
+                    pass
+            else:
+                pass
+            cut_error = _core_runtime_error("Max tokens reached before completion\nContent: ")
+            cut_bundle = {}
+            cut_bundle["assertion_failure"] = cut_error
+            return cut_bundle
+        else:
+            pass
+        earlier.append(completion)
+    parsed = _parse_sample_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state)
+    return parsed
 
 
 def _stream_run_processors_impl(gen: AxGen, kind: str, state: Any, content: str, done: bool) -> list[Any]:

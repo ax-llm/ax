@@ -2635,6 +2635,15 @@ const cases: Record<string, Case> = {
       },
     ],
   },
+  // An answer with no content is not parsed, so one the token limit cut off
+  // fails as cut off, not as a missing field.
+  'errors-max-tokens-empty-content': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      { results: [{ index: 0, content: '', finish_reason: 'length' }] },
+    ],
+  },
   'errors-streaming-max-tokens': {
     signature: 'question:string -> answer:string',
     responses: [

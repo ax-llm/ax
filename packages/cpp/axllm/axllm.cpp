@@ -27755,7 +27755,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       Value parsed_bundle = Value::object();
       Value parse_state = Value::object();
       try {
-        Value parsed = Core::_parse_sample_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
+        Value parsed = Core::_parse_answer_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
         parsed_bundle = parsed;
       } catch (const std::exception& e) {
         Value validation_error = Core::exception_value(e);
@@ -37493,6 +37493,49 @@ Value Core::_stream_feedback_text_impl(Value result) {
   }
   Value text = Core::_stream_js_string_impl(result);
   return text;
+}
+
+Value Core::_parse_answer_outputs(Value gen, Value output_fields, Value response, Value validate_exact_json, Value thought_field, Value thought_prefix, Value text_contract, Value strict_mode, Value parse_state) {
+  axir_coverage_mark("_parse_answer_outputs");
+  Value empty_results = Value::array();
+  Value completions = Core::get(response, Value("results"), empty_results);
+  Value completion_count = Core::len(completions);
+  Value missing_completions = Core::eq(completion_count, Value(0));
+  if (Core::truthy(missing_completions)) {
+    completions = Value::array();
+    Core::append(completions, response);
+  }
+  Value earlier = Value::array();
+  for (auto completion : Core::iter(completions)) {
+    Value content = Core::get(completion, Value("content"), Value(""));
+    Value has_content = Core::truthy_value(content);
+    Value no_content = Core::not_(has_content);
+    Value finish_snake = Core::get(completion, Value("finish_reason"), Value());
+    Value finish = Core::get(completion, Value("finishReason"), finish_snake);
+    Value cut = Core::eq(finish, Value("length"));
+    Value empty_cut = Core::and_(no_content, cut);
+    if (Core::truthy(empty_cut)) {
+      Value earlier_count = Core::len(earlier);
+      Value has_earlier = Core::gt(earlier_count, Value(0));
+      if (Core::truthy(has_earlier)) {
+        Value earlier_response = Value::object();
+        Core::set(earlier_response, Value("results"), earlier);
+        Value earlier_bundle = Core::_parse_sample_outputs(gen, output_fields, earlier_response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
+        Value earlier_failure = Core::get(earlier_bundle, Value("assertion_failure"), Value());
+        Value earlier_failed = Core::is_not_none(earlier_failure);
+        if (Core::truthy(earlier_failed)) {
+          return earlier_bundle;
+        }
+      }
+      Value cut_error = Core::runtime_error(Value("Max tokens reached before completion\nContent: "));
+      Value cut_bundle = Value::object();
+      Core::set(cut_bundle, Value("assertion_failure"), cut_error);
+      return cut_bundle;
+    }
+    Core::append(earlier, completion);
+  }
+  Value parsed = Core::_parse_sample_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix, text_contract, strict_mode, parse_state);
+  return parsed;
 }
 
 Value Core::_stream_run_processors_impl(Value gen, Value kind, Value state, Value content, Value done) {
@@ -48081,7 +48124,7 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
       Core::set(distiller_request_event, Value("values"), distiller_values);
       Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
       Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
-      Value distiller_output = Core::_agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
+      Value distiller_output = Core::_agent_actor_stage_forward(state, Value("distiller"), distiller, client, distiller_values, distiller_options);
       Core::set(state, Value("restore_notice"), Value(""));
       Value distiller_response_event = Value::object();
       Core::set(distiller_response_event, Value("stage"), Value("distiller"));
@@ -48238,7 +48281,7 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
       Core::set(executor_request_event, Value("values"), executor_values);
       Core::set(executor_request_event, Value("component_id"), Value("agent.stage.executor"));
       Core::_agent_record_trace_event(state, Value("stage_request"), executor_request_event);
-      Value executor_output = Core::_agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
+      Value executor_output = Core::_agent_actor_stage_forward(state, Value("executor"), executor, client, executor_values, executor_options);
       Core::set(state, Value("restore_notice"), Value(""));
       shared_notice_set = Value(false);
       Value executor_response_event = Value::object();
@@ -50977,6 +51020,64 @@ Value Core::_agent_stage_step_turn(Value state) {
   }
   Value turn = Core::add(steps, Value(1));
   return turn;
+}
+
+Value Core::_agent_is_cut_off_reply_error(Value error) {
+  axir_coverage_mark("_agent_is_cut_off_reply_error");
+  Value message = Core::exception_message(error);
+  Value max_tokens = Core::contains(message, Value("Max tokens reached before completion"));
+  Value bad_arguments = Core::contains(message, Value("Invalid function arguments"));
+  Value cut_off = Core::or_(max_tokens, bad_arguments);
+  return cut_off;
+}
+
+Value Core::_agent_actor_stage_forward(Value state, Value stage_name, Value stage, Value client, Value values, Value options) {
+  axir_coverage_mark("_agent_actor_stage_forward");
+  Value is_executor = Core::eq(stage_name, Value("executor"));
+  Value output = Core::none();
+  Value attempt = Value(0);
+  while (true) {
+    Value attempt_values = values;
+    Value with_note = Core::gte(attempt, Value(2));
+    if (Core::truthy(with_note)) {
+      Value empty_map = Value::object();
+      Value noted_values = Core::map_merge(values, empty_map);
+      Value action_log = Core::get(values, Value("actionLog"), Value(""));
+      Value noted_log = Core::string_format(Value("{}\n\n{}"), action_log, Value("[NOTE: Your last reply could not be used: it was cut off at the output limit or was incomplete, so nothing ran. Think briefly and return a shorter, complete step now; continue the rest on later turns.]"));
+      Core::set(noted_values, Value("actionLog"), noted_log);
+      attempt_values = noted_values;
+    }
+    Value answered = Value(false);
+    try {
+      if (Core::truthy(is_executor)) {
+        Value executor_reply = Core::_agent_executor_stage_forward(state, stage, client, attempt_values, options);
+        output = executor_reply;
+      }
+      if (!Core::truthy(is_executor)) {
+        Value distiller_reply = Core::_agent_controlled_stage_forward(stage, client, attempt_values, options);
+        output = distiller_reply;
+      }
+      answered = Value(true);
+    } catch (const std::exception& e) {
+      Value reply_error = Core::exception_value(e);
+      Value retries_spent = Core::gte(attempt, Value(3));
+      if (Core::truthy(retries_spent)) {
+        Core::raise_error(reply_error);
+      }
+      Value cut_off = Core::_agent_is_cut_off_reply_error(reply_error);
+      if (Core::truthy(cut_off)) {
+        // empty
+      }
+      if (!Core::truthy(cut_off)) {
+        Core::raise_error(reply_error);
+      }
+    }
+    if (Core::truthy(answered)) {
+      break;
+    }
+    attempt = Core::add(attempt, Value(1));
+  }
+  return output;
 }
 
 Value Core::_flow_factory(Value options) {

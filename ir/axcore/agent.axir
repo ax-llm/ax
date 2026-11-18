@@ -10284,7 +10284,7 @@ module @ax.agent version "0.1" {
           core.set %distiller_request_event["values"] = %distiller_values
           core.set %distiller_request_event["component_id"] = "agent.stage.distiller"
           core.call @agent_record_trace_event(%state, "stage_request", %distiller_request_event)
-          %distiller_output = core.call @agent_controlled_stage_forward(%distiller, %client, %distiller_values, %distiller_options)
+          %distiller_output = core.call @agent_actor_stage_forward(%state, "distiller", %distiller, %client, %distiller_values, %distiller_options)
           // TS shows a restore notice on the stage's first turn only.
           core.set %state["restore_notice"] = ""
           %distiller_response_event = core.map
@@ -10444,7 +10444,7 @@ module @ax.agent version "0.1" {
           core.set %executor_request_event["values"] = %executor_values
           core.set %executor_request_event["component_id"] = "agent.stage.executor"
           core.call @agent_record_trace_event(%state, "stage_request", %executor_request_event)
-          %executor_output = core.call @agent_executor_stage_forward(%state, %executor, %client, %executor_values, %executor_options)
+          %executor_output = core.call @agent_actor_stage_forward(%state, "executor", %executor, %client, %executor_values, %executor_options)
           // TS shows the restore notice on the first turn only.
           core.set %state["restore_notice"] = ""
           %shared_notice_set = core.let false
@@ -13645,6 +13645,81 @@ module @ax.agent version "0.1" {
       }
       %turn = core.call intrinsic.add(%steps, 1)
       core.return %turn
+    }
+  }
+
+  op ax.agent.semantic @agent_is_cut_off_reply_error {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/cutOffReply.ts#isCutOffReplyError"
+    type signature = "(error) -> bool"
+    body @entry(%error: error) {
+      // True when a generation failed because the model reply was cut off at
+      // the output limit. TS reads the error's cause chain; a generation
+      // failure here repeats the failure it wraps in its own message
+      // ("Generate failed: ..."), so the message carries the same text.
+      %message = core.call intrinsic.exception.message(%error)
+      %max_tokens = core.call intrinsic.contains(%message, "Max tokens reached before completion")
+      %bad_arguments = core.call intrinsic.contains(%message, "Invalid function arguments")
+      %cut_off = core.call intrinsic.or(%max_tokens, %bad_arguments)
+      core.return %cut_off
+    }
+  }
+
+  op ax.agent.semantic @agent_actor_stage_forward {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/cutOffReply.ts#forwardWithCutOffRetry"
+    type signature = "(json, string, json, json, json, json) -> json throws"
+    body @entry(%state: json, %stage_name: string, %stage: json, %client: json, %values: json, %options: json) {
+      // One actor turn's model call (distiller or executor). A reply cut off
+      // at the output limit ran nothing, so the turn asks again, up to three
+      // more times (TS MAX_CUT_OFF_REPLY_RETRIES): first unchanged, then with
+      // a note after the action log (TS CUT_OFF_REPLY_NOTE). Any other
+      // failure, and a reply still cut off after every retry, is raised.
+      %is_executor = core.call intrinsic.eq(%stage_name, "executor")
+      %output = core.call intrinsic.none()
+      %attempt = core.let 0
+      core.loop {
+        %attempt_values = core.let %values
+        %with_note = core.call intrinsic.gte(%attempt, 2)
+        core.if %with_note {
+          %empty_map = core.map
+          %noted_values = core.call intrinsic.map.merge(%values, %empty_map)
+          %action_log = core.get %values["actionLog"] default ""
+          %noted_log = core.call intrinsic.string.format("{}\n\n{}", %action_log, "[NOTE: Your last reply could not be used: it was cut off at the output limit or was incomplete, so nothing ran. Think briefly and return a shorter, complete step now; continue the rest on later turns.]")
+          core.set %noted_values["actionLog"] = %noted_log
+          %attempt_values = core.let %noted_values
+        }
+        %answered = core.let false
+        core.try {
+          core.if %is_executor {
+            %executor_reply = core.call @agent_executor_stage_forward(%state, %stage, %client, %attempt_values, %options)
+            %output = core.let %executor_reply
+          } else {
+            %distiller_reply = core.call @agent_controlled_stage_forward(%stage, %client, %attempt_values, %options)
+            %output = core.let %distiller_reply
+          }
+          %answered = core.let true
+        } catch %reply_error {
+          %retries_spent = core.call intrinsic.gte(%attempt, 3)
+          core.if %retries_spent {
+            core.raise %reply_error
+          }
+          %cut_off = core.call @agent_is_cut_off_reply_error(%reply_error)
+          core.if %cut_off {
+          } else {
+            core.raise %reply_error
+          }
+        }
+        core.if %answered {
+          core.break
+        }
+        %attempt = core.call intrinsic.add(%attempt, 1)
+      }
+      core.return %output
     }
   }
 }

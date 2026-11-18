@@ -12597,7 +12597,7 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
             distiller_request_event["values"] = distiller_values
             distiller_request_event["component_id"] = "agent.stage.distiller"
             _agent_record_trace_event(state, "stage_request", distiller_request_event)
-            distiller_output = _agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options)
+            distiller_output = _agent_actor_stage_forward(state, "distiller", distiller, client, distiller_values, distiller_options)
             state["restore_notice"] = ""
             distiller_response_event = {}
             distiller_response_event["stage"] = "distiller"
@@ -12755,7 +12755,7 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
             executor_request_event["values"] = executor_values
             executor_request_event["component_id"] = "agent.stage.executor"
             _agent_record_trace_event(state, "stage_request", executor_request_event)
-            executor_output = _agent_executor_stage_forward(state, executor, client, executor_values, executor_options)
+            executor_output = _agent_actor_stage_forward(state, "executor", executor, client, executor_values, executor_options)
             state["restore_notice"] = ""
             shared_notice_set = False
             executor_response_event = {}
@@ -15548,5 +15548,59 @@ def _agent_stage_step_turn(state: Any) -> i64:
         index = next_index
     turn = _core_add(steps, 1)
     return turn
+
+
+def _agent_is_cut_off_reply_error(error: error) -> bool:
+    _core_coverage_mark("_agent_is_cut_off_reply_error")
+    message = _core_exception_message(error)
+    max_tokens = _core_contains(message, "Max tokens reached before completion")
+    bad_arguments = _core_contains(message, "Invalid function arguments")
+    cut_off = _core_or(max_tokens, bad_arguments)
+    return cut_off
+
+
+def _agent_actor_stage_forward(state: Any, stage_name: str, stage: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_actor_stage_forward")
+    is_executor = _core_eq(stage_name, "executor")
+    output = _core_none()
+    attempt = 0
+    while True:
+        attempt_values = values
+        with_note = _core_gte(attempt, 2)
+        if with_note:
+            empty_map = {}
+            noted_values = _core_map_merge(values, empty_map)
+            action_log = _core_get(values, "actionLog", "")
+            noted_log = _core_string_format("{}\n\n{}", action_log, "[NOTE: Your last reply could not be used: it was cut off at the output limit or was incomplete, so nothing ran. Think briefly and return a shorter, complete step now; continue the rest on later turns.]")
+            noted_values["actionLog"] = noted_log
+            attempt_values = noted_values
+        else:
+            pass
+        answered = False
+        try:
+            if is_executor:
+                executor_reply = _agent_executor_stage_forward(state, stage, client, attempt_values, options)
+                output = executor_reply
+            else:
+                distiller_reply = _agent_controlled_stage_forward(stage, client, attempt_values, options)
+                output = distiller_reply
+            answered = True
+        except Exception as reply_error:
+            retries_spent = _core_gte(attempt, 3)
+            if retries_spent:
+                raise reply_error
+            else:
+                pass
+            cut_off = _agent_is_cut_off_reply_error(reply_error)
+            if cut_off:
+                pass
+            else:
+                raise reply_error
+        if answered:
+            break
+        else:
+            pass
+        attempt = _core_add(attempt, 1)
+    return output
 
 # END AXIR CORE EMITTED FUNCTIONS
