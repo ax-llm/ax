@@ -345,4 +345,51 @@ module @ax.eval version "0.1" {
       core.return %word
     }
   }
+
+  op ax.gen.semantic @eval_f1 {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "src/ax/dsp/eval.ts"
+    type signature = "(string, string) -> number"
+    body @entry(%prediction: string, %ground_truth: string) {
+      %tables = core.call intrinsic.json.parse(file "data/eval-text.json")
+      %pred_text = core.call @eval_normalize_impl(%prediction, %tables)
+      %truth_text = core.call @eval_normalize_impl(%ground_truth, %tables)
+      %pred_tokens = core.call intrinsic.string.split(%pred_text, " ")
+      %truth_tokens = core.call intrinsic.string.split(%truth_text, " ")
+      %pred = core.map
+      %truth = core.map
+      core.for %token in %pred_tokens {
+        %count = core.get %pred[%token] default 0
+        %count = core.call intrinsic.add(%count, 1)
+        core.set %pred[%token] = %count
+      }
+      core.for %token in %truth_tokens {
+        %count = core.get %truth[%token] default 0
+        %count = core.call intrinsic.add(%count, 1)
+        core.set %truth[%token] = %count
+      }
+      %overlap = core.let 0
+      %keys = core.call intrinsic.map.keys(%pred)
+      core.for %token in %keys {
+        %p = core.get %pred[%token] default 0
+        %t = core.get %truth[%token] default 0
+        %common = core.let %p
+        %smaller = core.call intrinsic.lt(%t, %p)
+        core.if %smaller { %common = core.let %t }
+        %overlap = core.call intrinsic.add(%overlap, %common)
+      }
+      %zero = core.call intrinsic.eq(%overlap, 0)
+      core.if %zero { core.return 0 }
+      %pred_length = core.call intrinsic.len(%pred_tokens)
+      %truth_length = core.call intrinsic.len(%truth_tokens)
+      %precision = core.call intrinsic.div(%overlap, %pred_length)
+      %recall = core.call intrinsic.div(%overlap, %truth_length)
+      %numerator = core.call intrinsic.mul(%precision, %recall)
+      %numerator = core.call intrinsic.mul(%numerator, 2)
+      %denominator = core.call intrinsic.add(%precision, %recall)
+      %score = core.call intrinsic.div(%numerator, %denominator)
+      core.return %score
+    }
+  }
 }

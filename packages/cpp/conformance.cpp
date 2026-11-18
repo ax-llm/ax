@@ -4629,6 +4629,10 @@ static void run_kind(Value fixture) {
     for (const auto& item : Core::iter(Core::get(fixture, "cases"))) {
       assert_equal(novel_f1_score(display(Core::get(item,"history")), display(Core::get(item,"prediction")), display(Core::get(item,"ground_truth")), Core::truthy(Core::get(item,"return_recall",false))), Core::get(item,"expected"), "novel F1: " + display(Core::get(item,"name")));
     }
+  } else if (kind == "eval_f1") {
+    for (const auto& item : Core::iter(Core::get(fixture, "cases"))) {
+      assert_equal(f1_score(display(Core::get(item,"prediction")), display(Core::get(item,"ground_truth"))), Core::get(item,"expected"), "F1: " + display(Core::get(item,"name")));
+    }
   } else if (kind == "stream") {
     run_stream(fixture);
   } else if (kind == "forward") {

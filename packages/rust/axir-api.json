@@ -95,6 +95,19 @@
         },
         {
           "target_name": "rust",
+          "canonical_name": "f1_score",
+          "public_name": "f1_score",
+          "kind": "function",
+          "description": "Score multiset token overlap between a prediction and the ground truth after Unicode normalization. Every normalized token counts, including stopwords.",
+          "form": "f1_score",
+          "important_options": [
+            "prediction",
+            "ground truth"
+          ],
+          "returns": "score in [0, 1]"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "AxGen",
           "public_name": "AxGen",
           "kind": "type",

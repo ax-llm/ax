@@ -95,6 +95,19 @@
         },
         {
           "target_name": "go",
+          "canonical_name": "F1Score",
+          "public_name": "axllm.F1Score",
+          "kind": "function",
+          "description": "Score multiset token overlap between a prediction and the ground truth after Unicode normalization. Every normalized token counts, including stopwords.",
+          "form": "axllm.F1Score",
+          "important_options": [
+            "prediction",
+            "ground truth"
+          ],
+          "returns": "score in [0, 1]"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "AxGen",
           "public_name": "axllm.AxGen",
           "kind": "type",
