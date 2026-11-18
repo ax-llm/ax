@@ -1682,6 +1682,7 @@ module @ax.agent version "0.1" {
       core.set %vars["runtimeCodeFieldTitle"] = %code_field_title
       core.set %vars["runtimeCodeFenceLanguage"] = %code_fence_language
       core.set %vars["isJavaScriptRuntime"] = %is_javascript
+      core.set %vars["observationBoundaries"] = false
       core.set %vars["runtimeUsageInstructions"] = %usage_instructions
       core.set %vars["primitivesList"] = %primitives_list
       core.set %vars["functionsList"] = %functions_list
@@ -1780,6 +1781,7 @@ module @ax.agent version "0.1" {
       core.set %vars["hasSkillsCatalog"] = %has_skills_catalog
       core.set %vars["skillsCatalogList"] = %skills_catalog_list
       core.set %vars["isJavaScriptRuntime"] = %is_javascript
+      core.set %vars["observationBoundaries"] = false
       core.set %vars["memoriesMode"] = %memories_mode
       core.set %vars["memoryUsageMode"] = %memory_usage_mode
       core.set %vars["skillUsageMode"] = %skill_usage_mode

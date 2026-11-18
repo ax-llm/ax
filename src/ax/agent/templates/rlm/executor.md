@@ -69,10 +69,16 @@ If `used(...)` is available, call it once for each memory that actually influenc
 - **Never conclude information is unavailable while an undiscovered module plausibly provides it.** If the request needs data your evidence lacks (a status, a record, a lookup) and a listed module or hint covers that domain, `discover` it and attempt the call before finalizing.
 - **Never write a field name you haven't seen.** The Distilled Context Summary and Context Metadata list the real item keys — use those exact names. For function results, use the documented return schema or inspect the actual result before chaining on its fields; guessed field names silently produce zeros and empty results.
 - **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.
-- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.
-{{ if isJavaScriptRuntime }}
-- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final("...", { result })` instead of logging.
-{{ else }}
+{{ if observationBoundaries }}- Discovery and memory recall end the current execution. Read the newly loaded docs, skills, or memories on the next turn before writing dependent code. Code after `discover`/`recall` does not run.
+- Calling an undiscovered function loads its exact documentation and pauses without executing it. Read the new schema and issue the corrected call on the next turn. Discovering only a module lists its functions; discover the qualified function name for its full contract.
+- Tool results use `inspect` by default: write one awaited call, save its result, and end the block. Read the result on the next turn before writing dependent code. A blocked call and every later statement did not run, even if they appear in the submitted code. Continue from saved variables instead of resubmitting the whole program. Use `batch` when independent calls should run together.
+- Tools explicitly marked `Result policy: data` support deterministic chaining and batching. Local filtering, sorting, arithmetic, and independent data-tool batches may share one turn. Never use data batching to guess how to interpret new prose or caveats.
+- Use `batch` for independent searches, reads, or other tool calls whose arguments are already known. Collect their outcomes in one turn, then interpret them together. Use ordinary sequential calls when a later argument depends on an earlier result. A failed batch member does not discard successful outcomes; retry only the failed work when appropriate.
+{{ else }}- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.
+{{ /if }}{{ if isJavaScriptRuntime }}
+{{ if observationBoundaries }}- Inspection tool results are shown automatically. Save them to variables; use `console.log` only to inspect a narrower projection or local computation. If the task is complete, finish with `await final("...", { result })` instead of logging.
+{{ else }}- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final("...", { result })` instead of logging.
+{{ /if }}{{ else }}
 - Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.
 {{ /if }}
 - Before calling `askClarification`, check whether any available function can resolve the need first.
@@ -98,8 +104,9 @@ console.log(plan);
 
 The `{{ runtimeCodeFieldTitle }}` field value must be runnable {{ runtimeLanguageName }} only. Do not put prose or plain labels like `task:` / `evidence:` inside the value.
 {{ if isJavaScriptRuntime }}
-Never combine `console.log` with `final()` or `askClarification()` in the same turn.
-{{ /if }}
+{{ if observationBoundaries }}Logging does not itself end execution. Complete deterministic work may log and finish in one turn, but inspection results must be reviewed on the next turn before completion.
+{{ else }}Never combine `console.log` with `final()` or `askClarification()` in the same turn.
+{{ /if }}{{ /if }}
 
 {{ if isJavaScriptRuntime }}
 When done, call `await final(task, evidence)`:

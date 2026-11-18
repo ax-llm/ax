@@ -7,6 +7,7 @@ export function reservedAgentFunctionNamespaces(self: any): Set<string> {
   return new Set([
     'inputs',
     'llmQuery',
+    'batch',
     'final',
     'askClarification',
     'reportSuccess',

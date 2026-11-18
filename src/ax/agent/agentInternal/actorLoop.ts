@@ -521,12 +521,14 @@ export async function runActorLoop<IN extends AxGenIn>(
       syncDiscoveredActorModelNamespaces();
       // The shared-mode phase-1 stage's variables live on in the session;
       // only the stage owning canonical cross-run state exports bindings.
-      // Exception: a run ending in respond() skips the executor entirely, so
+      // Exceptions: respond() and askClarification() skip the executor, so
       // this stage's export IS the run's canonical state — include bindings
       // (the pipeline copies them onto the executor's cross-run slot).
-      const endedInRespond = completionState.payload?.type === 'respond';
+      const ownsFinalState =
+        completionState.payload?.type === 'respond' ||
+        completionState.payload?.type === 'askClarification';
       const nextState = await runtimeContext.exportRuntimeState(
-        sharedActive && !stagePolicy.exportsSharedBindings && !endedInRespond
+        sharedActive && !stagePolicy.exportsSharedBindings && !ownsFinalState
           ? { includeBindings: false }
           : undefined
       );

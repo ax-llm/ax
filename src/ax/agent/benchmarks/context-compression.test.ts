@@ -74,9 +74,12 @@ describe('context-compression baseline sweep', () => {
     expect(get('long-padded', 'lean').peakMutablePromptChars).toBeLessThan(
       lpFull.peakMutablePromptChars
     );
-    expect(get('long-padded', 'checkpointed').compactionRatio).toBeGreaterThan(
-      0
+    const lpCheckpointed = get('long-padded', 'checkpointed');
+    expect(lpCheckpointed.peakMutablePromptChars).toBeLessThan(
+      lpFull.peakMutablePromptChars
     );
+    expect(lpCheckpointed.checkpoints).toBeGreaterThan(0);
+    expect(get('long-padded', 'lean').compactionRatio).toBeGreaterThan(0);
 
     // short-clean: no pressure → no checkpoints under any preset.
     for (const preset of AX_CONTEXT_PRESETS) {

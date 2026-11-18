@@ -1,7 +1,10 @@
 import type { AxAIService } from '../../ai/types.js';
 import { f } from '../../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../../dsp/types.js';
-import type { createCompletionBindings } from '../completion.js';
+import {
+  AxAgentProtocolCompletionSignal,
+  type createCompletionBindings,
+} from '../completion.js';
 import {
   DEFAULT_RLM_BATCH_CONCURRENCY,
   DEFAULT_RLM_MAX_EVIDENCE_CHARS,
@@ -17,6 +20,7 @@ import { buildExecutionHelpers } from './runtimeExecutionHelpers.js';
 import { buildLlmQueryBindings } from './runtimeExecutionLlmQuery.js';
 import { buildRunNoteBindings } from './runtimeExecutionNotes.js';
 import { buildSessionLifecycle } from './runtimeExecutionSession.js';
+import { wrapFunction } from './runtimeGlobals.js';
 import {
   AX_SHARED_EVIDENCE_GLOBAL,
   type AxAgentSharedRuntimeSession,
@@ -25,6 +29,7 @@ import {
 } from './sharedSession.js';
 import type { AxAgentUsedSkill } from './skillsTypes.js';
 import { type AxAgentStagePolicy, resolveStagePolicy } from './stagePolicy.js';
+import { TurnObservations } from './turnObservations.js';
 import type {
   AxAgentFunctionCallRecorder,
   AxAgentGuidanceState,
@@ -87,6 +92,52 @@ export function createRuntimeExecutionContext(
   }>
 ): AxAgentRuntimeExecutionContext {
   const s = self as any;
+  const observations = new TurnObservations();
+  const guard =
+    <TArgs extends unknown[], TResult>(
+      callback: (...args: TArgs) => TResult,
+      currentHandler?: string
+    ) =>
+    (...args: TArgs): TResult => {
+      observations.assertCanAct(currentHandler);
+      return callback(...args);
+    };
+  const guardedCompletionBindings: typeof completionBindings = {
+    ...completionBindings,
+    finalFunction: guard(completionBindings.finalFunction),
+    respondFunction: guard(completionBindings.respondFunction),
+    askClarificationFunction: guard(
+      completionBindings.askClarificationFunction
+    ),
+    protocolForTrigger: (name) => {
+      const protocol = completionBindings.protocolForTrigger(name);
+      const generation = observations.captureGeneration();
+      // Host-authored controls are trusted outcomes of an authorized tool call.
+      // They remain available inside a batch, and concurrent handlers cannot
+      // overwrite the first accepted completion or guidance payload.
+      const trusted =
+        <TArgs extends unknown[]>(callback: (...args: TArgs) => never) =>
+        (...args: TArgs): never => {
+          if (generation !== observations.captureGeneration()) {
+            throw new Error(
+              'Host control belongs to a completed runtime execution'
+            );
+          }
+          if (completionState.payload) {
+            throw new AxAgentProtocolCompletionSignal(
+              completionState.payload.type
+            );
+          }
+          return callback(...args);
+        };
+      return {
+        ...protocol,
+        final: trusted(protocol.final),
+        askClarification: trusted(protocol.askClarification),
+        guideAgent: trusted(protocol.guideAgent),
+      };
+    },
+  };
   const rlm = s.rlmConfig;
   const runtime = s.runtime;
   // Pipeline-owned shared runtime session (set per-forward by pipelineForward).
@@ -110,11 +161,13 @@ export function createRuntimeExecutionContext(
   );
   const baseMaxRuntimeChars = effectiveContextConfig.maxRuntimeChars;
   const getMaxRuntimeChars = (): number =>
-    computeDynamicRuntimeChars(
-      actionLogEntries ?? [],
-      effectiveContextConfig.targetPromptChars,
-      baseMaxRuntimeChars
-    );
+    effectiveContextConfig.preset === 'full'
+      ? baseMaxRuntimeChars
+      : computeDynamicRuntimeChars(
+          actionLogEntries ?? [],
+          effectiveContextConfig.targetPromptChars,
+          baseMaxRuntimeChars
+        );
   const llmQueryBudgetState: AxLlmQueryBudgetState = s.llmQueryBudgetState ?? {
     global: { used: 0 },
     globalMax: maxSubAgentCalls,
@@ -131,6 +184,7 @@ export function createRuntimeExecutionContext(
   const maxEvidenceChars =
     rlm.maxEvidenceChars ?? DEFAULT_RLM_MAX_EVIDENCE_CHARS;
   const guardedFinalFunction = (...args: unknown[]): never => {
+    observations.assertCanAct();
     if (
       args.length === 2 &&
       args[1] !== null &&
@@ -162,7 +216,7 @@ export function createRuntimeExecutionContext(
         );
       }
     }
-    return completionBindings.respondFunction(...args);
+    return guardedCompletionBindings.respondFunction(...args);
   };
 
   // Direct-respond binding by stage: the distiller gets the real completion;
@@ -228,7 +282,7 @@ export function createRuntimeExecutionContext(
   const toolGlobals = s.buildRuntimeGlobals(
     effectiveAbortSignal,
     ai,
-    completionBindings.protocolForTrigger,
+    guardedCompletionBindings.protocolForTrigger,
     functionCallRecorder,
     notes.noteDiscoveredActorModelNamespaces,
     notes.noteDiscoveredModules,
@@ -238,7 +292,8 @@ export function createRuntimeExecutionContext(
     notes.noteUsed,
     onFunctionCall ?? s.onFunctionCall,
     notes.getCurrentMemories,
-    options
+    options,
+    observations
   );
   const nativeNames = new Set<string>();
   const nativeActivity: string[] = [];
@@ -260,7 +315,23 @@ export function createRuntimeExecutionContext(
             );
           return binding(...(args as [unknown]));
         };
-      return { fn, qualified, binding };
+      // Native tool results already return to the model through AxGen's tool
+      // loop. Only calls from generated code need the actor observation gate.
+      const nativeBinding = binding
+        ? wrapFunction(
+            fn,
+            effectiveAbortSignal,
+            ai,
+            guardedCompletionBindings.protocolForTrigger,
+            qualified,
+            functionCallRecorder,
+            (fn as any)._kind ?? 'external',
+            onFunctionCall ?? s.onFunctionCall,
+            s._activeEventContext,
+            { ...options, _mcpExecutionContext: s._activeMCPExecutionContext }
+          )
+        : undefined;
+      return { fn, qualified, binding: nativeBinding };
     });
   const getNativeFunctions = (
     callOptions: import('../../dsp/types.js').AxProgramForwardOptions<string>
@@ -409,10 +480,10 @@ export function createRuntimeExecutionContext(
     llmQueryBudgetState,
     completionState,
     guidanceState,
-    completionBindings,
+    completionBindings: guardedCompletionBindings,
     guardedFinalFunction,
     respondBinding,
-    llmQuery,
+    llmQuery: guard(llmQuery),
     toolGlobals,
     runtimeInputs,
     runtimeTopLevelInputAliases,
@@ -423,19 +494,22 @@ export function createRuntimeExecutionContext(
     runtimeActionLogEntries,
   });
 
-  const { executeActorCode, executeTestCode } = buildExecutionHelpers({
+  const { executeActorCode, executeTestCode, dispose } = buildExecutionHelpers({
     s,
     sessionRef: lifecycle.sessionRef,
     effectiveAbortSignal,
     protectedRuntimeNames,
+    inspectReservedNames: [...inspectReservedNames, AX_SHARED_EVIDENCE_GLOBAL],
     completionState,
     getMaxRuntimeChars,
     waitForCompletionSignal: lifecycle.waitForCompletionSignal,
     detectCompletionSignalCalls: s.isJavaScriptRuntime !== false,
     createSession: lifecycle.createSession,
+    observations,
   });
 
   return {
+    beginActorTurn: () => observations.reset(),
     getNativeFunctions,
     consumeNativeToolActivity: () => nativeActivity.splice(0),
     effectiveContextConfig,
@@ -450,6 +524,9 @@ export function createRuntimeExecutionContext(
     executeActorCode,
     executeTestCode,
     prepareSharedSession: lifecycle.prepareSharedSession,
-    close: lifecycle.close,
+    close: () => {
+      dispose();
+      lifecycle.close();
+    },
   };
 }

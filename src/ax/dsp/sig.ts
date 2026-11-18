@@ -2048,6 +2048,13 @@ class AxFunctionBuilder<
   private fnHandler?: AxTypedFunctionHandler<TArgs, TReturn>;
   private fnExamples: AxFunctionBuilderExample[] = [];
   private executionMode: 'blocking' | 'background' = 'blocking';
+  private resultPolicyMode?: 'inspect' | 'data';
+
+  /** Permit deterministic AxAgent tool chaining, or require model inspection. */
+  public resultPolicy(policy: 'inspect' | 'data'): this {
+    this.resultPolicyMode = policy;
+    return this;
+  }
 
   public execution(mode: 'blocking' | 'background'): this {
     this.executionMode = mode;
@@ -2283,6 +2290,9 @@ class AxFunctionBuilder<
         description,
         ...(namespace ? { namespace } : {}),
         execution: this.executionMode,
+        ...(this.resultPolicyMode
+          ? { resultPolicy: this.resultPolicyMode }
+          : {}),
         parameters: buildFunctionObjectSchema(this.argFields),
         ...(this.returnMode === 'single' && this.returnJsonSchema
           ? { returns: this.returnJsonSchema }

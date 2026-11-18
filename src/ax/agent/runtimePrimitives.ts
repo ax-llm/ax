@@ -16,6 +16,8 @@
 export type AxRuntimePrimitiveStage = 'distiller' | 'executor';
 
 export interface AxRuntimePrimitive {
+  /** Deferred in AxIR; do not advertise this primitive in generated backends. */
+  readonly typescriptOnly?: boolean;
   /** Stable id; used for testing / debugging. */
   readonly id: string;
   /** Which actor stages advertise this primitive. */
@@ -53,6 +55,18 @@ export type AxRuntimePrimitiveExample = {
  * order rendered into the prompt.
  */
 export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
+  {
+    id: 'batch',
+    typescriptOnly: true,
+    stages: ['executor'],
+    description:
+      'Run independent tool calls together when all arguments are already known. Returns ordered outcomes; review inspection results on the next turn. Do not batch calls whose arguments depend on another result. Missing tool docs are loaded together before any calls execute.',
+    signatures: [
+      {
+        code: "await batch([{ name: 'namespace.function', args: { ... } }, ...]): { name: string, status: 'fulfilled' | 'rejected', value?: any, error?: string }[]",
+      },
+    ],
+  },
   {
     id: 'llmQuery',
     stages: ['distiller', 'executor'],
@@ -259,6 +273,7 @@ export function renderPrimitivesList(
   const blocks: string[] = [];
   for (const p of axRuntimePrimitives) {
     if (!p.stages.includes(stage)) continue;
+    if (p.typescriptOnly && flags.observationBoundaries === false) continue;
     if (!primitiveEnabled(p, flags)) continue;
     blocks.push(renderRuntimePrimitive(p, flags, overrides?.get(p.id)));
   }

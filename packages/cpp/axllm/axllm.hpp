@@ -1382,8 +1382,8 @@ struct Core {
   static Value _agent_compute_effective_chat_budget(Value base_budget, Value fixed_overhead_chars);
   static Value _agent_action_log_char_count(Value entries);
   static Value _agent_compute_dynamic_runtime_chars(Value entries, Value target_prompt_chars, Value max_runtime_chars);
-  static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
   static Value _build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace);
+  static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
   static Value _agent_render_context_pressure(Value pressure);
   static Value _agent_depth_limited_value(Value value, Value depth, Value ancestors);
   static Value _agent_smart_stringify(Value value, Value max_chars);
