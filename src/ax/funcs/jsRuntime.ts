@@ -33,8 +33,8 @@ import {
 } from './jsRuntimeWorkers.js';
 import { getWorkerSource } from './worker.js';
 
-export { AxJSRuntimePermission };
 export type { AxJSRuntimeNodePermissionAllowlist, AxJSRuntimeResourceLimits };
+export { AxJSRuntimePermission };
 
 export type AxJSRuntimeOutputMode = 'return' | 'stdout';
 
@@ -307,7 +307,11 @@ export class AxJSRuntime implements AxCodeRuntime {
     let activeQueuedOperation: Promise<void> | null = null;
 
     /** Dispatches worker messages for execution and host-function bridging. */
-    const handleWorkerMessage = (e: RLMMessageEvent) => {
+    const handleWorkerMessage = (
+      e: RLMMessageEvent,
+      sourceWorker: RLMWorker
+    ) => {
+      if (sourceWorker !== worker) return;
       const msg = e.data;
 
       if (
@@ -322,6 +326,7 @@ export class AxJSRuntime implements AxCodeRuntime {
       const typedMsg = msg as {
         type: string;
         id?: number;
+        executionId?: number;
         name?: string;
         args?: unknown[];
         value?: unknown;
@@ -363,27 +368,48 @@ export class AxJSRuntime implements AxCodeRuntime {
           return;
         }
 
+        if (
+          typeof typedMsg.executionId !== 'number' ||
+          !pendingRequests.has(typedMsg.executionId)
+        ) {
+          sourceWorker.postMessage({
+            type: 'fn-result',
+            id: typedMsg.id,
+            error: 'Host call belongs to an inactive runtime execution',
+          });
+          return;
+        }
+
         const fn = fnMap.get(typedMsg.name);
         if (!fn) {
-          worker?.postMessage({
+          sourceWorker.postMessage({
             type: 'fn-result',
             id: typedMsg.id,
             error: `Function "${typedMsg.name}" not found`,
           });
           return;
         }
+        const executionId = typedMsg.executionId;
         Promise.resolve()
-          .then(() => fn(...(typedMsg.args ?? [])))
+          .then(() => {
+            if (sourceWorker !== worker || !pendingRequests.has(executionId)) {
+              throw new Error(
+                'Host call belongs to an inactive runtime execution'
+              );
+            }
+            return fn(...(typedMsg.args ?? []));
+          })
           .then((value) => {
+            if (sourceWorker !== worker) return;
             try {
-              worker?.postMessage({
+              sourceWorker.postMessage({
                 type: 'fn-result',
                 id: typedMsg.id,
                 value,
               });
             } catch {
               // Non-cloneable value (e.g. contains a Promise); fall back to string.
-              worker?.postMessage({
+              sourceWorker.postMessage({
                 type: 'fn-result',
                 id: typedMsg.id,
                 value: String(value),
@@ -391,10 +417,11 @@ export class AxJSRuntime implements AxCodeRuntime {
             }
           })
           .catch((err: Error) => {
+            if (sourceWorker !== worker) return;
             if (shouldBubbleError?.(err)) {
               bubbleError = err;
             }
-            worker?.postMessage({
+            sourceWorker.postMessage({
               type: 'fn-result',
               id: typedMsg.id,
               error: serializeError(err) as SerializedError,
@@ -471,7 +498,8 @@ export class AxJSRuntime implements AxCodeRuntime {
         this.allowDenoRemoteImport
       );
       workerRuntime = 'browser';
-      worker.onmessage = handleWorkerMessage;
+      const created = worker;
+      worker.onmessage = (event) => handleWorkerMessage(event, created);
       worker.onerror = handleWorkerError;
       try {
         postInitMessage(worker);
@@ -496,7 +524,8 @@ export class AxJSRuntime implements AxCodeRuntime {
           this.allowDenoRemoteImport
         );
         workerRuntime = 'browser';
-        worker.onmessage = handleWorkerMessage;
+        const created = worker;
+        worker.onmessage = (event) => handleWorkerMessage(event, created);
         worker.onerror = handleWorkerError;
         try {
           postInitMessage(worker);
@@ -528,7 +557,7 @@ export class AxJSRuntime implements AxCodeRuntime {
 
           worker = created;
           workerRuntime = 'node';
-          worker.onmessage = handleWorkerMessage;
+          worker.onmessage = (event) => handleWorkerMessage(event, created);
           worker.onerror = handleWorkerError;
           try {
             postInitMessage(worker);

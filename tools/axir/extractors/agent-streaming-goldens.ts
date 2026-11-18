@@ -7,6 +7,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AxAgentClarificationError } from '../../../src/ax/agent/agentInternal/agentStateTypes.js';
+import { renderActorDefinition } from '../../../src/ax/agent/agentInternal/promptAssembly.js';
 import {
   AX_HOST_SNIPPET_MARKER,
   AX_INPUTS_PATCH_GLOBAL,
@@ -369,6 +370,13 @@ async function record(name: string, spec: Case): Promise<void> {
       ? new AxJSRuntime()
       : scriptedRuntime(spec.runtime_script),
   } as never);
+
+  // These goldens exercise the capabilities shared with the generated ports.
+  // Capture the whole, capability-matched prompt while running the actual actor.
+  for (const actor of [ag.distiller, ag.executor]) {
+    const hook = actor as unknown as { _buildActorInstruction(): string };
+    hook._buildActorInstruction = () => renderActorDefinition(actor, false);
+  }
 
   const forwardOptions: Record<string, unknown> = clone(
     spec.forward_options ?? {}

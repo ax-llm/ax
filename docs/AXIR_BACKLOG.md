@@ -29,6 +29,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
   - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
   - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
+- `axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations` [axagent] Preserve fresh RLM tool feedback and compact older observations
+  - Status: open
+  - Source commit: `5706a70d2270b68bced7d3946dede3753bcba099`
+  - TS paths: `src/ax/agent`, `src/ax/funcs/jsRuntime.ts`, `src/ax/funcs/worker.runtime.ts`, `src/ax/ai/types.ts`, `src/ax/dsp/sig.ts`
+  - Impact: TypeScript agents pause after discovery and inspection results before dependent actions. Port data-tool chaining, ordered independent batches, bounded previews, suspended program replay, and checkpoint reuse to the generated agent runtimes.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

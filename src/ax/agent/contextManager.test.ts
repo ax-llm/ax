@@ -1681,3 +1681,49 @@ describe('buildInspectRuntimeBaselineCode', () => {
     expect(code.trim().startsWith('(() =>')).toBe(true);
   });
 });
+
+it('compacts older paused observations and replays the newest result intact', () => {
+  const oldest = makeEntry({
+    turn: 1,
+    code: 'var chosen = await inventory.read(); await inventory.unexecuted();',
+    output: `earliest evidence ${'old '.repeat(600)} hidden-middle ${'old '.repeat(600)}
+Initialized binding: chosen`,
+    tags: ['paused'],
+    _functionCalls: [{ qualifiedName: 'inventory.read' }],
+  });
+  const recent = makeEntry({
+    turn: 2,
+    output: `fresh start ${'fresh '.repeat(600)} required-middle ${'fresh '.repeat(600)} fresh end`,
+    tags: ['paused'],
+  });
+  const error = makeEntry({
+    turn: 3,
+    output: `[ERROR] ${'failure '.repeat(400)} exact repair instruction`,
+    tags: ['paused', 'error'],
+  });
+  const policy = {
+    actionReplay: 'checkpointed',
+    compactOlderObservations: true,
+    recentFullActions: 3,
+  } as const;
+
+  const next = buildActionLogReplayPlan([oldest, recent], policy);
+  expect(next.historyText).toContain(recent.output);
+  expect(next.historyText).toContain('inventory.read');
+  expect(next.historyText).toContain('Initialized binding: chosen');
+  expect(next.historyText).not.toContain('hidden-middle');
+  expect(next.historyText).not.toContain('inventory.unexecuted');
+  expect(next.compactions).toEqual([
+    expect.objectContaining({ turn: 1, reason: 'older_observation' }),
+  ]);
+  expect(oldest.output).toContain('hidden-middle');
+  expect(
+    buildActionLogWithPolicy(
+      [oldest, recent, error, makeEntry({ turn: 4 })],
+      policy
+    )
+  ).toContain(error.output);
+  expect(
+    buildActionLogWithPolicy([oldest, recent], { actionReplay: 'full' })
+  ).toContain(oldest.output);
+});

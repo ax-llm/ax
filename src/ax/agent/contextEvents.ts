@@ -39,6 +39,7 @@ export type AxAgentContextEvent =
       mode: 'distill' | 'compact';
       reason:
         | 'structured_output'
+        | 'older_observation'
         | 'superseded'
         | 'pressure'
         | 'proactive'

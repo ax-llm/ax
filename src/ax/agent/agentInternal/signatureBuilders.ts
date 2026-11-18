@@ -232,6 +232,7 @@ export function buildSplitPrograms(self: any): void {
     description: fn.description,
     parameters: fn.parameters!,
     returns: fn.returns,
+    resultPolicy: fn.resultPolicy,
     namespace: fn.namespace ?? 'utils',
     alwaysInclude: fn._alwaysInclude === true,
   }));

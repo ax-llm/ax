@@ -46,7 +46,7 @@ import {
   axBuildExecutorDefinition,
   axBuildResponderDefinition,
 } from './rlm.js';
-import { truncateText, validateActorTurnCodePolicy } from './runtime.js';
+import { validateActorTurnCodePolicy } from './runtime.js';
 
 // ----- Helpers -----
 
@@ -1554,6 +1554,7 @@ describe('AxAgent.test()', () => {
           name: 'uppercase',
           namespace: 'tools',
           description: 'Uppercase a string',
+          resultPolicy: 'data',
           parameters: {
             type: 'object',
             properties: {
@@ -1713,6 +1714,17 @@ describe('AxAgent.test()', () => {
       },
     });
 
+    // test() runs a single fresh turn. Preload the exact callable docs to test
+    // dispatch; otherwise the first call correctly pauses for discovery.
+    testAgent.setState({
+      version: 1,
+      discoveryPromptState: {
+        modules: [],
+        functions: [
+          { qualifiedName: 'tools.uppercase', text: 'Uppercase a string' },
+        ],
+      },
+    } as AxAgentState);
     await testAgent.test('console.log(await tools.uppercase({ value: "hi" }))');
 
     expect(calls).toEqual([
@@ -2970,7 +2982,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(result.answer).toBe('done');
-    expect(secondActorPrompt).toContain(truncateText(longOutput, 20));
+    expect(secondActorPrompt).toContain(`${longOutput.slice(0, 17)}...`);
     expect(secondActorPrompt).not.toContain(longOutput);
   });
 
@@ -4315,7 +4327,7 @@ describe('Actor/Responder execution loop', () => {
     );
   });
 
-  it('should append discovery summaries without clobbering other successful turn output', async () => {
+  it('should record discovery summaries and stop before subsequent output', async () => {
     const actorActionLogs: string[] = [];
     let actorTurn = 0;
 
@@ -4395,12 +4407,12 @@ describe('Actor/Responder execution loop', () => {
       type: 'final',
       args: ['generate output', { data: 'done' }],
     });
-    expect(actorState.actionLog).toContain('plain evidence');
+    expect(actorState.actionLog).not.toContain('plain evidence');
     expect(actorState.actionLog).toContain(
       'Discovery docs now available for modules: db, kb'
     );
     expect(actorState.actionLog).not.toContain('### Module `db`');
-    expect(actorActionLogs[1]).toContain('plain evidence');
+    expect(actorActionLogs[1]).not.toContain('plain evidence');
     expect(actorActionLogs[1]).toContain(
       'Discovery docs now available for modules: db, kb'
     );
@@ -7572,7 +7584,7 @@ describe('final()/askClarification() as runtime globals', () => {
   });
 });
 
-describe('incremental console-turn policy', () => {
+describe('actor code policy', () => {
   const runtimeWithConsoleMode: AxCodeRuntime = {
     getUsageInstructions: () =>
       '- Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.',
@@ -7636,28 +7648,25 @@ describe('incremental console-turn policy', () => {
     );
   });
 
-  it('should auto-split discovery calls mixed with non-discovery code and still enforce console.log', () => {
+  it('should allow discovery to pause before non-discovery code without console.log', () => {
     const result = validateActorTurnCodePolicy(
       "await discover(['tasks']); const unrelated = 1"
     );
-    // Discovery is extracted for auto-split pre-execution
-    expect(result?.autoSplitDiscoveryCode).toContain('discover');
-    // But the remaining code has no console.log and no final, so it's still a violation
-    expect(result?.violation).toContain('console.log');
+    expect(result).toBeUndefined();
   });
 
-  it('should explain how to handle bare function calls without console.log', () => {
+  it('should allow bare function calls without requiring duplicate console output', () => {
     const result = validateActorTurnCodePolicy(
       'await utils.runCommand({ command: "ls /" })'
     );
 
-    expect(result?.violation).toContain('capture its return value first');
-    expect(result?.violation).toContain('const result = await tool.call(args)');
-    expect(result?.violation).toContain('console.log(result)');
-    expect(result?.violation).toContain('await final("...", { result })');
+    expect(result).toBeUndefined();
+    expect(
+      validateActorTurnCodePolicy('const result = await utils.read({})')
+    ).toBeUndefined();
   });
 
-  it('should auto-split discovery calls mixed with substantive code and final', () => {
+  it('should leave mixed discovery in runtime order instead of hoisting it', () => {
     const mixedCode = `
       await discover(['tasks', 'email', 'tasks.create', 'email.draft']);
       const poem = await llmQuery([{ query: 'Write a poem', context: {} }]);
@@ -7665,21 +7674,14 @@ describe('incremental console-turn policy', () => {
       final(poem);
     `;
     const result = validateActorTurnCodePolicy(mixedCode);
-    // Since this contains final(), the discovery portion before final is
-    // checked. Auto-split extracts the discovery statements.
-    expect(result?.autoSplitDiscoveryCode).toContain('discover');
-    expect(result?.violation).toBeUndefined();
+    expect(result).toBeUndefined();
   });
 
-  it('should preserve original string arguments in auto-split discovery code', () => {
+  it('should not extract and replay discovery code', () => {
     const result = validateActorTurnCodePolicy(
       "await discover(['tasks', 'contact']); console.log('done')"
     );
-    // Auto-split should return the original code with string args intact
-    expect(result?.autoSplitDiscoveryCode).toBe(
-      "await discover(['tasks', 'contact'])"
-    );
-    expect(result?.violation).toBeUndefined();
+    expect(result).toBeUndefined();
   });
 
   it('should allow multiple console.log calls in a non-final turn', () => {
@@ -7760,7 +7762,7 @@ const snippets = await kb.findSnippets({ topic: 'severity' });
 console.log('Snippets:', snippets);
 console.log('Keys:', Object.keys(globalThis));`;
     const result = validateActorTurnCodePolicy(code);
-    // Discovery auto-split may be present, but no violation
+    // Runtime discovery stops the block before either log executes.
     expect(result?.violation).toBeUndefined();
   });
 
@@ -7914,7 +7916,7 @@ console.log('Keys:', Object.keys(globalThis));`;
     ).toBeUndefined();
   });
 
-  it('should reject non-final turns without console.log and retry next turn', async () => {
+  it('should execute non-final turns without requiring console.log', async () => {
     let actorCallCount = 0;
     let secondTurnUserPrompt = '';
     const executedCode: string[] = [];
@@ -7955,115 +7957,13 @@ console.log('Keys:', Object.keys(globalThis));`;
         }
 
         return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const runtime: AxCodeRuntime = {
-      ...runtimeWithConsoleMode,
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
-            executedCode.push(code);
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)(
-                'generate output',
-                { data: 'done' }
-              );
-            }
-            return 'ok';
-          },
-          // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
-          patchGlobals: async (patch: Record<string, unknown>) => {
-            const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
-            Object.assign(globals ?? {}, rest);
-            if (globals && staged && typeof staged === 'object') {
-              globals.inputs = Object.assign(
-                (globals.inputs as Record<string, unknown>) ?? {},
-                staged
-              );
-            }
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 3,
-      contextPolicy: { preset: 'full' },
-    });
-
-    const result = await testAgent.forward(testMockAI, { query: 'test' });
-
-    expect(result.answer).toBe('done');
-    expect(actorCallCount).toBe(2);
-    expect(getActorAuthoredCodes(executedCode)).toHaveLength(1);
-    expect(getActorAuthoredCodes(executedCode)[0]).toContain(
-      'final("done", {})'
-    );
-    expect(secondTurnUserPrompt).toContain(
-      '[POLICY] Non-final turns must include at least one console.log(...)'
-    );
-    expect(secondTurnUserPrompt).toContain(
-      'Your previous Javascript Code value did not satisfy the executable-code turn contract.'
-    );
-  });
-
-  it('should recover with trusted guidance after plain task/evidence actor output', async () => {
-    let actorCallCount = 0;
-    let secondTurnUserPrompt = '';
-    const executedCode: string[] = [];
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('You (`executor`)')) {
-          actorCallCount++;
-          if (actorCallCount === 2) {
-            secondTurnUserPrompt = userPrompt;
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content:
-                  actorCallCount === 1
-                    ? [
-                        'Javascript Code: task: Analyze the mounted PDF',
-                        'evidence: {"filePath":"/Users/vr/Downloads/lifelong.pdf"}',
-                      ].join('\n')
-                    : [
-                        'Javascript Code: await final("Analyze the mounted PDF",',
-                        '{ filePath: "/Users/vr/Downloads/lifelong.pdf" })',
-                      ].join(' '),
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: final("test", {})',
+              finishReason: 'stop',
+            },
+          ],
           modelUsage: makeModelUsage(),
         };
       },
@@ -8113,13 +8013,125 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(result.answer).toBe('done');
     expect(actorCallCount).toBe(2);
     expect(getActorAuthoredCodes(executedCode)).toEqual([
+      'final("test", {})',
+      'var x = 42; x',
+      'final("done", {})',
+    ]);
+    expect(secondTurnUserPrompt).toContain('var x = 42; x');
+    expect(secondTurnUserPrompt).not.toContain('[POLICY]');
+  });
+
+  it('should recover with trusted guidance after plain task/evidence actor output', async () => {
+    let actorCallCount = 0;
+    let secondTurnUserPrompt = '';
+    const executedCode: string[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('You (`executor`)')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondTurnUserPrompt = userPrompt;
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? [
+                        'Javascript Code: task: Analyze the mounted PDF',
+                        'evidence: {"filePath":"/Users/vr/Downloads/lifelong.pdf"}',
+                      ].join('\n')
+                    : [
+                        'Javascript Code: await final("Analyze the mounted PDF",',
+                        '{ filePath: "/Users/vr/Downloads/lifelong.pdf" })',
+                      ].join(' '),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: final("test", {})',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      ...runtimeWithConsoleMode,
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+            executedCode.push(code);
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
+            }
+            return 'ok';
+          },
+          // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
+          patchGlobals: async (patch: Record<string, unknown>) => {
+            const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+            Object.assign(globals ?? {}, rest);
+            if (globals && staged && typeof staged === 'object') {
+              globals.inputs = Object.assign(
+                (globals.inputs as Record<string, unknown>) ?? {},
+                staged
+              );
+            }
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 3,
+      contextPolicy: { preset: 'full' },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorCallCount).toBe(2);
+    expect(getActorAuthoredCodes(executedCode)).toEqual([
+      'final("test", {})',
       [
         'await final("Analyze the mounted PDF",',
         '{ filePath: "/Users/vr/Downloads/lifelong.pdf" })',
       ].join(' '),
     ]);
     expect(secondTurnUserPrompt).toContain(
-      '[POLICY] Non-final turns must include at least one console.log(...)'
+      '[POLICY] Javascript Code must contain runnable JavaScript, not plain task:/evidence: fields.'
     );
     expect(secondTurnUserPrompt).toContain(
       'Do not emit plain task:/evidence: labels or prose as the Javascript Code value.'
@@ -8627,7 +8639,13 @@ console.log('Keys:', Object.keys(globalThis));`;
         }
 
         return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: final("test", {})',
+              finishReason: 'stop',
+            },
+          ],
           modelUsage: makeModelUsage(),
         };
       },
@@ -8677,8 +8695,8 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(result.answer).toBe('done');
     // Code executes in turn 1 — no policy violation
     expect(actorCallCount).toBe(1);
-    expect(getActorAuthoredCodes(executedCode)).toHaveLength(1);
-    expect(getActorAuthoredCodes(executedCode)[0]).toContain(
+    expect(getActorAuthoredCodes(executedCode)).toHaveLength(2);
+    expect(getActorAuthoredCodes(executedCode)[1]).toContain(
       'final("done", {})'
     );
   });
@@ -8719,7 +8737,13 @@ console.log('Keys:', Object.keys(globalThis));`;
         }
 
         return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: final("test", {})',
+              finishReason: 'stop',
+            },
+          ],
           modelUsage: makeModelUsage(),
         };
       },
@@ -8769,7 +8793,7 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(result.answer).toBe('done');
     // Both turns execute — no policy violation for code after console.log
     expect(actorCallCount).toBe(2);
-    expect(getActorAuthoredCodes(executedCode)).toHaveLength(2);
+    expect(getActorAuthoredCodes(executedCode)).toHaveLength(3);
   });
 });
 
@@ -8962,9 +8986,9 @@ describe('axBuildExecutorDefinition', () => {
     });
     expect(result).toContain('### How to Work');
     expect(result).toContain(
-      'Discovery calls (`discover`) can appear alongside other code'
+      'Discovery and memory recall end the current execution'
     );
-    expect(result).toContain('return values aren');
+    expect(result).toContain('Inspection tool results are shown automatically');
     expect(result).toContain('finish with `await final("...", { result })`');
   });
 
@@ -10542,7 +10566,7 @@ describe('actor turn callbacks', () => {
       guidanceLogEntryCount: 0,
       code: 'console.log("long-output")',
       result: longOutput,
-      output: truncateText(longOutput, 3_000),
+      output: `${longOutput.slice(0, 2_997)}...`,
       isError: false,
       thought: 'Inspect runtime state first.',
     });
@@ -10580,6 +10604,7 @@ describe('actor turn callbacks', () => {
       name: 'uppercase',
       namespace: 'tools',
       description: 'Uppercase text',
+      resultPolicy: 'data',
       parameters: {
         type: 'object',
         properties: {
@@ -12654,8 +12679,11 @@ describe('judgeOptions / optimize', () => {
             results: [
               {
                 index: 0,
-                content:
-                  'Javascript Code: const result = await email.sendEmail({ to: "jim@example.com" }); final("email sent", {})',
+                content: String(req.chatPrompt[1]?.content ?? '').includes(
+                  '[OBSERVATION]'
+                )
+                  ? 'Javascript Code: final("email sent", { result })'
+                  : 'Javascript Code: const result = await email.sendEmail({ to: "jim@example.com" }); final("email sent", {})',
                 finishReason: 'stop',
               },
             ],
@@ -15057,10 +15085,7 @@ describe('AxFunction', () => {
     expect(discoveredFunctions['utils.lookup']).toContain(
       'Lookup utility function'
     );
-    expect(discoveredFunctions['utils.unknownFn']).toContain(
-      '### `utils.unknownFn`'
-    );
-    expect(discoveredFunctions['utils.unknownFn']).toContain('- Not found.');
+    expect(discoveredFunctions['utils.unknownFn']).toBeUndefined();
   });
 
   it('should let discover load tool docs and skill guides in one call', async () => {
@@ -15346,10 +15371,7 @@ describe('AxFunction', () => {
     );
 
     await expect(globals.discover('workflow')).resolves.toBeUndefined();
-    expect(discoveredModules.workflow).toContain('### Module `workflow`');
-    expect(discoveredModules.workflow).toContain(
-      '- Error: module `workflow` does not exist.'
-    );
+    expect(discoveredModules.workflow).toBeUndefined();
 
     const discoveredFunctions: Record<string, string> = {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15369,7 +15391,7 @@ describe('AxFunction', () => {
     await expect(
       globalsWithFunctionDiscovery.discover('workflow.finish')
     ).resolves.toBeUndefined();
-    expect(discoveredFunctions['workflow.finish']).toContain('- Not found.');
+    expect(discoveredFunctions['workflow.finish']).toBeUndefined();
   });
 
   it('should allow discovery metadata and function descriptions to be omitted', async () => {
@@ -16031,7 +16053,7 @@ describe('AxFunction', () => {
     );
   });
 
-  it('should preserve guidanceLog when discovery runs in the same turn', async () => {
+  it('should preserve guidanceLog after a separate discovery turn', async () => {
     const actorActionLogs: string[] = [];
     const actorGuidanceLogs: string[] = [];
     let actorTurn = 0;
@@ -16073,11 +16095,14 @@ describe('AxFunction', () => {
               const discover = globals?.discover as
                 | ((value: unknown) => Promise<string>)
                 | undefined;
-              await discover?.(['kb', 'db']);
+              await discover?.(['kb', 'db', 'utils.reviewPlan']);
+            }
+            if (code === 'GUIDE') {
               const utils = globals?.utils as Record<
                 string,
                 (args: Record<string, unknown>) => Promise<unknown>
               >;
+
               await utils.reviewPlan({
                 guidance:
                   'Do not send email yet. Gather one more detail first.',
@@ -16132,7 +16157,9 @@ describe('AxFunction', () => {
         javascriptCode:
           actorTurn === 1
             ? 'DISCOVER_AND_GUIDE'
-            : 'final("done after guide", {})',
+            : actorTurn === 2
+              ? 'GUIDE'
+              : 'final("done after guide", {})',
       };
     };
     anyAgent.responderProgram.forward = async () => {
@@ -16166,7 +16193,7 @@ describe('AxFunction', () => {
     expect(actorActionLogs[1]).not.toContain(
       'Do not send email yet. Gather one more detail first.'
     );
-    expect(actorGuidanceLogs[1]).toContain(
+    expect(actorGuidanceLogs[2]).toContain(
       'Do not send email yet. Gather one more detail first.'
     );
     expect(actorActionLogs[1]).toContain(
@@ -16574,7 +16601,7 @@ describe('AxFunction', () => {
     expect(getLoggedSystemPrompt(chatLogs[2]!)).toBeUndefined();
   });
 
-  it('should keep the actor system prompt hidden when discovery and guidance update actor inputs together', async () => {
+  it('should keep the actor system prompt hidden across discovery and guidance observation turns', async () => {
     let actorTurn = 0;
 
     const guideFunctionGroup = {
@@ -16614,11 +16641,20 @@ describe('AxFunction', () => {
               const discover = globals?.discover as
                 | ((value: unknown) => Promise<void>)
                 | undefined;
+              await discover?.([
+                'kb',
+                'db',
+                'kb.lookup',
+                'db.search',
+                'utils.reviewPlan',
+              ]);
+            }
+            if (code === 'GUIDE') {
               const utils = globals?.utils as Record<
                 string,
                 (args: Record<string, unknown>) => Promise<unknown>
               >;
-              await discover?.(['kb', 'db', 'kb.lookup', 'db.search']);
+
               await utils.reviewPlan({
                 guidance:
                   'Do not send email yet. Gather one more detail first.',
@@ -16667,8 +16703,9 @@ describe('AxFunction', () => {
         actorTurn++;
         const codeByTurn: Record<number, string> = {
           1: 'DISCOVER_AND_GUIDE',
-          2: 'AFTER_COMBINED_UPDATE',
-          3: 'FINAL',
+          2: 'GUIDE',
+          3: 'AFTER_COMBINED_UPDATE',
+          4: 'FINAL',
         };
         return {
           results: [
@@ -16704,11 +16741,11 @@ describe('AxFunction', () => {
       String(req.chatPrompt[0]?.content ?? '').includes('Executor')
     );
     const secondActorUserPrompt = getPromptText(
-      executorCalls[1]![0].chatPrompt.filter(
+      executorCalls[2]![0].chatPrompt.filter(
         (msg) => msg.role === 'user'
       ) as any
     );
-    expect(chatLogs).toHaveLength(3);
+    expect(chatLogs).toHaveLength(4);
     expect(getLoggedSystemPrompt(chatLogs[0]!)).toContain('Executor');
     expect(getLoggedSystemPrompt(chatLogs[1]!)).toBeUndefined();
     expect(getLoggedSystemPrompt(chatLogs[2]!)).toBeUndefined();

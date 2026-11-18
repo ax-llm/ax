@@ -1650,10 +1650,185 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
   // Pending function-call promises keyed by call ID.
   const _fnPending = new Map<number, FnPending>();
+  const _pendingContinuations = new Set<Promise<unknown>>();
+  const _setTimeout =
+    typeof setTimeout === 'function' ? setTimeout.bind(globalThis) : undefined;
+  const _clearTimeout =
+    typeof clearTimeout === 'function'
+      ? clearTimeout.bind(globalThis)
+      : undefined;
+  const _setInterval =
+    typeof setInterval === 'function'
+      ? setInterval.bind(globalThis)
+      : undefined;
+  const _clearInterval =
+    typeof clearInterval === 'function'
+      ? clearInterval.bind(globalThis)
+      : undefined;
+  const _executionTimers = new Set<ReturnType<typeof setTimeout>>();
+  let _activeExecutionId: number | undefined;
+  let _executionFailed = false;
   let _fnCallId = 0;
   let _outputMode = _OUTPUT_MODE_RETURN;
   let _captureConsole = false;
   const _detachedFnErrors: unknown[] = [];
+  const _unhandledCodeErrors = new Map<Promise<unknown>, unknown>();
+  const _recordUnhandledCodeError = (
+    reason: unknown,
+    promise: Promise<unknown>
+  ) => {
+    if (_activeExecutionId !== undefined)
+      _unhandledCodeErrors.set(promise, reason);
+  };
+  // An ignored async IIFE or local promise chain must report a code error to
+  // its turn, not crash the persistent worker during the next operation.
+  // Capture these hooks before user-scope lockdown removes process/IPC access.
+  if (typeof process !== 'undefined' && typeof process.on === 'function') {
+    process.on('unhandledRejection', _recordUnhandledCodeError);
+    process.on('rejectionHandled', (promise) => {
+      _unhandledCodeErrors.delete(promise);
+    });
+  } else if (typeof globalThis.addEventListener === 'function') {
+    globalThis.addEventListener('unhandledrejection', (event) => {
+      _recordUnhandledCodeError(event.reason, event.promise);
+      event.preventDefault();
+    });
+    globalThis.addEventListener('rejectionhandled', (event) => {
+      _unhandledCodeErrors.delete(event.promise);
+    });
+  }
+
+  // A turn owns its asynchronous work. A host-result chain must settle before
+  // execute() returns, otherwise its continuation could act during a later turn.
+  const _trackPromise = (basePromise: Promise<unknown>): Promise<unknown> => {
+    let observed = false;
+    _pendingContinuations.add(basePromise);
+    const originalThen = basePromise.then.bind(basePromise);
+    const originalCatch = basePromise.catch.bind(basePromise);
+    const originalFinally = basePromise.finally.bind(basePromise);
+    const bindCallback = <T extends (...args: any[]) => unknown>(
+      callback: T
+    ): T => {
+      const executionId = _activeExecutionId;
+      return ((...args: Parameters<T>) => {
+        if (executionId === undefined || executionId !== _activeExecutionId) {
+          throw new Error(
+            'Asynchronous callback belongs to a completed runtime execution'
+          );
+        }
+        return callback(...args);
+      }) as T;
+    };
+    void originalThen(
+      () => _pendingContinuations.delete(basePromise),
+      (error) => {
+        _pendingContinuations.delete(basePromise);
+        if (!observed) _detachedFnErrors.push(error);
+      }
+    );
+    return new Proxy(basePromise, {
+      get(target, prop, receiver) {
+        if (prop === 'then') {
+          return (...args: Parameters<Promise<unknown>['then']>) => {
+            observed = true;
+            return _trackPromise(
+              originalThen(
+                ...(args.map((callback) =>
+                  typeof callback === 'function'
+                    ? bindCallback(callback)
+                    : callback
+                ) as Parameters<Promise<unknown>['then']>)
+              )
+            );
+          };
+        }
+        if (prop === 'catch') {
+          return (...args: Parameters<Promise<unknown>['catch']>) => {
+            observed = true;
+            return _trackPromise(
+              originalCatch(
+                ...(args.map((callback) =>
+                  typeof callback === 'function'
+                    ? bindCallback(callback)
+                    : callback
+                ) as Parameters<Promise<unknown>['catch']>)
+              )
+            );
+          };
+        }
+        if (prop === 'finally') {
+          return (...args: Parameters<Promise<unknown>['finally']>) => {
+            observed = true;
+            return _trackPromise(
+              originalFinally(
+                ...(args.map((callback) =>
+                  typeof callback === 'function'
+                    ? bindCallback(callback)
+                    : callback
+                ) as Parameters<Promise<unknown>['finally']>)
+              )
+            );
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  };
+
+  const _cancelExecutionTimers = () => {
+    for (const timer of _executionTimers) {
+      _clearTimeout?.(timer);
+      _clearInterval?.(timer);
+    }
+    _executionTimers.clear();
+  };
+
+  const _installExecutionTimers = () => {
+    const schedule =
+      (repeat: boolean) =>
+      (
+        callback: (...args: unknown[]) => unknown,
+        delay = 0,
+        ...args: unknown[]
+      ) => {
+        if (_activeExecutionId === undefined) {
+          throw new Error('Timers require an active runtime execution');
+        }
+        if (typeof callback !== 'function') {
+          throw new TypeError('Timer callback must be a function');
+        }
+        const executionId = _activeExecutionId;
+        const nativeSchedule = repeat ? _setInterval : _setTimeout;
+        if (!nativeSchedule)
+          throw new Error('Timers are unavailable in this runtime');
+        const timer = nativeSchedule(() => {
+          if (!repeat) _executionTimers.delete(timer);
+          if (_activeExecutionId !== executionId) return;
+          try {
+            const result = callback(...args);
+            if (
+              result &&
+              typeof (result as PromiseLike<unknown>).then === 'function'
+            ) {
+              _trackPromise(Promise.resolve(result));
+            }
+          } catch (error) {
+            _detachedFnErrors.push(error);
+          }
+        }, delay);
+        _executionTimers.add(timer);
+        return timer;
+      };
+    const cancel = (timer: ReturnType<typeof setTimeout>) => {
+      _executionTimers.delete(timer);
+      _clearTimeout?.(timer);
+      _clearInterval?.(timer);
+    };
+    if (_setTimeout) _scope.setTimeout = schedule(false);
+    if (_setInterval) _scope.setInterval = schedule(true);
+    if (_clearTimeout) _scope.clearTimeout = cancel;
+    if (_clearInterval) _scope.clearInterval = cancel;
+  };
 
   const _isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1862,67 +2037,51 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       }
 
       const id = ++_fnCallId;
-      let observed = false;
+      if (_activeExecutionId === undefined || _executionFailed) {
+        const rejected = Promise.reject(
+          new Error('Host calls require an active runtime execution')
+        );
+        // A detached callback can run after execute() has already returned.
+        // Keep its rejection observable to callers without letting an ignored
+        // promise terminate the persistent worker and discard unrelated state.
+        void rejected.catch(() => {});
+        return rejected;
+      }
+      const executionId = _activeExecutionId;
       const basePromise = new Promise((resolve, reject) => {
         _fnPending.set(id, { resolve, reject });
         try {
-          _send({ type: 'fn-call', id, name, args: normalizedArgs });
+          _send({
+            type: 'fn-call',
+            id,
+            executionId,
+            name,
+            args: normalizedArgs,
+          });
         } catch (err) {
           // Args contain a non-cloneable value (e.g. a Promise). Reject immediately.
           _fnPending.delete(id);
           reject(err);
         }
       });
-
-      const originalThen = basePromise.then.bind(basePromise);
-      const originalCatch = basePromise.catch.bind(basePromise);
-      const originalFinally = basePromise.finally.bind(basePromise);
-      const markObserved = () => {
-        observed = true;
-      };
-
-      const trackedPromise = new Proxy(basePromise, {
-        get(target, prop, receiver) {
-          if (prop === 'then') {
-            return (...thenArgs: Parameters<Promise<unknown>['then']>) => {
-              markObserved();
-              return originalThen(...thenArgs);
-            };
-          }
-
-          if (prop === 'catch') {
-            return (...catchArgs: Parameters<Promise<unknown>['catch']>) => {
-              markObserved();
-              return originalCatch(...catchArgs);
-            };
-          }
-
-          if (prop === 'finally') {
-            return (
-              ...finallyArgs: Parameters<Promise<unknown>['finally']>
-            ) => {
-              markObserved();
-              return originalFinally(...finallyArgs);
-            };
-          }
-
-          return Reflect.get(target, prop, receiver);
-        },
-      }) as Promise<unknown>;
-
-      void basePromise.catch((error) => {
-        if (!observed) {
-          _detachedFnErrors.push(error);
-        }
-      });
-
-      return trackedPromise;
+      return _trackPromise(basePromise);
     };
 
-  const _waitForPendingFnCalls = async (): Promise<void> => {
-    for (let i = 0; i < 50 && _fnPending.size > 0; i += 1) {
+  const _waitForPendingFnCalls = async (
+    failOnDetachedError = true
+  ): Promise<void> => {
+    while (
+      _fnPending.size > 0 ||
+      _pendingContinuations.size > 0 ||
+      _executionTimers.size > 0
+    ) {
+      if (failOnDetachedError && _detachedFnErrors.length > 0)
+        throw _detachedFnErrors[0];
+      // The host's execution deadline bounds this drain, including a forgotten
+      // await on a slow call. Never hand live work over to the next execution.
       await new Promise<void>((resolve) => {
-        setTimeout(resolve, 0);
+        if (_setTimeout) _setTimeout(resolve, 0);
+        else void Promise.resolve().then(resolve);
       });
     }
   };
@@ -1999,7 +2158,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
+  let _asyncPersistenceLineOffset = 0;
   const _executeAsyncSnippet = async (code: string) => {
+    _asyncPersistenceLineOffset = 0;
     const fallbackSource = _ensureTrailingNewline(code);
 
     // Extract declarations from the ORIGINAL code (before auto-return transform).
@@ -2018,27 +2179,22 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       transformedSource = fallbackSource;
     }
 
-    // Inject persistence suffix.
-    let withPersistence = transformedSource;
-    if (suffix) {
-      // If auto-return injected a `return (`, insert persistence before it.
-      const returnIdx = transformedSource.lastIndexOf('\nreturn (');
-      if (returnIdx !== -1) {
-        withPersistence =
-          transformedSource.slice(0, returnIdx) +
-          suffix +
-          transformedSource.slice(returnIdx);
-      } else {
-        // No auto-return — append at end.
-        withPersistence = transformedSource + suffix;
-      }
-    }
-
-    const sourceToRun = _canCompileAsyncSource(withPersistence)
+    // A turn may pause through a host signal before reaching its epilogue.
+    // Capture initialized lexical bindings on every exit. The closure lives in
+    // the same block as the user's declarations; TDZ bindings are skipped by
+    // the suffix's individual try/catch statements.
+    let persistName = '__axPersistTurn';
+    while (code.includes(persistName)) persistName += '_';
+    const withPersistence = suffix
+      ? `let ${persistName}; try { ${persistName} = () => {${suffix.trim()}};\n${transformedSource}\n} finally { ${persistName}(); }`
+      : transformedSource;
+    const canPersist = _canCompileAsyncSource(withPersistence);
+    const sourceToRun = canPersist
       ? withPersistence
       : _canCompileAsyncSource(transformedSource)
         ? transformedSource
         : fallbackSource;
+    _asyncPersistenceLineOffset = suffix && canPersist ? 1 : 0;
 
     if (_vm && _blockDynamicImport) {
       const wrapped = `(async () => {\n${sourceToRun}\n})()`;
@@ -2464,6 +2620,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
           ) as readonly string[])
         : [];
 
+      _installExecutionTimers();
       _setGlobalsAndFnProxies(msg);
       _applyPermissionLockdown(msg.permissions);
       _applyNodeHostLockdown(allowUnsafeNodeHostAccess);
@@ -2659,16 +2816,25 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
     try {
       _detachedFnErrors.length = 0;
+      _unhandledCodeErrors.clear();
+      _activeExecutionId = id;
+      _executionFailed = false;
       const result = isAsync
         ? await _executeAsyncSnippet(code)
         : _executeSyncSnippet(code);
-      if (_fnPending.size > 0) {
-        await _waitForPendingFnCalls();
-      }
+      await _waitForPendingFnCalls();
       await Promise.resolve();
+      // Let the runtime publish unhandled rejections before reporting success.
+      // Host work is already drained: this settlement tick cannot start a new
+      // detached host action (for example through an untracked setImmediate).
+      _executionFailed = true;
+      if (_setTimeout)
+        await new Promise<void>((resolve) => _setTimeout(resolve, 0));
       if (_detachedFnErrors.length > 0) {
         throw _detachedFnErrors[0];
       }
+      if (_unhandledCodeErrors.size > 0)
+        throw _unhandledCodeErrors.values().next().value;
       const value = _toOutputValue(result, output);
 
       try {
@@ -2678,8 +2844,12 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         _send({ type: 'result', id, value: String(value) });
       }
     } catch (err) {
+      _executionFailed = true;
+      await _waitForPendingFnCalls(false);
       if (_isCodeExecutionError(err)) {
-        const lineOffset = isAsync ? asyncLineOffset : 0;
+        const lineOffset = isAsync
+          ? asyncLineOffset + _asyncPersistenceLineOffset
+          : 0;
         // The formatted error is the result value (the caller reads it like
         // output); `codeError` lets the host still classify it as a failure.
         _send({
@@ -2692,6 +2862,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         _send({ type: 'result', id, error: _serializeError(err) });
       }
     } finally {
+      _activeExecutionId = undefined;
+      _cancelExecutionTimers();
+      _pendingContinuations.clear();
       cleanup();
     }
   });

@@ -32,6 +32,10 @@ import type {
   AxResolvedContextPolicy,
 } from './types.js';
 
+// Keep uncovered actions visible in replay while a group of older turns
+// accumulates for the next summary.
+const CHECKPOINT_REFRESH_MIN_NEW_TURNS = 4;
+
 export interface ActorLoopSetupDeps {
   s: any;
   ai: AxAIService;
@@ -118,6 +122,8 @@ export function buildActorLoopSetup(
 
   const getPromptFacingEntries = () =>
     getPromptFacingActionLogEntries(actionLogEntries);
+  const compactOlderObservations =
+    runtimeContext.effectiveContextConfig.actionReplay === 'checkpointed';
   const defaultHygieneMode =
     runtimeContext.effectiveContextConfig.contextHygiene?.defaultMode ?? 'none';
   const pressureHygieneMode =
@@ -229,6 +235,7 @@ export function buildActorLoopSetup(
       recentFullActions:
         runtimeContext.effectiveContextConfig.recentFullActions,
       hygieneMode,
+      compactOlderObservations,
       hygieneGraceTurns:
         runtimeContext.effectiveContextConfig.rankPruneGraceTurns,
       restoreNotice: getRestoreNotice(),
@@ -257,6 +264,7 @@ export function buildActorLoopSetup(
       recentFullActions:
         runtimeContext.effectiveContextConfig.recentFullActions,
       hygieneMode,
+      compactOlderObservations,
       hygieneGraceTurns:
         runtimeContext.effectiveContextConfig.rankPruneGraceTurns,
       restoreNotice: getRestoreNotice(),
@@ -340,51 +348,59 @@ export function buildActorLoopSetup(
 
     const triggerChars =
       runtimeContext.effectiveContextConfig.checkpoints.triggerChars;
-    const thresholdActionLogText = renderActionLogWithReplayMode(
-      checkpointThresholdReplayMode,
-      undefined,
-      undefined,
-      defaultHygieneMode
-    );
-    const thresholdMetrics = await measureActorPromptChars(
-      thresholdActionLogText,
-      renderGuidanceLog(guidanceState.entries),
-      getRuntimeStateSummary()
-    );
-    const thresholdFixedOverhead =
-      thresholdMetrics.systemPromptCharacters +
-      thresholdMetrics.exampleChatContextCharacters;
     if (!triggerChars) {
       return applyNext(undefined, 'under_budget');
     }
+    const current = getCheckpointState();
+    const checkpoint = compactOlderObservations ? current : undefined;
+    const thresholdReplay = compactOlderObservations
+      ? runtimeContext.effectiveContextConfig.actionReplay
+      : checkpointThresholdReplayMode;
+    const guidance = renderGuidanceLog(guidanceState.entries);
+    const stateSummary = getRuntimeStateSummary();
+    const exceedsCheckpointBudget = async (
+      replay: AxResolvedContextPolicy['actionReplay'],
+      hygiene: ActionLogHygieneMode
+    ) => {
+      const parts = compactOlderObservations
+        ? renderActionLogPartsWithReplayMode(
+            replay,
+            checkpoint?.summary,
+            checkpoint?.turns,
+            hygiene
+          )
+        : undefined;
+      const history = parts
+        ? parts.history || '(no actions yet)'
+        : renderActionLogWithReplayMode(replay, undefined, undefined, hygiene);
+      const metrics = await measureActorPromptChars(
+        history,
+        guidance,
+        stateSummary,
+        parts?.summary || undefined
+      );
+      const fixedOverhead =
+        metrics.systemPromptCharacters + metrics.exampleChatContextCharacters;
+      return (
+        metrics.mutableChatContextCharacters >
+        computeEffectiveChatBudget(triggerChars, fixedOverhead)
+      );
+    };
+    const overBudget = await exceedsCheckpointBudget(
+      thresholdReplay,
+      defaultHygieneMode
+    );
+    const canReducePressure =
+      pressureHygieneMode && pressureHygieneMode !== defaultHygieneMode;
     if (
-      thresholdMetrics.mutableChatContextCharacters <=
-      computeEffectiveChatBudget(triggerChars, thresholdFixedOverhead)
+      !overBudget ||
+      (canReducePressure &&
+        !(await exceedsCheckpointBudget(
+          runtimeContext.effectiveContextConfig.actionReplay,
+          pressureHygieneMode
+        )))
     ) {
-      return applyNext(undefined, 'under_budget');
-    }
-    if (pressureHygieneMode && pressureHygieneMode !== defaultHygieneMode) {
-      const pressureActionLogText = renderActionLogWithReplayMode(
-        runtimeContext.effectiveContextConfig.actionReplay,
-        undefined,
-        undefined,
-        pressureHygieneMode
-      );
-      const pressureMetrics = await measureActorPromptChars(
-        pressureActionLogText,
-        renderGuidanceLog(guidanceState.entries),
-        getRuntimeStateSummary()
-      );
-      const pressureFixedOverhead =
-        pressureMetrics.systemPromptCharacters +
-        pressureMetrics.exampleChatContextCharacters;
-      const pressureBudget = computeEffectiveChatBudget(
-        triggerChars,
-        pressureFixedOverhead
-      );
-      if (pressureMetrics.mutableChatContextCharacters <= pressureBudget) {
-        return applyNext(undefined, 'under_budget');
-      }
+      return checkpoint ? false : applyNext(undefined, 'under_budget');
     }
 
     const checkpointReplayPlan = buildActionLogReplayPlan(actionLogEntries, {
@@ -392,12 +408,25 @@ export function buildActorLoopSetup(
       recentFullActions:
         runtimeContext.effectiveContextConfig.recentFullActions,
       hygieneMode: defaultHygieneMode,
+      compactOlderObservations,
       hygieneGraceTurns:
         runtimeContext.effectiveContextConfig.rankPruneGraceTurns,
     });
     const checkpointEntries = checkpointReplayPlan.checkpointEntries;
     if (checkpointEntries.length === 0) {
       return applyNext(undefined, 'under_budget');
+    }
+    if (checkpoint) {
+      const coveredTurns = new Set(checkpoint.turns);
+      const newTurns = checkpointEntries.filter(
+        ({ turn }) => !coveredTurns.has(turn)
+      ).length;
+      if (
+        checkpointEntries.length - newTurns === coveredTurns.size &&
+        newTurns < CHECKPOINT_REFRESH_MIN_NEW_TURNS
+      ) {
+        return false;
+      }
     }
     const supersessionNotes = buildCheckpointSupersessionNotes(
       checkpointEntries,
@@ -417,7 +446,6 @@ export function buildActorLoopSetup(
       supersessionNotes,
     });
 
-    const current = getCheckpointState();
     if (current?.fingerprint === fingerprint) {
       return false;
     }

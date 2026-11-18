@@ -147,6 +147,7 @@ export type AxAgentGuidanceState = {
 };
 
 export type AxAgentRuntimeExecutionContext = {
+  beginActorTurn?: () => void;
   consumeNativeToolActivity?: () => readonly string[];
   getNativeFunctions?: (
     options: import('../../dsp/types.js').AxProgramForwardOptions<string>

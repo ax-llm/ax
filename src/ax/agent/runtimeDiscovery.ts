@@ -67,6 +67,7 @@ export function stripSchemaProperties(
 }
 
 export type DiscoveryCallableMeta = {
+  resultPolicy?: 'inspect' | 'data';
   module: string;
   name: string;
   description?: string;
@@ -491,6 +492,36 @@ function renderDiscoveryArgumentDocsMarkdown(
   ].join('\n');
 }
 
+/** Preserve descriptive contracts as well as the compact type signature. */
+export function renderCallableSchemaDocs(
+  parameters?: AxFunctionJSONSchema,
+  returns?: AxFunctionJSONSchema
+): string {
+  const resultDocs = returns
+    ? collectDiscoveryArgumentDocs(
+        {
+          type: 'object',
+          properties: {
+            result: { ...returns, description: returns.description ?? '' },
+          },
+        },
+        '',
+        false
+      )
+    : [];
+  return [
+    renderDiscoveryArgumentDocsMarkdown(parameters),
+    resultDocs.length > 0
+      ? [
+          '#### Return details',
+          ...resultDocs.map((doc) => `- \`${doc.name}\`: ${doc.description}`),
+        ].join('\n')
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 function renderDiscoveryExamplesMarkdown(
   examples: readonly AxAgentFunctionExample[] | undefined
 ): string | undefined {
@@ -558,12 +589,15 @@ export function renderDiscoveryFunctionDefinitionsMarkdown(
       return [
         `### \`${qualifiedName}\``,
         meta.description,
+        meta.resultPolicy === 'data'
+          ? 'Result policy: data (deterministic chaining allowed).'
+          : 'Result policy: inspect (review on the next model turn before another action or final).',
         renderCallableEntryForDiscovery({
           qualifiedName,
           parameters: meta.parameters,
           returns: meta.returns,
         }),
-        renderDiscoveryArgumentDocsMarkdown(meta.parameters),
+        renderCallableSchemaDocs(meta.parameters, meta.returns),
         renderDiscoveryExamplesMarkdown(meta.examples),
       ]
         .filter((part): part is string => !!part)
