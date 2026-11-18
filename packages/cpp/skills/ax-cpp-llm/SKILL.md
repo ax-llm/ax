@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-llm"
 description: "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "25.4.12"
+version: "25.4.13"
 ---
 # Ax For C++
 

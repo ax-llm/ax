@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-refine"
 description: "Use when writing Rust code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns."
-version: "25.4.12"
+version: "25.4.13"
 ---
 # Ax Refinement Patterns For Rust
 
