@@ -54,6 +54,7 @@ public final class Tool {
   public final List<Field> returns;
   public final Handler handler;
   public final String execution;
+  String resultPolicy;
   private Map<String,Object> parameters;
   private String namespace;
 
@@ -61,6 +62,7 @@ public final class Tool {
     Tool copy = new Tool(name,description,args,returns,handler,execution,contextHandler);
     copy.parameters = Core.asMap(Json.parse(Json.stringify(schema)));
     copy.namespace = namespace;
+    copy.resultPolicy = resultPolicy;
     return copy;
   }
 
@@ -72,6 +74,7 @@ public final class Tool {
     Tool copy = new Tool(name,description,args,returns,handler,execution,contextHandler);
     copy.parameters = parameters;
     copy.namespace = value;
+    copy.resultPolicy = resultPolicy;
     return copy;
   }
 
@@ -125,6 +128,7 @@ public final class Tool {
     private Handler handler;
     private ContextHandler contextHandler;
     private String execution = "blocking";
+    private String resultPolicy;
     private Map<String,Object> parameters;
     private String namespace;
     public Builder parameters(Map<String,Object> schema) { parameters = schema; return this; }
@@ -135,6 +139,11 @@ public final class Tool {
     public Builder execution(String mode) {
       if (!"blocking".equals(mode) && !"background".equals(mode)) throw new IllegalArgumentException("Tool execution must be blocking or background");
       execution = mode; return this;
+    }
+    public Builder resultPolicy(String policy) {
+      if (!"inspect".equals(policy) && !"data".equals(policy)) throw new IllegalArgumentException("Tool resultPolicy must be inspect or data");
+      resultPolicy = policy;
+      return this;
     }
     public Builder description(String text) { description = text; return this; }
     public Builder arg(String name, Field.Fluent field) { args.add(field.toField(name)); return this; }
@@ -148,6 +157,7 @@ public final class Tool {
       if (description == null || description.isBlank()) throw new IllegalArgumentException("Function '" + name + "' must define a description");
       if (handler == null && contextHandler==null) throw new IllegalArgumentException("Function '" + name + "' must define a handler");
       Tool tool = new Tool(name, description, args, returns, handler, execution,contextHandler);
+      tool.resultPolicy = resultPolicy;
       tool = parameters == null ? tool : tool.parameters(parameters);
       return namespace == null ? tool : tool.namespace(namespace);
     }

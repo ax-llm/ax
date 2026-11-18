@@ -87,6 +87,8 @@ impl AxCodeRuntime for QuickJsCodeRuntime {
         "JavaScript"
     }
 
+    fn supports_observation_boundaries(&self) -> bool { true }
+
     fn usage_instructions(&self) -> &str {
         USAGE_INSTRUCTIONS
     }
@@ -203,9 +205,11 @@ impl QuickJsCodeSession {
         let persist_suffix = self
             .eval_json_string(format!("axPersistSuffix({code_literal})"))
             .unwrap_or_default();
-        let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n{persist_suffix}\n}}"))?;
+        let has_observation_boundaries = options.get("observationBoundaries").and_then(Value::as_bool).unwrap_or(false);
+        let suffix_literal = serde_json::to_string(&persist_suffix)?;
+        let guard_expr = if has_observation_boundaries { "globalThis.__ax_observation_guard" } else { "null" };
         let run_source = format!(
-            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables(); __ax_install_final_evidence(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
+            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables(); __ax_reset_observation_turn({guard_expr}); __ax_install_final_evidence(); (async function(){{}}).constructor('with (globalThis) {{\\n' + __ax_persist_actor_body({code_literal}, {suffix_literal}, Boolean(__ax_observation_callback)) + '\\n}}')().then(function(){{}}, function(e){{ if (e === __ax_discovery_pause) return; globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
         );
         let run_result = self
             .context
@@ -531,7 +535,7 @@ fn is_host_callable_marker(value: &Value) -> bool {
 }
 
 fn is_reserved_name(name: &str) -> bool {
-    name.starts_with("__ax_") || is_builtin_reserved_name(name)
+    (name.starts_with("__ax_") && name != "__ax_observation_guard") || is_builtin_reserved_name(name)
 }
 
 fn is_builtin_reserved_name(name: &str) -> bool {
@@ -623,7 +627,12 @@ function __ax_log() {
   globalThis.__ax_logs.push(parts.join(" "));
 }
 globalThis.console = { log: __ax_log, error: __ax_log, warn: __ax_log, info: __ax_log, debug: __ax_log };
-function __ax_complete(value) { globalThis.__ax_completion = value; return value; }
+function __ax_complete(value) {
+  __ax_before_observation_action(value.type || value.kind);
+  globalThis.__ax_completion = value;
+  __ax_pause_after_discovery(value);
+  return value;
+}
 function __ax_clone_json(value) {
   if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value));
@@ -635,6 +644,7 @@ function __ax_host_callable_error(message, category) {
 }
 function __ax_make_host_callable(name, spec) {
   return function(params) {
+    if (name !== "__ax_observation_guard") __ax_before_observation_action(name);
     if (spec && spec.native === true) {
       const response = JSON.parse(globalThis.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
       if (response.ok) return response.result;
@@ -649,7 +659,7 @@ function __ax_make_host_callable(name, spec) {
 }
 function __ax_install_host_callables() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
-    if (key.startsWith("__ax_")) continue;
+    if (key.startsWith("__ax_") && key !== "__ax_observation_guard") continue;
     const value = globalThis[key];
     if (value && typeof value === "object" && value.__ax_host_callable === true) {
       globalThis[key] = __ax_make_host_callable(key, value);

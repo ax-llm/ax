@@ -1,0 +1,101 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-batch-partial-failure",
+  "description": "A data batch keeps the successful member after a failure, shows the failure on the next turn, and prevents finalization until the actor reacts.",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Choose the route using the current routing rule."
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "directResponse": "off",
+    "functions": [
+      {
+        "name": "archive",
+        "description": "Load or update rule",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "namespace": "routes",
+        "resultPolicy": "data"
+      },
+      {
+        "name": "write",
+        "description": "Load or update write",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "route": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "route"
+          ]
+        },
+        "resultPolicy": "data",
+        "namespace": "routes"
+      }
+    ],
+    "callable_results": {
+      "routes.archive": {
+        "error": "archive-unavailable-691"
+      },
+      "routes.write": {
+        "value": {
+          "receipt": "ready-581"
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"final(\\\"Choose the route\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"const outcomes = await batch([{name:'routes.archive',args:{}},{name:'routes.write',args:{route:'north'}}]); final('premature-finish-193', {});\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"final('Report the available receipt', { proof: outcomes[0].status + ':' + outcomes[1].value.receipt });\"}"
+    },
+    {
+      "content": "Answer: routed"
+    }
+  ],
+  "expected_output": {
+    "answer": "routed"
+  },
+  "expected_request_count": 4,
+  "expected_stage_request_not_contains": [
+    {
+      "index": 2,
+      "absent": [
+        "premature-finish-193"
+      ]
+    }
+  ],
+  "expected_request_contains": [
+    "archive-unavailable-691",
+    "rejected:ready-581",
+    "[OBSERVATION]"
+  ],
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "routes.archive",
+      "arguments": {},
+      "status": "error"
+    },
+    {
+      "qualified_name": "routes.write",
+      "arguments": {
+        "route": "north"
+      },
+      "status": "ok"
+    }
+  ]
+}

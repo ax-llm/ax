@@ -4695,6 +4695,7 @@ pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
 pub struct Tool {
     pub parameters: Option<Value>,
     pub execution: String,
+    pub result_policy: Option<String>,
     pub name: String,
     pub description: String,
     pub args: Map<String, Value>,
@@ -4755,6 +4756,7 @@ impl Tool {
 pub struct ToolBuilder {
     parameters: Option<Value>,
     execution: String,
+    result_policy: Option<String>,
     name: String,
     description: String,
     args: Map<String, Value>,
@@ -4764,6 +4766,7 @@ pub fn tool(name: &str) -> ToolBuilder {
     ToolBuilder {
         parameters: None,
         execution: "blocking".to_string(),
+        result_policy: None,
         name: name.to_string(),
         description: String::new(),
         args: Map::new(),
@@ -4777,6 +4780,12 @@ impl ToolBuilder {
         self.execution = mode.to_string();
         self
     }
+    pub fn result_policy(mut self, policy: &str) -> Self {
+        assert!(policy == "inspect" || policy == "data", "Tool result_policy must be inspect or data");
+        self.result_policy = Some(policy.to_string());
+        self
+    }
+
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
         self
@@ -4802,6 +4811,7 @@ impl ToolBuilder {
         Tool {
             parameters: self.parameters,
             execution: self.execution,
+            result_policy: self.result_policy,
             name: self.name,
             description: self.description,
             args: self.args,
@@ -10990,6 +11000,7 @@ pub fn get_supported_ai_models_with_options(options: Value) -> AxResult<Vec<Valu
 pub type AxHostCallable = Arc<dyn Fn(Value) -> AxResult<Value> + Send + Sync + 'static>;
 
 pub trait AxCodeRuntime {
+    fn supports_observation_boundaries(&self) -> bool { false }
     fn language(&self) -> &str;
 
     fn usage_instructions(&self) -> &str {
@@ -23978,6 +23989,7 @@ impl CoreHost for ToolHost {
             "name" => Ok(CoreValue::from(self.tool.name.as_str())),
             "description" => Ok(CoreValue::from(self.tool.description.as_str())),
             "execution" => Ok(CoreValue::from(self.tool.execution.as_str())),
+            "result_policy" => Ok(self.tool.result_policy.as_deref().map(CoreValue::from).unwrap_or(CoreValue::Null)),
             "parameters" | "args" => Ok(core_value_from_json(&Value::Object(
                 self.tool.args.clone(),
             ))),
@@ -26725,6 +26737,7 @@ impl CoreHost for CodeRuntimeHost {
 
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         match name {
+            "supports_observation_boundaries" => Ok(CoreValue::Bool(self.runtime.borrow().supports_observation_boundaries())),
             "create_session" => {
                 let globals = core_value_to_json(&core_arg(args, 0));
                 let options = core_value_to_json(&core_arg(args, 1));
@@ -26890,6 +26903,12 @@ fn core_agent_map(entries: &[(&str, CoreValue)]) -> Result<CoreValue, AxError> {
 
 // python: _core_agent_runtime_create_session(runtime, globals_, options)
 #[allow(dead_code)]
+fn core_agent_runtime_observation_boundaries(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    Ok(core_host_try(&runtime, "supports_observation_boundaries", &[])
+        .transpose()?.unwrap_or(CoreValue::Bool(false)))
+}
+
 fn core_agent_runtime_is_executable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Bool(matches!(core_arg(args, 0), CoreValue::Host(host) if host.host_type() == "AxCodeRuntime")))
 }
@@ -27512,11 +27531,18 @@ impl CoreHost for ScopedRuntimeHost {
     fn host_type(&self) -> &'static str {
         "AxCodeRuntime"
     }
+
+    fn register_runtime_callable(&self, name: &str, callable: AxHostCallable) -> bool {
+        // SAFETY: the runtime is borrowed by the enclosing agent method.
+        unsafe { &mut *self.0 }.register_host_callable(name, callable).is_ok()
+    }
+
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         // SAFETY: the pointer is valid for the duration of the agent method
         // that constructed this host; emitted code uses it synchronously.
         let runtime = unsafe { &mut *self.0 };
         match name {
+            "supports_observation_boundaries" => Ok(CoreValue::Bool(runtime.supports_observation_boundaries())),
             "create_session" => {
                 let globals = core_value_to_json(&core_arg(args, 0));
                 let options = core_value_to_json(&core_arg(args, 1));

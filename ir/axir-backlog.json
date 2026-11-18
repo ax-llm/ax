@@ -3967,7 +3967,7 @@
     },
     {
       "id": "axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations",
-      "status": "open",
+      "status": "done",
       "title": "Preserve fresh RLM tool feedback and compact older observations",
       "createdAt": "2026-11-17",
       "sourcePR": null,
@@ -3986,9 +3986,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-11-17",
+      "completedByCommit": "befbfb6dbff4dd57d06928802cd9aea3def9df51",
+      "verification": "All five embedded JavaScript conformance runners passed 17 cases each, including discovery before execution, observation before side effects, deterministic batches, and partial batch failures. The observation regression fails on the previous main. The TypeScript-derived replay fixture, AxIR semantic parity, focused TypeScript regressions, and 72 fast compiler tests passed."
     }
   ],
   "nonPortableExemptions": [

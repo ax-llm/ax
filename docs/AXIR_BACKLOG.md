@@ -23,12 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations` [axagent] Preserve fresh RLM tool feedback and compact older observations
-  - Status: open
-  - Source commit: `5706a70d2270b68bced7d3946dede3753bcba099`
-  - TS paths: `src/ax/agent`, `src/ax/funcs/jsRuntime.ts`, `src/ax/funcs/worker.runtime.ts`, `src/ax/ai/types.ts`, `src/ax/dsp/sig.ts`
-  - Impact: TypeScript agents pause after discovery and inspection results before dependent actions. Port data-tool chaining, ordered independent batches, bounded previews, suspended program replay, and checkpoint reuse to the generated agent runtimes.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1653,3 +1648,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-17
   - Completed by: `0b7e5b8446ad3350222c22b27900a6bca49c17f9`
   - Verification: `npm run axir:verify:dev passed for Python, Java, C++, Go and Rust (2,209 conformance fixtures each, including nine new TypeScript-derived cut-off fixtures). axir:conformance:check, axir:check-packages, the 72 fast AxIR Go tests, the response-perturbation gate and the TypeScript workspace tests (4,243 passed, 1 skipped) passed. The real-engine agent suite passed on Go, Java, C++ and Rust (14 fixtures each); Python's was not run locally because the quickjs module is not installed.`
+- `axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations` [axagent] Preserve fresh RLM tool feedback and compact older observations
+  - Status: done
+  - Source commit: `5706a70d2270b68bced7d3946dede3753bcba099`
+  - TS paths: `src/ax/agent`, `src/ax/funcs/jsRuntime.ts`, `src/ax/funcs/worker.runtime.ts`, `src/ax/ai/types.ts`, `src/ax/dsp/sig.ts`
+  - Impact: TypeScript agents pause after discovery and inspection results before dependent actions. Port data-tool chaining, ordered independent batches, bounded previews, suspended program replay, and checkpoint reuse to the generated agent runtimes.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-17
+  - Completed by: `befbfb6dbff4dd57d06928802cd9aea3def9df51`
+  - Verification: `All five embedded JavaScript conformance runners passed 17 cases each, including discovery before execution, observation before side effects, deterministic batches, and partial batch failures. The observation regression fails on the previous main. The TypeScript-derived replay fixture, AxIR semantic parity, focused TypeScript regressions, and 72 fast compiler tests passed.`

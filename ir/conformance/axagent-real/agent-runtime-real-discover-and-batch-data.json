@@ -1,0 +1,122 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-discover-and-batch-data",
+  "description": "An aliased explicit discovery and an implicit batch discovery both pause. The data-only batch then runs through final without a feedback turn.",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Choose the route using the current routing rule."
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "directResponse": "off",
+    "functions": [
+      {
+        "namespace": "routes",
+        "description": "Routing data",
+        "functions": [
+          {
+            "name": "primary",
+            "description": "Load or update primary",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "zone": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "zone"
+              ]
+            },
+            "resultPolicy": "data"
+          },
+          {
+            "name": "alternate",
+            "description": "Load or update alternate",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "zone": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "zone"
+              ]
+            },
+            "resultPolicy": "data"
+          }
+        ]
+      }
+    ],
+    "callable_results": {
+      "routes.primary": {
+        "value": {
+          "name": "north-492"
+        }
+      },
+      "routes.alternate": {
+        "value": {
+          "name": "south-283"
+        }
+      }
+    },
+    "functionDiscovery": true
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"final(\\\"Choose the route\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"const load = discover; await load(['routes.primary','routes.nonexistent-16']); await routes.primary({zone:'wrong-unexecuted-903'});\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"const jobs = [{ name: 'routes.primary', args: {zone:'a'} }, { name: 'routes.alternate', args: {zone:'b'} }]; const picked = await batch(jobs); final('Report', picked);\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"const picks = await batch(jobs); final('Report', { proof: picks.map(p => p.value.name).join(':') });\"}"
+    },
+    {
+      "content": "Answer: routed"
+    }
+  ],
+  "expected_output": {
+    "answer": "routed"
+  },
+  "expected_request_count": 5,
+  "expected_stage_request_not_contains": [
+    {
+      "index": 2,
+      "absent": [
+        "wrong-unexecuted-903"
+      ]
+    }
+  ],
+  "expected_request_contains": [
+    "north-492:south-283",
+    "[OBSERVATION]",
+    "routes.primary",
+    "zone: string",
+    "routes.alternate",
+    "Unknown tools: routes.nonexistent-16."
+  ],
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "routes.primary",
+      "arguments": {
+        "zone": "a"
+      },
+      "status": "ok"
+    },
+    {
+      "qualified_name": "routes.alternate",
+      "arguments": {
+        "zone": "b"
+      },
+      "status": "ok"
+    }
+  ]
+}

@@ -17,6 +17,7 @@ class Tool:
     args: list[Any] = field(default_factory=list)
     execution: str = "blocking"
     context_handler: Callable[[dict[str, Any], dict[str, Any]], Any] | None = None
+    result_policy: str | None = None
 
     def call(self, args: dict[str, Any], context: dict[str, Any] | None = None):
         validate_fields(self.args, args, f"tool.{self.name}.args")
@@ -41,11 +42,19 @@ class FunctionBuilder:
         self.fn = None
         self.context_fn = None
         self._execution = "blocking"
+        self._result_policy = None
 
     def execution(self, mode: str):
         if mode not in ("blocking", "background"):
             raise ValueError("Tool execution must be blocking or background")
         self._execution = mode
+        return self
+
+    def result_policy(self, policy: str):
+        """Mark returns for inspection or deterministic chaining."""
+        if policy not in ("inspect", "data"):
+            raise ValueError("Tool result_policy must be inspect or data")
+        self._result_policy = policy
         return self
 
     def description(self, text: str):
@@ -89,6 +98,7 @@ class FunctionBuilder:
             args=self.args,
             execution=self._execution,
             context_handler=self.context_fn,
+            result_policy=self._result_policy,
         )
 
 

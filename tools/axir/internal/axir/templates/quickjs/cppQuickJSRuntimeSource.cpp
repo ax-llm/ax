@@ -97,7 +97,12 @@ function __ax_log() {
   globalThis.__ax_logs.push(parts.join(" "));
 }
 globalThis.console = { log: __ax_log, error: __ax_log, warn: __ax_log, info: __ax_log, debug: __ax_log };
-function __ax_complete(value) { globalThis.__ax_completion = value; return value; }
+function __ax_complete(value) {
+  __ax_before_observation_action(value.type || value.kind);
+  globalThis.__ax_completion = value;
+  __ax_pause_after_discovery(value);
+  return value;
+}
 function __ax_clone_json(value) {
   if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value));
@@ -109,6 +114,7 @@ function __ax_host_callable_error(message, category) {
 }
 function __ax_make_host_callable(name, spec) {
   return function(params) {
+    if (name !== "__ax_observation_guard") __ax_before_observation_action(name);
     if (spec && spec.native === true) {
       const response = JSON.parse(globalThis.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
       if (response.ok) return response.result;
@@ -123,7 +129,7 @@ function __ax_make_host_callable(name, spec) {
 }
 function __ax_install_host_callables() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
-    if (key.startsWith("__ax_")) continue;
+    if (key.startsWith("__ax_") && key !== "__ax_observation_guard") continue;
     const value = globalThis[key];
     if (value && typeof value === "object" && value.__ax_host_callable === true) {
       globalThis[key] = __ax_make_host_callable(key, value);
@@ -250,6 +256,12 @@ Value QuickJsCodeSession::execute_turn(const std::string& source, Value options)
   static const char kBeforeExecute[] =
       "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables(); __ax_install_final_evidence();";
   JS_FreeValue(context_, JS_Eval(context_, kBeforeExecute, std::strlen(kBeforeExecute), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
+  const bool observation_boundaries = Core::truthy(Core::get(options, "observationBoundaries", Value(false)));
+  const std::string feedback_setup = observation_boundaries
+      ? "__ax_reset_observation_turn(globalThis.__ax_observation_guard);"
+      : "__ax_reset_observation_turn(null);";
+  JS_FreeValue(context_, JS_Eval(context_, feedback_setup.c_str(), feedback_setup.size(), "<ax-feedback>", JS_EVAL_TYPE_GLOBAL));
+
   // RLM actor code uses top-level await (`await final(...)`), illegal in a plain script eval.
   // Pass the code in via a global string (avoids host-side JS escaping) and run it through the
   // AsyncFunction constructor so await is legal; then drain the job queue so awaited
@@ -260,8 +272,8 @@ Value QuickJsCodeSession::execute_turn(const std::string& source, Value options)
     JS_FreeValue(context_, global);
   }
   static const char kRunActor[] =
-      "(async function(){}).constructor('with (globalThis) {\\n' + (globalThis.__ax_code || '') + '\\n' + axPersistSuffix(globalThis.__ax_code || '') + '\\n}')()"
-      ".then(function(){}, function(e){ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); });";
+      "(async function(){}).constructor('with (globalThis) {\\n' + __ax_persist_actor_body(globalThis.__ax_code || '', axPersistSuffix(globalThis.__ax_code || ''), Boolean(__ax_observation_callback)) + '\\n}')()"
+      ".then(function(){}, function(e){ if (e === __ax_discovery_pause) return; globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); });";
   JSValue result = JS_Eval(context_, kRunActor, std::strlen(kRunActor), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);

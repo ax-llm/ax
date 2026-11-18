@@ -24,7 +24,7 @@
       "content": "{\"javascriptCode\": \"final(\\\"Find reference\\\", {});\"}"
     },
     {
-      "content": "{\"javascriptCode\": \"const child = await team.researcher({question:\\\"Find reference\\\"}); console.log(child); final(\\\"Answer using the child result\\\", child);\"}"
+      "content": "{\"javascriptCode\": \"const child = await team.researcher({question:\\\"Find reference\\\"});\"}"
     },
     {
       "content": "{\"javascriptCode\": \"final(\\\"Find reference\\\", {});\"}"
@@ -34,6 +34,9 @@
     },
     {
       "content": "Answer: REF-42"
+    },
+    {
+      "content": "{\"javascriptCode\": \"final(\\\"Answer using the child result\\\", child);\"}"
     },
     {
       "content": "Answer: REF-42"
@@ -42,7 +45,7 @@
   "expected_output": {
     "answer": "REF-42"
   },
-  "expected_request_count": 6,
+  "expected_request_count": 7,
   "runtime_engine": "javascript",
   "expected_function_call_traces_subset": [
     {
@@ -66,5 +69,7 @@
       "status": "ok"
     }
   ],
-  "expected_request_contains": ["REF-42"]
+  "expected_request_contains": [
+    "REF-42"
+  ]
 }

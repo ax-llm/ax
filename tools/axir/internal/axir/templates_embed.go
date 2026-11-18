@@ -755,6 +755,9 @@ var runtimeHostNamespaces string
 //go:embed templates/runtime/runtimeSupport.js
 var runtimeSupport string
 
+//go:embed templates/runtime/observationBoundaries.js
+var runtimeObservationBoundaries string
+
 //go:embed templates/java/javaTypesafe.java
 var javaTypesafe string
 

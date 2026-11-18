@@ -24,7 +24,7 @@ from .agent import AxCodeRuntime, AxCodeSession
 # report*/guideAgent) which write a completion cell, plus the host-callable bridge. Helper
 # names avoid a leading underscore so they read as JS, not python helpers.
 _PRELUDE = (
-    "function axComplete(v){globalThis.__ax_completion=v;return v;}"
+    "function axComplete(v){__ax_before_observation_action(v.type||v.kind);globalThis.__ax_completion=v;__ax_pause_after_discovery(v);return v;}"
     "function final(){return axComplete({type:'final',args:Array.from(arguments)});}"
     "function respond(){return axComplete({type:'respond',args:Array.from(arguments)});}"
     "function askClarification(){return axComplete({type:'askClarification',args:Array.from(arguments)});}"
@@ -35,7 +35,7 @@ _PRELUDE = (
     "function reportFailure(m){return axComplete({kind:'status',status:{type:'failed',message:String(m||'')}});}"
     "function guideAgent(g){return axComplete({type:'guide_agent',guidance:String(g||'')});}"
     "function axHe(m,c){var e=new Error(String(m||'host callable failed'));e.error_category=String(c||'runtime');return e;}"
-    "function axHc(name){return function(params){var r=JSON.parse(globalThis.__ax_host_call(name,JSON.stringify(params===undefined?null:params)));if(r.ok)return r.result;throw axHe(r.error||('host callable failed: '+name),r.category);};}"
+    "function axHc(name){return function(params){if(name!=='__ax_observation_guard')__ax_before_observation_action(name);var r=JSON.parse(globalThis.__ax_host_call(name,JSON.stringify(params===undefined?null:params)));if(r.ok)return r.result;throw axHe(r.error||('host callable failed: '+name),r.category);};}"
     "function axSnap(){var R=globalThis.__ax_reserved||{};var o={};for(var k of Object.getOwnPropertyNames(globalThis)){if(k.indexOf('__ax_')===0)continue;if(R[k])continue;var v=globalThis[k];if(typeof v==='function'||typeof v==='undefined')continue;try{JSON.stringify(v);o[k]=v;}catch(e){}}return JSON.stringify(o);}"
     # console: the executor inspects intermediate values with console.log; capture each
     # turn's output into __ax_logs so the host can surface it back into the action log.
@@ -123,11 +123,15 @@ class AxQuickJsCodeSession(AxCodeSession):
             analysis = None
         # TS's distiller final: final(task, evidence) keeps the evidence as the
         # distilledContext global the executor inherits.
-        self.ctx.eval("__ax_install_final_evidence()")
+        guard = "globalThis.__ax_observation_guard" if (options or {}).get("observationBoundaries") else "null"
+        self.ctx.eval("__ax_reset_observation_turn(" + guard + ");__ax_install_final_evidence();")
+        actor_body = self.ctx.eval(
+            "__ax_persist_actor_body(" + json.dumps(code) + "," + json.dumps(persist_suffix) + ",Boolean(__ax_observation_callback))"
+        )
         wrapper = (
-            "(async()=>{\n" + code + "\n" + persist_suffix + "\n})().then("
+            "(async()=>{\n" + actor_body + "\n})().then("
             "function(r){globalThis.__ax_result=r;},"
-            "function(e){globalThis.__ax_error_category=String((e&&(e.error_category||e.category))||'runtime');globalThis.__ax_error=String((e&&e.message)?((e.name?e.name+': ':'')+e.message+(e.stack?(' '+e.stack):'')):((e&&e.stack)?e.stack:e));});"
+            "function(e){if(e===__ax_discovery_pause)return;globalThis.__ax_error_category=String((e&&(e.error_category||e.category))||'runtime');globalThis.__ax_error=String((e&&e.message)?((e.name?e.name+': ':'')+e.message+(e.stack?(' '+e.stack):'')):((e&&e.stack)?e.stack:e));});"
         )
         try:
             self.ctx.eval(wrapper)
@@ -209,6 +213,9 @@ class AxQuickJsCodeRuntime(AxCodeRuntime):
     def register_callable(self, name, handler):
         self.host_callables[name] = handler
         return self
+
+    def supports_observation_boundaries(self) -> bool:
+        return True
 
     def get_usage_instructions(self) -> str:
         return _USAGE_INSTRUCTIONS

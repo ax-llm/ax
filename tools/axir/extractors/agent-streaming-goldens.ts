@@ -383,7 +383,8 @@ async function record(name: string, spec: Case): Promise<void> {
   // Capture the whole, capability-matched prompt while running the actual actor.
   for (const actor of [ag.distiller, ag.executor]) {
     const hook = actor as unknown as { _buildActorInstruction(): string };
-    hook._buildActorInstruction = () => renderActorDefinition(actor, false);
+    hook._buildActorInstruction = () =>
+      renderActorDefinition(actor, spec.real_runtime ?? false);
   }
 
   const forwardOptions: Record<string, unknown> = clone(

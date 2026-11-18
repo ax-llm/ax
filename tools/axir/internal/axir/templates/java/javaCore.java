@@ -386,6 +386,7 @@ final class Core {
         case "name" -> t.name;
         case "namespace" -> t.namespace() == null ? defaultValue : t.namespace();
         case "execution" -> t.execution;
+        case "result_policy" -> t.resultPolicy == null ? defaultValue : t.resultPolicy;
         case "description" -> t.description;
         case "parameters" -> t.schema();
         case "args" -> t.args;
@@ -1625,6 +1626,9 @@ final class Core {
     Object args = get(payload, "args", List.of());
     Object clarification = asList(args).isEmpty() ? payload : asList(args).get(0);
     return new AxAgentClarificationException(clarification, get(state, "runtime_state", Map.of()), payload);
+  }
+  static Object agentRuntimeObservationBoundaries(Object runtime) {
+    return runtime instanceof AxCodeRuntime codeRuntime && codeRuntime.supportsObservationBoundaries();
   }
   static Object agentRuntimeIsExecutable(Object runtime) { return runtime instanceof AxCodeRuntime; }
   static Object agentRuntimeCreateSession(Object runtime, Object globals, Object options) {

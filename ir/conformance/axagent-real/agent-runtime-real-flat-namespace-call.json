@@ -15,6 +15,7 @@
       {
         "name": "lookup",
         "namespace": "crm",
+        "resultPolicy": "data",
         "description": "Look up a customer by id",
         "parameters": {
           "type": "object",

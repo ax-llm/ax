@@ -1,0 +1,104 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-interpret-before-continuing",
+  "description": "An inspection result must reach a fresh executor request. Code continued from the saved result chooses the route, and the blocked write is absent from replay.",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Choose the route using the current routing rule."
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "directResponse": "off",
+    "functions": [
+      {
+        "name": "rule",
+        "description": "Load or update rule",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "namespace": "routes"
+      },
+      {
+        "name": "write",
+        "description": "Load or update write",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "route": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "route"
+          ]
+        },
+        "resultPolicy": "data",
+        "namespace": "routes"
+      }
+    ],
+    "callable_results": {
+      "routes.rule": {
+        "value": {
+          "route": "north-492",
+          "caveat": "Use the returned route"
+        }
+      },
+      "routes.write": {
+        "value": {
+          "accepted": true
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"final(\\\"Choose the route\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"const rule = await routes.rule({}); await routes.write({route:'wrong-unexecuted-903'});\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"const written = await routes.write({route:rule.route}); final(\\\"Report the actual route\\\", { proof: rule.route + \\\":\\\" + written.accepted });\"}"
+    },
+    {
+      "content": "Answer: routed"
+    }
+  ],
+  "expected_output": {
+    "answer": "routed"
+  },
+  "expected_request_count": 4,
+  "expected_stage_request_not_contains": [
+    {
+      "index": 2,
+      "absent": [
+        "wrong-unexecuted-903"
+      ]
+    }
+  ],
+  "expected_request_contains": [
+    "north-492:true",
+    "[OBSERVATION]",
+    "north-492",
+    "Use the returned route"
+  ],
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "routes.rule",
+      "arguments": {},
+      "status": "ok"
+    },
+    {
+      "qualified_name": "routes.write",
+      "arguments": {
+        "route": "north-492"
+      },
+      "status": "ok"
+    }
+  ]
+}

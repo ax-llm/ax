@@ -53,6 +53,7 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("code", code == null ? "" : code);
       payload.put("phase", phase);
+      payload.put("observationBoundaries", options != null && Boolean.TRUE.equals(options.get("observationBoundaries")));
       payload.put("bindings", new LinkedHashMap<>(bindings));
       payload.put("reserved", reserved.keySet().stream().toList());
       String raw = runQuickJs(Json.stringify(payload), intOption(options == null ? null : options.get("timeoutMs"), timeoutMs));
@@ -299,6 +300,7 @@ async function __ax_run(payloadJson) {
   }
   function makeHostCallable(name, spec) {
     return function(params) {
+      if (name !== "__ax_observation_guard") __ax_before_observation_action(name);
       if (spec.native === true) {
         const response = JSON.parse(axir_host.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
         if (response.ok) return response.result;
@@ -312,7 +314,7 @@ async function __ax_run(payloadJson) {
     };
   }
   for (const [key, value] of Object.entries(payload.bindings || {})) {
-    if (!key.startsWith("__ax_") && (!reserved.has(key) || isHostCallable(value))) {
+    if ((!key.startsWith("__ax_") || key === "__ax_observation_guard") && (!reserved.has(key) || isHostCallable(value))) {
       globalThis[key] = isHostCallable(value) ? makeHostCallable(key, value) : value;
     }
   }
@@ -328,7 +330,13 @@ async function __ax_run(payloadJson) {
     }).join(" "));
   }
   globalThis.console = {log: log, error: log, warn: log, info: log, debug: log};
-  function complete(value) { globalThis.__ax_completion = value; return value; }
+  __ax_reset_observation_turn(payload.observationBoundaries ? globalThis.__ax_observation_guard : null);
+  function complete(value) {
+    __ax_before_observation_action(value.type || value.kind);
+    globalThis.__ax_completion = value;
+    __ax_pause_after_discovery(value);
+    return value;
+  }
   globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
   globalThis.respond = function() { return complete({type: "respond", args: Array.from(arguments)}); };
   globalThis.askClarification = function() { return complete({type: "askClarification", args: Array.from(arguments)}); };
@@ -371,10 +379,13 @@ async function __ax_run(payloadJson) {
     // awaiting surfaces both synchronous throws and post-await rejections as runtime errors
     // here. quickjs4j resolves this guest function's returned promise before handing the result
     // back to the host, mirroring the libquickjs/py-quickjs engines that drain the job queue.
-    await (async function(){}).constructor("with (globalThis) { " + (payload.code || "") + "\\n" + axPersistSuffix(payload.code || "") + "\\n}")();
+    await (async function(){}).constructor("with (globalThis) { " + __ax_persist_actor_body(payload.code || "", axPersistSuffix(payload.code || ""), Boolean(__ax_observation_callback)) + "\\n}")();
     result = globalThis.__ax_completion;
   } catch (error) {
-    return JSON.stringify({ok: false, category: String((error && (error.error_category || error.category)) || "runtime"), error: String((error && error.message) || error), analysis});
+    if (error !== __ax_discovery_pause && (!payload.observationBoundaries || String(error && error.message) !== "Review the current observations on the next model turn.")) {
+      return JSON.stringify({ok: false, category: String((error && (error.error_category || error.category)) || "runtime"), error: String((error && error.message) || error), analysis});
+    }
+    result = globalThis.__ax_completion;
   }
   const out = {};
   for (const key of Object.getOwnPropertyNames(globalThis)) {
