@@ -73,9 +73,10 @@ from .prompt import AxPromptTemplate, TemplateError, render_template_content, va
 from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
 from .runtime_quickjs import AxQuickJsCodeRuntime, AxQuickJsCodeSession
 
-from .gen import novel_f1_score
+from .gen import f1_score, novel_f1_score
 
 __all__ = [
+    "f1_score",
     "novel_f1_score",
     "AxAIOpenAIDecisionsClient",
     "openai_decisions",

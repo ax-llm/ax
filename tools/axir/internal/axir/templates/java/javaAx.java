@@ -4,6 +4,8 @@ public final class Ax {
   /** Novel token overlap after history and stopword exclusion. */
   public static double novelF1Score(String history, String prediction, String groundTruth) { return novelF1Score(history, prediction, groundTruth, false); }
   public static double novelF1Score(String history, String prediction, String groundTruth, boolean returnRecall) { return Core.asDouble(Core.eval_novel_f1(history, prediction, groundTruth, returnRecall)); }
+  /** Multiset token overlap between a prediction and the ground truth. */
+  public static double f1Score(String prediction, String groundTruth) { return Core.asDouble(Core.eval_f1(prediction, groundTruth)); }
 
   public static AxAIGoogleGeminiDecisionsClient googleGeminiDecisions(java.util.Map<String,Object> options) { return new AxAIGoogleGeminiDecisionsClient(options); }
   public static AxAIOpenAIDecisionsClient openaiDecisions(java.util.Map<String,Object> options) { return new AxAIOpenAIDecisionsClient(options); }

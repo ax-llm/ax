@@ -74,6 +74,16 @@ Score novel multiset token overlap after Unicode normalization and history/stopw
 - Returns: `score in [0, 1]`
 - Important options: history, prediction, ground truth, return recall
 
+### `axllm.F1Score`
+
+Score multiset token overlap between a prediction and the ground truth after Unicode normalization. Every normalized token counts, including stopwords.
+
+- Canonical Ax concept: `F1Score`
+- Kind: `function`
+- Form: `axllm.F1Score`
+- Returns: `score in [0, 1]`
+- Important options: prediction, ground truth
+
 ### `axllm.AxGen`
 
 Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.

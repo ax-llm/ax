@@ -63,6 +63,7 @@ Use the provider-backed Astra examples under `src/examples/rust/generation/`, `s
 Attach the code runtime to the agent with `with_runtime(Box::new(runtime))`; Rust takes no runtime on the forward call.
 
 - A run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime: the distiller and the executor write code in the runtime's language and run it in the runtime.
+- A distiller or executor reply that is cut off at the output limit does not end the run, as in TypeScript: nothing has executed, so the same turn asks again, up to three extra model calls, first unchanged and then with a short note asking for a smaller step. The original error surfaces only when every retry is cut off too.
 - JavaScript actor stages are the default. Engines remain optional dependencies: forward requires an executable runtime and fails before any model request if none is supplied. Set `actorMode: 'completion'` or `actor_mode` on the constructor or a call for legacy completion-payload stages; that mode rejects a runtime.
 - Calls can switch modes explicitly; runtime stage sets follow the supplied language and usage guidance. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.
 

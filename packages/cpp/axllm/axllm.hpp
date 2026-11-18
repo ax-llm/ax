@@ -34,6 +34,7 @@
 
 namespace axllm {
 double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall = false);
+double f1_score(const std::string& prediction, const std::string& ground_truth);
 
 struct Value;
 using Array = std::vector<Value>;
@@ -1065,6 +1066,7 @@ struct Core {
   static Value _normalize_optimization_dataset(Value dataset);
   static Value _date_parse_named_datetime_impl(Value text, Value units, Value start, Value end);
   static Value _stream_extract_block_impl(Value input);
+  static Value eval_f1(Value prediction, Value ground_truth);
   static Value _normalize_optimization_metric_scores(Value raw);
   static Value _scalarize_optimization_scores(Value scores, Value options);
   static Value _stream_strip_leading_fence_impl(Value text);
@@ -1300,6 +1302,7 @@ struct Core {
   static Value _stream_apply_structured_impl(Value state, Value fields, Value parsed, Value marker, Value held);
   static Value _gen_citation_log_metadata(Value entry, Value response);
   static Value _stream_feedback_text_impl(Value result);
+  static Value _parse_answer_outputs(Value gen, Value output_fields, Value response, Value validate_exact_json, Value thought_field, Value thought_prefix, Value text_contract, Value strict_mode, Value parse_state);
   static Value _stream_run_processors_impl(Value gen, Value kind, Value state, Value content, Value done);
   static Value _stream_check_assertions_impl(Value gen, Value xstate, Value content, Value done);
   static Value _stream_emit_deltas_impl(Value ctx, Value index, Value deltas);
@@ -1616,6 +1619,8 @@ struct Core {
   static Value _agent_structured_clarification(Value payload);
   static Value _agent_truncate_inline(Value text, Value max_chars);
   static Value _agent_stage_step_turn(Value state);
+  static Value _agent_is_cut_off_reply_error(Value error);
+  static Value _agent_actor_stage_forward(Value state, Value stage_name, Value stage, Value client, Value values, Value options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);

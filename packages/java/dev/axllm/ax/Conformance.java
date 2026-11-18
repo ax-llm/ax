@@ -869,6 +869,12 @@ public final class Conformance {
           assertEqual(Ax.novelF1Score(String.valueOf(item.get("history")), String.valueOf(item.get("prediction")), String.valueOf(item.get("ground_truth")), Boolean.TRUE.equals(item.get("return_recall"))), item.get("expected"), "novel F1: " + item.get("name"));
         }
       }
+      case "eval_f1" -> {
+        for (Object raw : Core.asList(fixture.get("cases"))) {
+          var item = Core.asMap(raw);
+          assertEqual(Ax.f1Score(String.valueOf(item.get("prediction")), String.valueOf(item.get("ground_truth"))), item.get("expected"), "F1: " + item.get("name"));
+        }
+      }
       case "stream" -> runStream(fixture);
       case "forward" -> runForward(fixture);
       case "streaming_forward" -> runStreamingForward(fixture);

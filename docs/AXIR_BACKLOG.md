@@ -23,19 +23,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr` [axgen] Keep ordinary F1 token counts independent of inherited object properties
-  - Status: open
-  - Source PR: #898
-  - Source commit: `269f5b998721d4f22bf3081b1c86df0f33952067`
-  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
-  - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply` [axagent] Retry an agent actor turn after a cut-off model reply
-  - Status: open
-  - Source PR: #906
-  - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
-  - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
-  - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
 - `axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations` [axagent] Preserve fresh RLM tool feedback and compact older observations
   - Status: open
   - Source commit: `5706a70d2270b68bced7d3946dede3753bcba099`
@@ -1627,6 +1614,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-14
   - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
   - Verification: `TypeScript-derived AxGen forward and streaming fixtures pass in all five languages with native file-valued document inputs, indexed text-block snapshots, and deduplicated URL-less citations in per-request log usage. All five public examples pass ordinary and streaming live Anthropic calls with source-offset checks. Generated logs keep request-local document identities in separate entries; TypeScript getUsage has no direct generated AxGen method equivalent.`
+- `axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr` [axgen] Keep ordinary F1 token counts independent of inherited object properties
+  - Status: done
+  - Source PR: #898
+  - Source commit: `269f5b998721d4f22bf3081b1c86df0f33952067`
+  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
+  - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-17
+  - Completed by: `278a22558e5227ac54103682a1959eadb15945ec`
+  - Verification: `The generated packages had no ordinary F1, so it was added: @eval_f1 in eval.axir, exposed as f1_score (Python, C++, Rust), F1Score (Go) and Ax.f1Score (Java). eval-f1.json: 24 TypeScript-derived cases pass through all five public functions, covering constructor and other inherited-property names, stopwords, empty and whitespace-only inputs, empty tokens left by articles and punctuation, and Unicode. Five-language dev verification passed with 2,201 fixtures per language; fixture synchronization and package freshness pass. The Python runner rejects a deliberately wrong expected score.`
 - `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
   - Status: done
   - Source PR: #901
@@ -1647,3 +1644,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-16
   - Completed by: `595820951a3d72aacc14afc7d98e01ff5d1b5e3a`
   - Verification: `The runtime helper is regenerated directly from the TypeScript scanner and embedded in all five generated packages. 150 focused TypeScript tests, 137 AxIR maintenance tests, and eight native Goja scanner cases pass, including Unicode and escaped identifiers. Full TypeScript workspace checks passed with 4,222 tests and one existing skip. Build/test CI passed on 1cde3c78d888b40e6e0ee6f77927b13e3e2f80f8, including all five generated-language verification and example suites, package freshness, and all five real-engine checks.`
+- `axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply` [axagent] Retry an agent actor turn after a cut-off model reply
+  - Status: done
+  - Source PR: #906
+  - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
+  - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
+  - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
+  - Completed at: 2026-11-17
+  - Completed by: `0b7e5b8446ad3350222c22b27900a6bca49c17f9`
+  - Verification: `npm run axir:verify:dev passed for Python, Java, C++, Go and Rust (2,209 conformance fixtures each, including nine new TypeScript-derived cut-off fixtures). axir:conformance:check, axir:check-packages, the 72 fast AxIR Go tests, the response-perturbation gate and the TypeScript workspace tests (4,243 passed, 1 skipped) passed. The real-engine agent suite passed on Go, Java, C++ and Rust (14 fixtures each); Python's was not run locally because the quickjs module is not installed.`

@@ -34,6 +34,7 @@
 
 namespace axllm {
 double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall = false);
+double f1_score(const std::string& prediction, const std::string& ground_truth);
 
 struct Value;
 using Array = std::vector<Value>;
