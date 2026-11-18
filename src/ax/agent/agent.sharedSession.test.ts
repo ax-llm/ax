@@ -260,6 +260,7 @@ describe('shared runtime session pipeline', () => {
         ],
         executor: [
           'found = await utils.lookup({ q: "answer" }); await final("Report the lookup result", { found })',
+          'await final("Report the lookup result", { found })',
         ],
         responder: 'Answer: found',
       },

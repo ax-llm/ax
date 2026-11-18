@@ -325,6 +325,7 @@ describe('direct-respond executor skip', () => {
         ],
         executor: [
           'const v = await erp.getVendor({ vendorId: inputs.distilledContext.vendorId }); await final("Report the vendor status", { status: v.status })',
+          'await final("Report the vendor status", { status: v.status })',
         ],
         responder: 'Answer: active',
       },

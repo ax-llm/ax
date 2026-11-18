@@ -35,6 +35,20 @@ The default ranker and smart-upgrade behavior are shared by the generated langua
 
 Keep the top-level `functions` shape either flat or grouped — mixed plain functions and groups are rejected. In grouped mode, put `fn()` tools, MCP providers, and runtime providers inside groups; expose child agents with `childAgent.getFunction()`. MCP servers plug in as ordinary tools — see [MCP]({{langRoot}}/concepts/mcp/).
 
+## Interpreting Results Before Acting
+
+The TypeScript agent pauses after discovery so the next block is generated with the newly loaded instructions. Calling an undiscovered function loads its exact documentation and pauses before executing it.
+
+TypeScript tools default to `resultPolicy: 'inspect'`: their results reach the next model turn before dependent tool calls or completion. Initialized runtime variables survive the pause, so the agent can continue from completed work. Mark a tool with `fn(...).resultPolicy('data')` only when its return contract permits deterministic chaining without interpreting new prose or caveats. Local computation and data-tool chains can share a turn. Native background tools already deliver results through their model tool loop.
+
+Independent tool calls can use the runtime primitive `batch([{ name: 'namespace.function', args: { ... } }, ...])`. Every argument is supplied before dispatch. The runtime runs the calls with bounded concurrency and returns outcomes in input order: `{ name, status: 'fulfilled', value }` or `{ name, status: 'rejected', error }`. Successful siblings remain available after an ordinary tool error. Inspection results require a new model turn before dependent work; successful data-only batches may continue in the same turn. In discovery mode, all missing contracts are loaded before any batch member executes.
+
+No particular `console.log(...)` call is required: tool observations are included automatically. Complete results are preserved when they fit the output budget; larger results remain in runtime variables for narrower inspection. With the `full` context preset, the fresh output budget stays constant as history grows. Paused submitted programs remain in raw agent state, while model-facing replay shows recorded calls, results and available binding names instead of an unexecuted program suffix. Code from before a pause is never replayed automatically. In `AxJSRuntime`, pending calls and their continuations remain part of the current execution, including when generated code forgets `await`. The wait is bounded by the execution timeout; late callbacks cannot start calls in a later execution.
+
+With TypeScript's default `checkpointed` preset, the newest observation stays visible at its normal display limit. Large older paused results appear as excerpts, and the agent reuses its history summaries across turns. Full tool values remain available in the runtime.
+
+The [TypeScript observation-boundary example](/typescript/examples/short-agents/observation-boundaries/) demonstrates result review with Gemini Flash-Lite and in-memory tools. The example uses the TypeScript tool and runtime contracts.
+
 ## Clarification And Resume
 
 Agents ask instead of guessing. When required information is genuinely missing, `forward()` and `streamingForward()` throw a structured clarification error; the host saves state, asks the user, restores, and resumes. Use clarification when the missing fact changes the action, side effect, recipient, policy, or output contract.

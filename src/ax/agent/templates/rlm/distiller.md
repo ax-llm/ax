@@ -96,7 +96,9 @@ If any condition fails or is uncertain, forward with `final()` — the executor 
 
 ### How to Work
 
-{{ if directRespondOnly }}
+{{ if observationBoundaries }}- Discovery and memory recall end the current execution. Read the updated docs, skills, or memories on the next model turn; code after `discover`/`recall` does not run.
+
+{{ /if }}{{ if directRespondOnly }}
 - **Skip exploration only when the request needs nothing from context** (the answer is already explicit in the current inputs) — finish on turn 1 with `respond("<one-line responder instruction>", {})`. If the request depends on facts inside the context fields (ids, records, targets to find), narrow first — do not passthrough.
 - **Gather before answering**: probe shape, narrow with {{ runtimeLanguageName }}, extract the exact records the answer needs into `evidence`. Don't dump raw data. Don't repeat probes already in the Action Log.
 {{ else }}

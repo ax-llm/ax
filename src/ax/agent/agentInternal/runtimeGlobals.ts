@@ -4,7 +4,9 @@ import type {
   AxFunction,
   AxFunctionJSONSchema,
 } from '../../ai/types.js';
+import { AxAIServiceAbortedError } from '../../util/apicall.js';
 import { AxAgentProtocolCompletionSignal } from '../completion.js';
+import { DEFAULT_RLM_BATCH_CONCURRENCY } from '../config.js';
 import { serializeForEval } from '../optimize.js';
 import { DISCOVERY_DISCOVER_NAME, MEMORIES_LOAD_NAME } from '../runtime.js';
 import {
@@ -19,11 +21,13 @@ import {
 import { normalizeMemoriesInput } from './memoriesHelpers.js';
 import type { AxAgentMemoryResult } from './memoriesTypes.js';
 import type { AxAgentSkillResult } from './skillsTypes.js';
-import type {
-  AxAgentFunction,
-  AxAgentFunctionCallRecorder,
-  AxAgentFunctionModuleMeta,
-  AxAgentOnFunctionCall,
+import type { TurnObservations } from './turnObservations.js';
+import {
+  AxAgentClarificationError,
+  type AxAgentFunction,
+  type AxAgentFunctionCallRecorder,
+  type AxAgentFunctionModuleMeta,
+  type AxAgentOnFunctionCall,
 } from './types.js';
 
 type NormalizedDiscoverRequest = {
@@ -141,9 +145,20 @@ export function wrapFunction(
     'control' | 'executionPath'
   > & {
     _mcpExecutionContext?: import('../../mcp/execution.js').AxMCPExecutionContext;
-  }
+  },
+  observations?: TurnObservations,
+  beforeCall?: () => void,
+  // Only host-owned batch dispatch can supply this authorization. Actor code
+  // cannot turn off the observation gate by passing extra tool arguments.
+  authorizeCall?: () => void,
+  observationName?: string
 ): (...args: unknown[]) => Promise<unknown> {
   return async (...args: unknown[]) => {
+    const generation = observations?.captureGeneration();
+    abortSignal?.throwIfAborted();
+    if (authorizeCall) authorizeCall();
+    else observations?.assertCanAct(undefined, qualifiedName ?? fn.name);
+    beforeCall?.();
     let callArgs: Record<string, unknown>;
 
     if (
@@ -166,7 +181,29 @@ export function wrapFunction(
     }
 
     const normalizedQualifiedName = qualifiedName ?? fn.name;
-    const protocol = protocolForTrigger?.(normalizedQualifiedName);
+    const resultName = observationName ?? normalizedQualifiedName;
+    const rawProtocol = protocolForTrigger?.(normalizedQualifiedName);
+    const authorized =
+      <TArgs extends unknown[], TResult>(
+        callback: (...args: TArgs) => TResult
+      ) =>
+      (...args: TArgs): TResult => {
+        authorizeCall?.();
+        return callback(...args);
+      };
+    const protocol =
+      rawProtocol && authorizeCall
+        ? {
+            ...rawProtocol,
+            final: authorized(rawProtocol.final),
+            askClarification: authorized(rawProtocol.askClarification),
+            guideAgent: authorized(rawProtocol.guideAgent),
+          }
+        : rawProtocol;
+    const finishCall =
+      fn.resultPolicy !== 'data'
+        ? observations?.beginCall(normalizedQualifiedName)
+        : undefined;
     if (onFunctionCall) {
       try {
         await onFunctionCall({
@@ -178,6 +215,14 @@ export function wrapFunction(
       } catch {}
     }
     try {
+      authorizeCall?.();
+      abortSignal?.throwIfAborted();
+      if (generation !== observations?.captureGeneration()) {
+        throw new AxAIServiceAbortedError(
+          'rlm-session',
+          'Runtime execution ended before tool dispatch'
+        );
+      }
       const result = await fn.func(callArgs, {
         abortSignal,
         ai,
@@ -193,6 +238,9 @@ export function wrapFunction(
         arguments: serializeForEval(callArgs),
         result: serializeForEval(result),
       });
+      if (fn.resultPolicy !== 'data') {
+        observations?.recordResult(resultName, result, generation);
+      }
       return result;
     } catch (err) {
       if (err instanceof AxAgentProtocolCompletionSignal) {
@@ -209,7 +257,18 @@ export function wrapFunction(
         arguments: serializeForEval(callArgs),
         error: err instanceof Error ? err.message : String(err),
       });
+      if (!observations?.isPause(err)) {
+        observations?.recordResult(
+          resultName,
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+          generation
+        );
+      }
       throw err;
+    } finally {
+      finishCall?.();
     }
   };
 }
@@ -246,7 +305,8 @@ export function buildRuntimeGlobals(
   runOptions?: Pick<
     import('../../ai/types.js').AxAIServiceOptions,
     'control' | 'executionPath'
-  >
+  >,
+  observations?: TurnObservations
 ): Record<string, unknown> {
   const fireInternal = async (
     name: string,
@@ -267,6 +327,34 @@ export function buildRuntimeGlobals(
   const callableLookup = new Map<string, DiscoveryCallableMeta>();
   const moduleLookup = new Map<string, string[]>();
   const moduleMetaLookup = new Map<string, AxAgentFunctionModuleMeta>();
+  const batchFunctions = new Map<
+    string,
+    (args: unknown[], label: string, authorize: () => void) => Promise<unknown>
+  >();
+  const ensureDiscovered = (names: string | string[]) => {
+    if (!observations || !s.functionDiscoveryEnabled) return;
+    const missing = [
+      ...new Set(typeof names === 'string' ? [names] : names),
+    ].filter(
+      (name) =>
+        callableLookup.has(name) &&
+        !s.currentDiscoveryPromptState?.functions.has(name)
+    );
+    if (missing.length === 0) return;
+    onDiscoveredFunctions?.(
+      missing,
+      Object.fromEntries(
+        missing.map((name) => [
+          name,
+          renderDiscoveryFunctionDefinitionsMarkdown([name], callableLookup),
+        ])
+      )
+    );
+    onDiscoveredNamespaces?.(
+      resolveDiscoveryCallableNamespaces(missing, callableLookup)
+    );
+    observations.finishDiscovery();
+  };
   for (const [namespace, meta] of s.agentFunctionModuleMetadata) {
     moduleMetaLookup.set(namespace, meta);
   }
@@ -297,6 +385,33 @@ export function buildRuntimeGlobals(
   const eventContext = s._activeEventContext as
     | import('../../event/types.js').AxEventContext
     | undefined;
+  const bindFunction = (
+    fn: AxFunction,
+    qualifiedName: string,
+    kind: 'internal' | 'external'
+  ) => {
+    const bind = (authorize?: () => void, label?: string) =>
+      wrapFunction(
+        fn,
+        abortSignal,
+        ai,
+        protocolForTrigger,
+        qualifiedName,
+        functionCallRecorder,
+        kind,
+        onFunctionCall,
+        eventContext,
+        { ...runOptions, _mcpExecutionContext: s._activeMCPExecutionContext },
+        observations,
+        () => ensureDiscovered(qualifiedName),
+        authorize,
+        label
+      );
+    batchFunctions.set(qualifiedName, (args, label, authorize) =>
+      bind(authorize, label)(...args)
+    );
+    return bind();
+  };
 
   // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn).
   // Agent-derived entries carry `_kind: 'internal'` so that `onFunctionCall`
@@ -309,18 +424,7 @@ export function buildRuntimeGlobals(
     }
     const qualifiedName = `${ns}.${agentFn.name}`;
     (globals[ns] as Record<string, unknown>)[agentFn.name] = executesTools
-      ? wrapFunction(
-          agentFn,
-          abortSignal,
-          ai,
-          protocolForTrigger,
-          qualifiedName,
-          functionCallRecorder,
-          agentFn._kind ?? 'external',
-          onFunctionCall,
-          eventContext,
-          { ...runOptions, _mcpExecutionContext: s._activeMCPExecutionContext }
-        )
+      ? bindFunction(agentFn, qualifiedName, agentFn._kind ?? 'external')
       : buildStageToolStub(qualifiedName);
     if (agentFn._alwaysInclude !== true) {
       registerCallable(
@@ -330,6 +434,7 @@ export function buildRuntimeGlobals(
           description: agentFn.description,
           parameters: agentFn.parameters,
           returns: agentFn.returns,
+          resultPolicy: agentFn.resultPolicy,
           examples: agentFn.examples,
         },
         qualifiedName
@@ -351,21 +456,7 @@ export function buildRuntimeGlobals(
         .filter((candidate) => candidate.namespace === namespace)) {
         const qualifiedName = `mcp.${namespace}.tools.${binding.name}`;
         tools[binding.name] = executesTools
-          ? wrapFunction(
-              binding,
-              abortSignal,
-              ai,
-              protocolForTrigger,
-              qualifiedName,
-              functionCallRecorder,
-              'external',
-              onFunctionCall,
-              eventContext,
-              {
-                ...runOptions,
-                _mcpExecutionContext: s._activeMCPExecutionContext,
-              }
-            )
+          ? bindFunction(binding, qualifiedName, 'external')
           : buildStageToolStub(qualifiedName);
         registerCallable(
           {
@@ -374,6 +465,7 @@ export function buildRuntimeGlobals(
             description: binding.description,
             parameters: binding.parameters,
             returns: binding.returns,
+            resultPolicy: binding.resultPolicy,
           },
           qualifiedName
         );
@@ -381,8 +473,38 @@ export function buildRuntimeGlobals(
       const executeOrStub = <T extends (...args: any[]) => Promise<unknown>>(
         qualifiedName: string,
         fn: T
-      ): T | ReturnType<typeof buildStageToolStub> =>
-        executesTools ? fn : buildStageToolStub(qualifiedName);
+      ): T | ReturnType<typeof buildStageToolStub> => {
+        if (!executesTools) return buildStageToolStub(qualifiedName);
+        const bind =
+          (authorize?: () => void, label = qualifiedName) =>
+          async (...args: Parameters<T>) => {
+            if (authorize) authorize();
+            else observations?.assertCanAct();
+            abortSignal?.throwIfAborted();
+            const generation = observations?.captureGeneration();
+            const finishCall = observations?.beginCall(qualifiedName);
+            try {
+              const result = await fn(...args);
+              observations?.recordResult(label, result, generation);
+              return result;
+            } catch (error) {
+              observations?.recordResult(
+                label,
+                {
+                  error: error instanceof Error ? error.message : String(error),
+                },
+                generation
+              );
+              throw error;
+            } finally {
+              finishCall?.();
+            }
+          };
+        batchFunctions.set(qualifiedName, (args, label, authorize) =>
+          bind(authorize, label)(...(args as Parameters<T>))
+        );
+        return bind() as T;
+      };
       mcpRoot[namespace] = {
         tools,
         prompts: {
@@ -442,21 +564,7 @@ export function buildRuntimeGlobals(
       for (const binding of client.getOperationBindings()) {
         const qualifiedName = `ucp.${namespace}.${binding.name}`;
         operations[binding.name] = executesTools
-          ? wrapFunction(
-              binding,
-              abortSignal,
-              ai,
-              protocolForTrigger,
-              qualifiedName,
-              functionCallRecorder,
-              'external',
-              onFunctionCall,
-              eventContext,
-              {
-                ...runOptions,
-                _mcpExecutionContext: s._activeMCPExecutionContext,
-              }
-            )
+          ? bindFunction(binding, qualifiedName, 'external')
           : buildStageToolStub(qualifiedName);
         registerCallable(
           {
@@ -465,6 +573,7 @@ export function buildRuntimeGlobals(
             description: binding.description,
             parameters: binding.parameters,
             returns: binding.returns,
+            resultPolicy: binding.resultPolicy,
           },
           qualifiedName
         );
@@ -477,81 +586,232 @@ export function buildRuntimeGlobals(
     }
   }
 
+  if (executesTools) {
+    // The actor supplies every argument before dispatch. No generated callback
+    // can inspect one result and choose another action inside this batch.
+    globals.batch = async (input: unknown) => {
+      observations?.assertCanAct();
+      const generation = observations?.captureGeneration();
+      if (!Array.isArray(input) || input.length === 0) {
+        throw new Error(
+          'batch requires a non-empty array of { name, args } calls.'
+        );
+      }
+      const calls = input.map((item: unknown) => {
+        if (
+          !item ||
+          typeof item !== 'object' ||
+          !('name' in item) ||
+          typeof item.name !== 'string'
+        ) {
+          throw new Error(
+            'Each batch call requires a qualified function name and optional args.'
+          );
+        }
+        const binding = batchFunctions.get(item.name);
+        if (!binding) throw new Error(`Unknown batch function: ${item.name}`);
+        const args = 'args' in item ? item.args : {};
+        if (args === null || typeof args !== 'object') {
+          throw new Error(
+            `Batch args for ${item.name} must be an object or positional array.`
+          );
+        }
+        return {
+          name: item.name,
+          binding,
+          args: Array.isArray(args) ? args : [args],
+        };
+      });
+      // Load ALL missing contracts before running ANY calls. This prevents
+      // partial side effects and one discovery turn per batch member.
+      ensureDiscovered(calls.map((call) => call.name));
+      const finish = observations?.beginCall('batch');
+      const results: unknown[] = new Array(calls.length);
+      let terminal: { error: unknown } | undefined;
+      let next = 0;
+      const authorize = () => {
+        abortSignal?.throwIfAborted();
+        if (generation !== observations?.captureGeneration()) {
+          throw new AxAIServiceAbortedError(
+            'rlm-session',
+            'Runtime execution ended before batch dispatch'
+          );
+        }
+        if (terminal) throw terminal.error;
+      };
+      const isTerminal = (error: unknown) =>
+        error instanceof AxAgentProtocolCompletionSignal ||
+        error instanceof AxAgentClarificationError ||
+        error instanceof AxAIServiceAbortedError ||
+        (error instanceof Error && error.name === 'AbortError') ||
+        s.shouldBubbleUserError?.(error) ||
+        abortSignal?.aborted === true;
+      try {
+        await Promise.all(
+          Array.from(
+            { length: Math.min(calls.length, DEFAULT_RLM_BATCH_CONCURRENCY) },
+            async () => {
+              while (next < calls.length && !terminal) {
+                const index = next++;
+                const call = calls[index]!;
+                const label = `batch[${index}] ${call.name}`;
+                try {
+                  authorize();
+                  const value = await call.binding(call.args, label, authorize);
+                  results[index] = {
+                    name: call.name,
+                    status: 'fulfilled',
+                    value,
+                  };
+                } catch (error) {
+                  if (isTerminal(error)) terminal ??= { error };
+                  const message =
+                    error instanceof Error ? error.message : String(error);
+                  results[index] = {
+                    name: call.name,
+                    status: 'rejected',
+                    error: message,
+                  };
+                  if (observations?.isPause(error)) {
+                    observations.recordResult(
+                      label,
+                      { error: message },
+                      generation
+                    );
+                  }
+                }
+              }
+            }
+          )
+        );
+        if (terminal) throw terminal.error;
+        abortSignal?.throwIfAborted();
+        return results;
+      } finally {
+        finish?.();
+      }
+    };
+  }
+
   if (s.functionDiscoveryEnabled || typeof s.onSkillsSearch === 'function') {
     globals[DISCOVERY_DISCOVER_NAME] = async (
       input: unknown
     ): Promise<void> => {
-      await fireInternal(DISCOVERY_DISCOVER_NAME, { request: input });
-      const { tools, skills } = normalizeDiscoverInput(input, {
-        toolsEnabled: Boolean(s.functionDiscoveryEnabled),
-        skillsEnabled: typeof s.onSkillsSearch === 'function',
-      });
+      observations?.assertCanAct();
+      const generation = observations?.captureGeneration();
+      const finishCall = observations?.beginCall(DISCOVERY_DISCOVER_NAME);
+      try {
+        await fireInternal(DISCOVERY_DISCOVER_NAME, { request: input });
+        if (generation !== observations?.captureGeneration()) return;
+        const { tools, skills } = normalizeDiscoverInput(input, {
+          toolsEnabled: Boolean(s.functionDiscoveryEnabled),
+          skillsEnabled: typeof s.onSkillsSearch === 'function',
+        });
 
-      if (tools.length > 0) {
-        const modules = sortDiscoveryModules(
-          tools.filter((item) => {
-            const meta = moduleMetaLookup.get(item);
-            return moduleLookup.has(item) || meta?.alwaysInclude === true;
-          })
-        );
-        const functionItems = tools.filter((item) => !modules.includes(item));
-
-        if (modules.length > 0) {
-          const docs = Object.fromEntries(
-            modules.map((module) => [
-              module,
-              renderDiscoveryModuleListMarkdown(
-                [module],
-                moduleLookup,
-                moduleMetaLookup
-              ),
-            ])
+        if (tools.length > 0) {
+          const modules = sortDiscoveryModules(
+            tools.filter((item) => moduleLookup.has(item))
           );
-          onDiscoveredModules?.(modules, docs);
-        }
+          const functionItems = tools.filter((item) => !modules.includes(item));
 
-        if (functionItems.length > 0) {
-          const items =
-            normalizeAndSortDiscoveryFunctionIdentifiers(functionItems);
-          const matchedNamespaces = resolveDiscoveryCallableNamespaces(
-            items,
-            callableLookup
-          );
-          if (matchedNamespaces.length > 0) {
-            onDiscoveredNamespaces?.(matchedNamespaces);
+          if (modules.length > 0) {
+            const docs = Object.fromEntries(
+              modules.map((module) => [
+                module,
+                renderDiscoveryModuleListMarkdown(
+                  [module],
+                  moduleLookup,
+                  moduleMetaLookup
+                ),
+              ])
+            );
+            onDiscoveredModules?.(modules, docs);
           }
-          const docs = Object.fromEntries(
-            items.map((qualifiedName) => [
-              qualifiedName,
-              renderDiscoveryFunctionDefinitionsMarkdown(
-                [qualifiedName],
-                callableLookup
-              ),
-            ])
-          );
-          onDiscoveredFunctions?.(items, docs);
-        }
-      }
 
-      if (skills.length > 0) {
-        const results = await s.onSkillsSearch(skills);
-        if (!Array.isArray(results) || results.length === 0) return;
-        const matched = results as readonly AxAgentSkillResult[];
-        onLoadedSkills?.(matched);
+          if (functionItems.length > 0) {
+            const items =
+              normalizeAndSortDiscoveryFunctionIdentifiers(functionItems);
+            const found = items.filter((item) => callableLookup.has(item));
+            const missing = items.filter((item) => !callableLookup.has(item));
+            const matchedNamespaces = resolveDiscoveryCallableNamespaces(
+              found,
+              callableLookup
+            );
+            if (matchedNamespaces.length > 0) {
+              onDiscoveredNamespaces?.(matchedNamespaces);
+            }
+            const docs = Object.fromEntries(
+              found.map((qualifiedName) => [
+                qualifiedName,
+                renderDiscoveryFunctionDefinitionsMarkdown(
+                  [qualifiedName],
+                  callableLookup
+                ),
+              ])
+            );
+            if (found.length > 0) onDiscoveredFunctions?.(found, docs);
+            if (missing.length > 0) {
+              // A failed lookup is feedback, never a loaded callable contract.
+              // Remove negative entries restored from older continuation state.
+              for (const name of missing)
+                s.currentDiscoveryPromptState?.functions.delete(name);
+              const availableModules = sortDiscoveryModules([
+                ...moduleLookup.keys(),
+              ]);
+              const availableFunctions = [...callableLookup.keys()].sort();
+              observations?.recordResult(
+                DISCOVERY_DISCOVER_NAME,
+                {
+                  error:
+                    'No callable found in the discovery catalog for these names. Discovery did not create them.',
+                  notFound: missing,
+                  availableModules: availableModules.slice(0, 8),
+                  ...(availableFunctions.length <= 8
+                    ? { availableFunctions }
+                    : {}),
+                  nextStep:
+                    'Discover an available module to list its functions, then discover a qualified function from that list. Only documented callables can run.',
+                },
+                generation
+              );
+            }
+          }
+        }
+
+        if (skills.length > 0) {
+          const results = await s.onSkillsSearch(skills);
+          if (generation !== observations?.captureGeneration()) return;
+          if (Array.isArray(results) && results.length > 0) {
+            onLoadedSkills?.(results as readonly AxAgentSkillResult[]);
+          }
+        }
+        observations?.finishDiscovery(generation);
+      } finally {
+        finishCall?.();
       }
     };
   }
 
   if (typeof s.onMemoriesSearch === 'function') {
     globals[MEMORIES_LOAD_NAME] = async (input: unknown): Promise<void> => {
-      await fireInternal(MEMORIES_LOAD_NAME, { searches: input });
-      const searches = normalizeMemoriesInput(input);
-      if (searches.length === 0) return;
-      const alreadyLoaded = getCurrentMemories?.() ?? [];
-      const results = await s.onMemoriesSearch(searches, alreadyLoaded);
-      if (!Array.isArray(results) || results.length === 0) return;
-      const matched = results as readonly AxAgentMemoryResult[];
-      onLoadedMemories?.(matched);
+      observations?.assertCanAct();
+      const generation = observations?.captureGeneration();
+      const finishCall = observations?.beginCall(MEMORIES_LOAD_NAME);
+      try {
+        await fireInternal(MEMORIES_LOAD_NAME, { searches: input });
+        if (generation !== observations?.captureGeneration()) return;
+        const searches = normalizeMemoriesInput(input);
+        if (searches.length === 0) return;
+        const alreadyLoaded = getCurrentMemories?.() ?? [];
+        const results = await s.onMemoriesSearch(searches, alreadyLoaded);
+        if (generation !== observations?.captureGeneration()) return;
+        if (Array.isArray(results) && results.length > 0) {
+          onLoadedMemories?.(results as readonly AxAgentMemoryResult[]);
+        }
+        observations?.finishDiscovery(generation);
+      } finally {
+        finishCall?.();
+      }
     };
   }
 

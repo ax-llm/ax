@@ -3961,6 +3961,31 @@
         "Add a TS-derived conformance fixture whose first executor reply has finish reason length",
         "Run npm run axir:conformance:check and npm run test:axir"
       ]
+    },
+    {
+      "id": "axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations",
+      "status": "open",
+      "title": "Preserve fresh RLM tool feedback and compact older observations",
+      "createdAt": "2026-11-17",
+      "sourcePR": null,
+      "sourceCommit": "5706a70d2270b68bced7d3946dede3753bcba099",
+      "tsPaths": [
+        "src/ax/agent",
+        "src/ax/funcs/jsRuntime.ts",
+        "src/ax/funcs/worker.runtime.ts",
+        "src/ax/ai/types.ts",
+        "src/ax/dsp/sig.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TypeScript agents pause after discovery and inspection results before dependent actions. Port data-tool chaining, ordered independent batches, bounded previews, suspended program replay, and checkpoint reuse to the generated agent runtimes.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

@@ -6,7 +6,10 @@ import {
 import type { AxStageDefinitionBuildOptions } from './agentInternalTypes.js';
 import { type AxAgentStagePolicy, resolveStagePolicy } from './stagePolicy.js';
 
-export function renderActorDefinition(self: any): string {
+export function renderActorDefinition(
+  self: any,
+  observationBoundaries = true
+): string {
   const s = self as any;
   if (!s.actorDefinitionBuildOptions) {
     return s.baseActorDefinition;
@@ -18,6 +21,7 @@ export function renderActorDefinition(self: any): string {
   const hasProtocolAuthority = protocolCallables.length > 0;
   const buildOptions: AxStageDefinitionBuildOptions = {
     ...s.actorDefinitionBuildOptions,
+    observationBoundaries,
     // Protocol operations are live runtime bindings, resolved per forward.
     // Merge their real callable paths into the dynamic actor definition rather
     // than exposing them as provider-native tools on the backing AxGen.

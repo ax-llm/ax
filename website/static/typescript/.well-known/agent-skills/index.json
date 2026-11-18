@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:093e4a293e8bac94edf718c21249f963cbf7eacba502de3fa0768d25748b8b79"
+      "digest": "sha256:2cc2c5808d5a7324b1844aa8b34aa522ff8e9700e050a55481ac4ed66dbc8dce"
     },
     {
       "name": "ax-ai",
@@ -62,14 +62,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:deacedb487fd81d4f0bf0c711828d1606711f3f1b3f5ff3b25652549fbf64d01"
+      "digest": "sha256:00b06eb51b533fdd55aa7ed58f34ab360308ddab5b27023851fd6bc8cdc6d8be"
     },
     {
       "name": "ax-agent-rlm",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.",
       "url": "ax-agent-rlm/SKILL.md",
-      "digest": "sha256:88b1e84c6afad1bf20b616685a98df221405951ee0bb8e9d4a3daef9adc41b48"
+      "digest": "sha256:8d774f79ed5516a45d668088e498c8c07e20a2a950506606f60f84c498bc9ebe"
     },
     {
       "name": "ax-agent-memory-skills",

@@ -4,8 +4,8 @@
   "emitted_functions": 1126,
   "files": {
     "axllm/axllm.cpp": {
-      "emitted_lines": 52355,
-      "total_lines": 63111
+      "emitted_lines": 52357,
+      "total_lines": 63113
     }
   }
 }
