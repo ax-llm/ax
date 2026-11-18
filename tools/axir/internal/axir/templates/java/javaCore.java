@@ -386,6 +386,7 @@ final class Core {
         case "name" -> t.name;
         case "namespace" -> t.namespace() == null ? defaultValue : t.namespace();
         case "execution" -> t.execution;
+        case "result_policy" -> t.resultPolicy == null ? defaultValue : t.resultPolicy;
         case "description" -> t.description;
         case "parameters" -> t.schema();
         case "args" -> t.args;

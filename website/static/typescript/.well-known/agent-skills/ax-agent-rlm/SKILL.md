@@ -87,6 +87,12 @@ console.log(topCustomers);
 
 Reason: turn 2 reuses `customers` from the persistent runtime. `Live Runtime State` or summaries may change how turn 1 is shown in the prompt, but they do not remove the value from the runtime session.
 
+## Observation Boundaries in Generated Packages
+
+The embedded JavaScript engines for Python, Go, Rust, Java, and C++ pause after discovery or recall and require another model turn before acting on inspection results. An inspection result is shown within the runtime output budget and the complete value remains in its saved binding. Independent calls can share a turn through `batch`, which preflights discovery for every member and returns outcomes in input order. These adapters invoke batch members in order through synchronous host callbacks.
+
+Use `result_policy("data")` on Python, Rust, and C++ tool builders, `WithResultPolicy("data")` in Go, or `resultPolicy("data")` in Java when the result can be consumed deterministically. Custom runtimes retain their own execution behavior.
+
 ## Enforced Observation Boundaries (TypeScript)
 
 - `discover(...)` and `recall(...)` finish the current execution, including when called through an alias. Dependent code is generated on the next turn. Discovery is never hoisted or replayed automatically.

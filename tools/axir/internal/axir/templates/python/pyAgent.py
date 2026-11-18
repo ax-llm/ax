@@ -36,6 +36,7 @@ from .gen import (
     _core_ai_client_features,
     _core_axgen_deprecation,
     _core_fields_from_map,
+    _core_exception_is_aborted,
     _core_exception_message,
     _core_string_index_of,
     _core_string_str,

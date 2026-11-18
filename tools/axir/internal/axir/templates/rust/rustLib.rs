@@ -4695,6 +4695,7 @@ pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
 pub struct Tool {
     pub parameters: Option<Value>,
     pub execution: String,
+    pub result_policy: Option<String>,
     pub name: String,
     pub description: String,
     pub args: Map<String, Value>,
@@ -4755,6 +4756,7 @@ impl Tool {
 pub struct ToolBuilder {
     parameters: Option<Value>,
     execution: String,
+    result_policy: Option<String>,
     name: String,
     description: String,
     args: Map<String, Value>,
@@ -4764,6 +4766,7 @@ pub fn tool(name: &str) -> ToolBuilder {
     ToolBuilder {
         parameters: None,
         execution: "blocking".to_string(),
+        result_policy: None,
         name: name.to_string(),
         description: String::new(),
         args: Map::new(),
@@ -4777,6 +4780,12 @@ impl ToolBuilder {
         self.execution = mode.to_string();
         self
     }
+    pub fn result_policy(mut self, policy: &str) -> Self {
+        assert!(policy == "inspect" || policy == "data", "Tool result_policy must be inspect or data");
+        self.result_policy = Some(policy.to_string());
+        self
+    }
+
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
         self
@@ -4802,6 +4811,7 @@ impl ToolBuilder {
         Tool {
             parameters: self.parameters,
             execution: self.execution,
+            result_policy: self.result_policy,
             name: self.name,
             description: self.description,
             args: self.args,
@@ -23979,6 +23989,7 @@ impl CoreHost for ToolHost {
             "name" => Ok(CoreValue::from(self.tool.name.as_str())),
             "description" => Ok(CoreValue::from(self.tool.description.as_str())),
             "execution" => Ok(CoreValue::from(self.tool.execution.as_str())),
+            "result_policy" => Ok(self.tool.result_policy.as_deref().map(CoreValue::from).unwrap_or(CoreValue::Null)),
             "parameters" | "args" => Ok(core_value_from_json(&Value::Object(
                 self.tool.args.clone(),
             ))),
@@ -27520,6 +27531,12 @@ impl CoreHost for ScopedRuntimeHost {
     fn host_type(&self) -> &'static str {
         "AxCodeRuntime"
     }
+
+    fn register_runtime_callable(&self, name: &str, callable: AxHostCallable) -> bool {
+        // SAFETY: the runtime is borrowed by the enclosing agent method.
+        unsafe { &mut *self.0 }.register_host_callable(name, callable).is_ok()
+    }
+
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         // SAFETY: the pointer is valid for the duration of the agent method
         // that constructed this host; emitted code uses it synchronously.

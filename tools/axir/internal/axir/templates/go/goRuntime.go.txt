@@ -3403,6 +3403,7 @@ func title(name string) string {
 type Tool struct {
     Parameters Value
     ExecutionMode string
+    ResultPolicy string
 	Name        string
 	// Namespace files a flat agent function under it (TS fn().namespace());
 	// empty means the agent's default "tools".
@@ -3420,6 +3421,12 @@ func Fn(name string) Tool {
 func (t Tool) Execution(mode string) Tool {
     if mode != "blocking" && mode != "background" { panic("Tool execution must be blocking or background") }
     t.ExecutionMode = mode
+    return t
+}
+// WithResultPolicy marks a tool result as inspect (default) or deterministic data.
+func (t Tool) WithResultPolicy(policy string) Tool {
+    if policy != "inspect" && policy != "data" { panic("Tool resultPolicy must be inspect or data") }
+    t.ResultPolicy = policy
     return t
 }
 // WithNamespace sets the namespace an agent lists and calls a flat function
@@ -3504,6 +3511,8 @@ func toolFields(fields map[string]Field) []Field {
 }
 func (t Tool) get(key string, fallback Value) Value {
 	switch key {
+    case "result_policy":
+        if t.ResultPolicy == "" { return fallback }; return t.ResultPolicy
 	case "execution":
         if t.ExecutionMode == "" { return "blocking" }; return t.ExecutionMode
 	case "name":

@@ -6340,8 +6340,14 @@ Tool& Tool::execution(const std::string& mode) {
   execution_mode = mode; return *this;
 }
 
+Tool& Tool::result_policy(const std::string& policy) {
+  if (policy != "inspect" && policy != "data") throw std::invalid_argument("Tool result_policy must be inspect or data");
+  result_policy_value = policy;
+  return *this;
+}
+
 Value Tool::value() const {
-  return Value(Object{
+  Object descriptor{
       {"__tool_id", id},
       {"execution", execution_mode},
       {"name", name},
@@ -6349,7 +6355,9 @@ Value Tool::value() const {
       {"parameters", parameters},
       {"args", args},
       {"returns", returns},
-  });
+  };
+  if (!result_policy_value.empty()) descriptor["result_policy"] = result_policy_value;
+  return Value(std::move(descriptor));
 }
 
 AxMemory::AxMemory() : items_(Value(Object{{"items", Value::array()}})) {}

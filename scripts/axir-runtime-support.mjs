@@ -277,6 +277,7 @@ globalThis.__ax_install_final_evidence = function () {
     return;
   }
   const wrapped = function () {
+    const result = hostFinal.apply(this, arguments);
     const context = arguments[1];
     if (
       globalThis.__ax_phase !== 'executor' &&
@@ -287,7 +288,7 @@ globalThis.__ax_install_final_evidence = function () {
     ) {
       globalThis.distilledContext = context;
     }
-    return hostFinal.apply(this, arguments);
+    return result;
   };
   wrapped.__ax_final_evidence = true;
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'final') || {};

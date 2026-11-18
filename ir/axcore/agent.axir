@@ -233,7 +233,17 @@ module @ax.agent version "0.1" {
     type signature = "(json) -> list<string>"
     body @entry(%state: json) {
       %empty_list = core.list
-      %reserved = core.call @agent_reserved_runtime_names()
+      %all_reserved = core.call @agent_reserved_runtime_names()
+      %reserved = core.list
+      %feedback = core.call @agent_observation_enabled(%state)
+      core.for %name in %all_reserved {
+        %is_batch = core.call intrinsic.eq(%name, "batch")
+        %is_guard = core.call intrinsic.eq(%name, "__ax_observation_guard")
+        %feedback_name = core.call intrinsic.or(%is_batch, %is_guard)
+        %legacy_name = core.call intrinsic.not(%feedback_name)
+        %include = core.call intrinsic.or(%feedback, %legacy_name)
+        core.if %include { core.append %reserved, %name }
+      }
       %input_names = core.get %state["runtime_input_names"] default %empty_list
       core.for %name in %input_names {
         %already = core.call intrinsic.contains(%reserved, %name)
@@ -391,7 +401,7 @@ module @ax.agent version "0.1" {
       core.set %out["code_field_title"] = %code_field_title
       core.set %out["code_fence_language"] = %code_fence_language
       core.set %out["is_javascript"] = %is_js
-      %observation_boundaries = core.call intrinsic.agent.runtime.observation_boundaries(%runtime)
+      %observation_boundaries = core.call intrinsic.agent.runtime.feedback(%runtime)
       core.if %observation_boundaries {
         core.set %out["observation_boundaries"] = true
       }
@@ -796,6 +806,8 @@ module @ax.agent version "0.1" {
       core.append %reserved, "discover"
       core.append %reserved, "recall"
       core.append %reserved, "llmQuery"
+      core.append %reserved, "batch"
+      core.append %reserved, "__ax_observation_guard"
       core.append %reserved, "inspectRuntime"
       core.append %reserved, "reportSuccess"
       core.append %reserved, "reportFailure"
@@ -1476,6 +1488,8 @@ module @ax.agent version "0.1" {
       %combined = core.call intrinsic.and(%disc, %skills)
       core.set %flags["discoveryMode+skillsMode"] = %combined
       core.set %flags["hasSkills"] = %stage_skills
+      %feedback = core.call @agent_observation_enabled(%state)
+      core.set %flags["observationBoundaries"] = %feedback
       core.return %flags
     }
   }
@@ -1669,7 +1683,8 @@ module @ax.agent version "0.1" {
       %skill_usage_camel = core.get %options["skillUsageMode"] default false
       %skill_usage_mode = core.get %options["skill_usage_mode"] default %skill_usage_camel
       %callable_split = core.get %state["callable_split"] default %empty_map
-      %functions_list = core.call @agent_render_actor_functions_list(%callable_split, %discovery_mode, %language, %is_javascript)
+      %feedback = core.get %flags["observationBoundaries"] default false
+      %functions_list = core.call @agent_render_actor_functions_list(%callable_split, %discovery_mode, %language, %is_javascript, %feedback)
       %modules_list = core.call @agent_render_actor_modules_list(%callable_split)
       %has_module_lines = core.call intrinsic.ne(%modules_list, "")
       %has_modules = core.call intrinsic.and(%discovery_mode, %has_module_lines)
@@ -1686,7 +1701,7 @@ module @ax.agent version "0.1" {
       core.set %vars["runtimeCodeFieldTitle"] = %code_field_title
       core.set %vars["runtimeCodeFenceLanguage"] = %code_fence_language
       core.set %vars["isJavaScriptRuntime"] = %is_javascript
-      core.set %vars["observationBoundaries"] = false
+      core.set %vars["observationBoundaries"] = %feedback
       core.set %vars["runtimeUsageInstructions"] = %usage_instructions
       core.set %vars["primitivesList"] = %primitives_list
       core.set %vars["functionsList"] = %functions_list
@@ -1755,7 +1770,8 @@ module @ax.agent version "0.1" {
       %skill_usage_camel = core.get %options["skillUsageMode"] default false
       %skill_usage_mode = core.get %options["skill_usage_mode"] default %skill_usage_camel
       %callable_split = core.get %state["callable_split"] default %empty_map
-      %functions_list = core.call @agent_render_actor_functions_list(%callable_split, %discovery_mode, %language, %is_javascript)
+      %feedback = core.get %flags["observationBoundaries"] default false
+      %functions_list = core.call @agent_render_actor_functions_list(%callable_split, %discovery_mode, %language, %is_javascript, %feedback)
       %modules_list = core.call @agent_render_actor_modules_list(%callable_split)
       %has_executor_functions = core.call intrinsic.ne(%functions_list, "")
       %has_module_lines = core.call intrinsic.ne(%modules_list, "")
@@ -1785,7 +1801,7 @@ module @ax.agent version "0.1" {
       core.set %vars["hasSkillsCatalog"] = %has_skills_catalog
       core.set %vars["skillsCatalogList"] = %skills_catalog_list
       core.set %vars["isJavaScriptRuntime"] = %is_javascript
-      core.set %vars["observationBoundaries"] = false
+      core.set %vars["observationBoundaries"] = %feedback
       core.set %vars["memoriesMode"] = %memories_mode
       core.set %vars["memoryUsageMode"] = %memory_usage_mode
       core.set %vars["skillUsageMode"] = %skill_usage_mode
@@ -3046,6 +3062,8 @@ module @ax.agent version "0.1" {
       %observed_boundaries = core.get %state["observed_feedback"] default false
       %measure_replay = core.call intrinsic.and(%checkpointed, %observed_boundaries)
       core.if %measure_replay {
+        %entries = core.call @agent_stage_action_entries(%state)
+        %count = core.call intrinsic.len(%entries)
         %hygiene = core.get %policy["contextHygiene"] default null
         %hygiene_mode = core.get %hygiene["defaultMode"] default "none"
         %parts = core.call @agent_build_action_log_parts(%state, %hygiene_mode)
@@ -3168,6 +3186,8 @@ module @ax.agent version "0.1" {
         %is_session_record = core.call intrinsic.eq(%log_entry_type, "runtime_session")
         %before_stage = core.call intrinsic.lt(%log_position, %stage_start)
         %hidden = core.call intrinsic.or(%is_session_record, %before_stage)
+        %trace_only = core.get %log_entry["trace_only"] default false
+        %hidden = core.call intrinsic.or(%hidden, %trace_only)
         core.if %hidden {
         } else {
           core.append %entries, %log_entry
@@ -4621,6 +4641,9 @@ module @ax.agent version "0.1" {
         %qualified = core.get %doc["qualified_name"] default ""
         %description = core.get %doc["description"] default ""
         %line = core.call intrinsic.string.format("- {}: {}", %qualified, %description)
+        %contract = core.get %doc["runtime_contract"] default ""
+        %has_contract = core.call intrinsic.ne(%contract, "")
+        core.if %has_contract { %line = core.let %contract }
         core.append %lines, %line
       }
       %body = core.call intrinsic.string.join("\n", %lines)
@@ -4692,12 +4715,16 @@ module @ax.agent version "0.1" {
       %action_log = core.get %state["action_log"] default %empty_list
       %tools = core.get %normalized["tools"] default %empty_list
       %skills = core.get %normalized["skills"] default %empty_list
+      %feedback = core.call @agent_observation_enabled(%state)
+      %missing_tools = core.list
       core.for %wanted in %tools {
+        %matched = core.let false
         core.for %group in %inventory {
           %namespace = core.get %group["namespace"]
           %namespace_match = core.call intrinsic.eq(%namespace, %wanted)
           %callables = core.get %group["callables"] default %empty_list
           core.if %namespace_match {
+            %matched = core.let true
             core.for %callable in %callables {
               %doc_name = core.get %callable["name"]
               %doc_qualified = core.get %callable["qualified_name"]
@@ -4719,6 +4746,7 @@ module @ax.agent version "0.1" {
               %name_match = core.call intrinsic.eq(%name, %wanted)
               %matches = core.call intrinsic.or(%qualified_match, %name_match)
               core.if %matches {
+                %matched = core.let true
                 %kind = core.get %callable["kind"]
                 %description = core.get %callable["description"] default ""
                 %doc = core.map
@@ -4728,11 +4756,23 @@ module @ax.agent version "0.1" {
                 core.set %doc["kind"] = %kind
                 core.set %doc["description"] = %description
                 %docs = core.call @agent_append_unique_by_field(%docs, %doc, "qualified_name")
+                core.if %feedback {
+                  %signature = core.call @agent_render_callable_block(%callable, "JavaScript", true)
+                  %policy_text = core.call @agent_render_result_policy(%callable)
+                  %contract_text = core.call intrinsic.string.format("{}\n{}\n{}", %description, %signature, %policy_text)
+                  core.for %stored in %docs {
+                    %stored_name = core.get %stored["qualified_name"] default ""
+                    %same = core.call intrinsic.eq(%stored_name, %qualified)
+                    core.if %same { core.set %stored["runtime_contract"] = %contract_text }
+                  }
+                }
               }
             }
           }
         }
+        core.if %matched {} else { core.append %missing_tools, %wanted }
       }
+      core.if %feedback { core.set %state["turn_missing_tools"] = %missing_tools }
       %skill_count = core.call intrinsic.len(%skills)
       %has_skills = core.call intrinsic.gt(%skill_count, 0)
       %loaded_from_search = core.list
@@ -5277,7 +5317,20 @@ module @ax.agent version "0.1" {
           core.set %result["status"] = "ok"
           core.set %result["value"] = %value
         } else {
-          %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+          %runtime_call = core.get %request["runtime_feedback"] default false
+          core.if %runtime_call {
+            core.try {
+              %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+            } catch %invoke_error {
+              %cancelled = core.call intrinsic.exception.is_aborted(%invoke_error)
+              core.if %cancelled { core.raise %invoke_error }
+              %message = core.call intrinsic.string.format("{}", %invoke_error)
+              core.set %result["status"] = "error"
+              core.set %result["error"] = %message
+            }
+          } else {
+            %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+          }
         }
       }
       %recorded = core.call @agent_record_callable_result(%state, %request, %result, %options)
@@ -5327,6 +5380,15 @@ module @ax.agent version "0.1" {
       core.set %action["qualified_name"] = %qualified
       %rendered_result = core.call intrinsic.json.stringify(%result)
       core.set %action["output"] = %rendered_result
+      %runtime_call = core.get %request["runtime_feedback"] default false
+      core.if %runtime_call {
+        core.set %action["trace_only"] = true
+        %call_names = core.get %state["turn_callable_records"] default %empty_list
+        %call_name = core.map
+        core.set %call_name["qualifiedName"] = %qualified
+        core.append %call_names, %call_name
+        core.set %state["turn_callable_records"] = %call_names
+      }
       core.set %action["status"] = %status
       core.append %action_log, %action
       core.set %state["action_log"] = %action_log
@@ -6340,6 +6402,12 @@ module @ax.agent version "0.1" {
       core.if %has_trace_id {
         core.set %runtime_options["traceId"] = %trace_id
       }
+      %observations_enabled = core.call @agent_observation_enabled(%state)
+      core.if %observations_enabled {
+        core.set %runtime_options["observationBoundaries"] = true
+      } else {
+        core.call intrinsic.map.delete(%runtime_options, "observationBoundaries")
+      }
       core.return %runtime_options
     }
   }
@@ -6413,7 +6481,7 @@ module @ax.agent version "0.1" {
       %enabled = core.call @agent_observation_enabled(%state)
       core.if %enabled {} else { core.return }
       %discover = core.get %entry["discover_request"] default null
-      %has_discovery = core.type_is %discover type "object"
+      %has_discovery = core.call intrinsic.is_not_none(%discover)
       %recall = core.get %entry["recall_request"] default null
       %has_recall = core.call intrinsic.is_not_none(%recall)
       %new_context = core.call intrinsic.or(%has_discovery, %has_recall)
@@ -6424,7 +6492,8 @@ module @ax.agent version "0.1" {
 
       %policy = core.get %state["context_policy"] default null
       %ceiling = core.get %policy["maxRuntimeChars"] default 12000
-      %dynamic = core.get %state["dynamic_runtime_chars"] default %ceiling
+      %actor_context = core.get %state["last_actor_context"] default null
+      %dynamic = core.get %actor_context["dynamicRuntimeChars"] default %ceiling
       %replay = core.get %policy["actionReplay"] default "full"
       %full = core.call intrinsic.eq(%replay, "full")
       %limit = core.let %dynamic
@@ -6432,6 +6501,8 @@ module @ax.agent version "0.1" {
       %invalid_limit = core.call intrinsic.lte(%limit, 0)
       core.if %invalid_limit { %limit = core.let %ceiling }
 
+      %now_over_ceiling = core.call intrinsic.gt(%limit, %ceiling)
+      core.if %now_over_ceiling { %limit = core.let %ceiling }
       %empty = core.list
       %observations = core.get %state["turn_observations"] default %empty
       %lines = core.list
@@ -6452,6 +6523,14 @@ module @ax.agent version "0.1" {
           %header = core.call intrinsic.string.format("[OBSERVATION] Execution paused before {}. Read the results and continue from saved runtime values.", %blocked)
         }
       }
+      %missing_tools = core.get %state["turn_missing_tools"] default %empty
+      %miss_count = core.call intrinsic.len(%missing_tools)
+      %has_misses = core.call intrinsic.gt(%miss_count, 0)
+      core.if %has_misses {
+        %miss_names = core.call intrinsic.string.join(", ", %missing_tools)
+        %bounded_misses = core.call @agent_clip_observation_text(%miss_names, 200)
+        %header = core.call intrinsic.string.format("{} Unknown tools: {}. Use a listed module or qualified tool name.", %header, %bounded_misses)
+      }
       %header_chars = core.call intrinsic.len(%header)
       %remainder = core.call intrinsic.add(%limit, -1)
       %negative_header = core.call intrinsic.mul(%header_chars, -1)
@@ -6469,6 +6548,17 @@ module @ax.agent version "0.1" {
           %text = core.let %failure
           core.if %is_failure {} else {
             %text = core.call intrinsic.json.stringify(%value)
+            %name_length = core.call intrinsic.len(%name)
+            %name_cost = core.call intrinsic.add(%name_length, 2)
+            %negative_name_cost = core.call intrinsic.mul(%name_cost, -1)
+            %value_budget = core.call intrinsic.add(%budget, %negative_name_cost)
+            %text_length = core.call intrinsic.len(%text)
+            %should_sample = core.call intrinsic.gt(%text_length, %value_budget)
+            %can_sample = core.call intrinsic.gt(%value_budget, 120)
+            %sample = core.call intrinsic.and(%should_sample, %can_sample)
+            core.if %sample {
+              %text = core.call @agent_smart_stringify(%value, %value_budget)
+            }
           }
           %line = core.call intrinsic.string.format("{}: {}", %name, %text)
           %bounded = core.call @agent_clip_observation_text(%line, %budget)
@@ -6495,7 +6585,8 @@ module @ax.agent version "0.1" {
       %text = core.call @agent_clip_observation_text(%text, %limit)
       core.set %entry["output"] = %text
       %none = core.call intrinsic.none()
-      core.set %entry["_functionCalls"] = %observations
+      %call_names = core.get %state["turn_callable_records"] default %empty
+      core.set %entry["_functionCalls"] = %call_names
       core.set %entry["completion_payload"] = %none
       core.set %entry["callable_request"] = %none
       core.set %entry["status"] = %none
@@ -6544,6 +6635,10 @@ module @ax.agent version "0.1" {
       core.if %observation_enabled {
         %observations = core.list
         core.set %state["turn_observations"] = %observations
+        %no_misses = core.list
+        core.set %state["turn_missing_tools"] = %no_misses
+        %call_names = core.list
+        core.set %state["turn_callable_records"] = %call_names
         core.set %state["observation_pending"] = false
         core.set %state["observation_blocked_action"] = ""
       }
@@ -6577,6 +6672,12 @@ module @ax.agent version "0.1" {
         }
         core.set %normalized["output"] = %rendered
       }
+      %discover_request = core.get %normalized["discover_request"] default null
+      %has_discover = core.call intrinsic.is_not_none(%discover_request)
+      %feedback_discover = core.call intrinsic.and(%observation_enabled, %has_discover)
+      core.if %feedback_discover {
+        core.call @agent_discover(%state, %discover_request)
+      }
       core.call @agent_apply_turn_observations(%state, %normalized)
       core.call @agent_runtime_append_action_log(%state, %normalized)
       core.call @agent_record_trace_event(%state, "runtime_execute", %normalized)
@@ -6584,9 +6685,9 @@ module @ax.agent version "0.1" {
       core.if %step_error {
         core.call @agent_record_trace_event(%state, "error", %normalized)
       }
-      %discover_request = core.get %normalized["discover_request"] default null
-      %has_discover = core.type_is %discover_request type "object"
-      core.if %has_discover {
+      %ordinary_runtime = core.call intrinsic.not(%observation_enabled)
+      %legacy_discover = core.call intrinsic.and(%has_discover, %ordinary_runtime)
+      core.if %legacy_discover {
         core.call @agent_discover(%state, %discover_request)
       }
       %recall_request = core.get %normalized["recall_request"] default null
@@ -10376,6 +10477,11 @@ module @ax.agent version "0.1" {
           core.append %names, %name
         }
       }
+      %feedback = core.call @agent_observation_enabled(%state)
+      core.if %feedback {
+        core.append %names, "batch"
+        core.append %names, "__ax_observation_guard"
+      }
       core.return %names
     }
   }
@@ -10393,6 +10499,7 @@ module @ax.agent version "0.1" {
       %all_visible = core.call intrinsic.not(%discovery)
       %inventory = core.get %state["callable_inventory"] default %empty_list
       %docs = core.get %state["discovered_tool_docs"] default %empty_list
+      %feedback = core.call @agent_observation_enabled(%state)
       core.for %group in %inventory {
         %group_always = core.get %group["always_include"] default false
         %group_visible = core.call intrinsic.or(%all_visible, %group_always)
@@ -10406,6 +10513,11 @@ module @ax.agent version "0.1" {
             core.for %doc in %docs {
               %doc_name = core.get %doc["qualified_name"] default ""
               %discovered = core.call intrinsic.eq(%doc_name, %qualified)
+              core.if %feedback {
+                %contract = core.get %doc["runtime_contract"] default ""
+                %documented = core.call intrinsic.ne(%contract, "")
+                %discovered = core.call intrinsic.and(%discovered, %documented)
+              }
               %visible = core.call intrinsic.or(%visible, %discovered)
             }
             core.return %visible
@@ -10495,6 +10607,92 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_runtime_execute_batch {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%state: json, %items: json, %options: json) {
+      %valid_list = core.type_is %items type "list"
+      core.if %valid_list {} else {
+        core.raise "batch requires an array of { name, args }"
+      }
+      %size = core.call intrinsic.len(%items)
+      %oversized = core.call intrinsic.gt(%size, 128)
+      core.if %oversized {
+        core.raise "batch allows up to 128 items"
+      }
+      %known_names = core.call @agent_runtime_callable_names(%state)
+      %missing = core.list
+      %prepared = core.list
+      %empty_map = core.map
+      %empty_list = core.list
+      %native_names = core.get %state["native_tool_names"] default %empty_list
+      core.for %item in %items {
+        %name = core.get %item["name"] default ""
+        %known = core.call intrinsic.contains(%known_names, %name)
+        %is_batch = core.call intrinsic.eq(%name, "batch")
+        %is_guard = core.call intrinsic.eq(%name, "__ax_observation_guard")
+        %is_native = core.call intrinsic.contains(%native_names, %name)
+        %forbidden = core.call intrinsic.or(%is_batch, %is_guard)
+        %forbidden = core.call intrinsic.or(%forbidden, %is_native)
+        %allowed = core.call intrinsic.not(%forbidden)
+        %valid = core.call intrinsic.and(%known, %allowed)
+        core.if %valid {} else {
+          %message = core.call intrinsic.string.format("Invalid batch callable: {}", %name)
+          core.raise %message
+        }
+        %visible = core.call @agent_callable_visible(%state, %name)
+        core.if %visible {} else { core.append %missing, %name }
+        %args = core.get %item["args"] default %empty_map
+        %args_ok = core.type_is %args type "object"
+        core.if %args_ok {} else {
+          core.raise "batch arguments must be objects"
+        }
+        %request = core.map
+        core.set %request["qualified_name"] = %name
+        core.set %request["args"] = %args
+        core.set %request["runtime_feedback"] = true
+        core.append %prepared, %request
+      }
+      %missing_count = core.call intrinsic.len(%missing)
+      %need_discovery = core.call intrinsic.gt(%missing_count, 0)
+      core.if %need_discovery {
+        core.call @agent_discover(%state, %missing)
+        core.set %state["observation_pending"] = true
+        core.set %state["observed_feedback"] = true
+        core.call @agent_guard_pending_observation(%state, "batch")
+      }
+      %outcomes = core.list
+      core.for %request2 in %prepared {
+        %name2 = core.get %request2["qualified_name"] default ""
+        // The runtime callback is synchronous. Collect every independent
+        // outcome before returning the batch to the current program.
+        %result = core.call @agent_execute_callable(%state, %request2, %options)
+        %status = core.get %result["status"] default "ok"
+        %failed = core.call intrinsic.eq(%status, "error")
+        %inspect = core.call @agent_runtime_tool_requires_inspection(%state, %name2)
+        %needs_observation = core.call intrinsic.or(%inspect, %failed)
+        core.if %needs_observation {
+          core.call @agent_record_turn_observation(%state, %name2, %result)
+        }
+        %outcome = core.map
+        core.set %outcome["name"] = %name2
+        core.if %failed {
+          %error = core.get %result["error"] default "Tool failed"
+          core.set %outcome["status"] = "rejected"
+          core.set %outcome["error"] = %error
+        } else {
+          %value = core.get %result["value"] default null
+          core.set %outcome["status"] = "fulfilled"
+          core.set %outcome["value"] = %value
+        }
+        core.append %outcomes, %outcome
+      }
+      core.return %outcomes
+    }
+  }
+
   op ax.agent.semantic @agent_runtime_invoke_callable {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -10515,7 +10713,27 @@ module @ax.agent version "0.1" {
           %error = core.call intrinsic.error.runtime("Tool calls must belong to an active actor turn")
           core.raise %error
         }
+      }
+      %empty_map = core.map
+      %base = core.get %state["options"] default %empty_map
+      %active_options = core.get %state["active_forward_options"] default %empty_map
+      %options = core.call intrinsic.map.merge(%base, %active_options)
+      %guard = core.call intrinsic.eq(%qualified, "__ax_observation_guard")
+      core.if %guard {
+        %action = core.get %arguments["action"] default "next action"
+        core.call @agent_guard_pending_observation(%state, %action)
+        core.return null
+      }
+      core.if %observation_enabled {
         core.call @agent_guard_pending_observation(%state, %qualified)
+      }
+      %is_batch = core.call intrinsic.eq(%qualified, "batch")
+      core.if %is_batch {
+        core.if %observation_enabled {} else {
+          core.raise "The selected runtime does not support batch"
+        }
+        %batch_result = core.call @agent_runtime_execute_batch(%state, %arguments, %options)
+        core.return %batch_result
       }
       %visible = core.call @agent_callable_visible(%state, %qualified)
       core.if %visible {
@@ -10536,13 +10754,10 @@ module @ax.agent version "0.1" {
         %error = core.call intrinsic.error.runtime(%message)
         core.raise %error
       }
-      %empty_map = core.map
-      %base = core.get %state["options"] default %empty_map
-      %active_options = core.get %state["active_forward_options"] default %empty_map
-      %options = core.call intrinsic.map.merge(%base, %active_options)
       %request = core.map
       core.set %request["qualified_name"] = %qualified
       core.set %request["args"] = %arguments
+      core.if %observation_enabled { core.set %request["runtime_feedback"] = true }
       %result = core.call @agent_execute_callable(%state, %request, %options)
       %status = core.get %result["status"] default "ok"
       %failed = core.call intrinsic.eq(%status, "error")
@@ -11367,7 +11582,7 @@ module @ax.agent version "0.1" {
       %contract_options = core.map
       core.set %contract_options["runtime"] = %config
       %contract = core.call @normalize_agent_runtime(%contract_options)
-      %observation_boundaries = core.call intrinsic.agent.runtime.observation_boundaries(%runtime)
+      %observation_boundaries = core.call intrinsic.agent.runtime.feedback(%runtime)
       core.if %observation_boundaries {
         core.set %contract["observation_boundaries"] = true
       }
@@ -11418,7 +11633,7 @@ module @ax.agent version "0.1" {
           %language = core.call intrinsic.agent.runtime.language(%runtime)
           %usage = core.call intrinsic.agent.runtime.usage_instructions(%runtime)
           %mode = core.call intrinsic.string.format("runtime:{}:{}", %language, %usage)
-          %observation_boundaries = core.call intrinsic.agent.runtime.observation_boundaries(%runtime)
+          %observation_boundaries = core.call intrinsic.agent.runtime.feedback(%runtime)
           core.if %observation_boundaries {
             %mode = core.call intrinsic.add(%mode, ":observations")
           }
@@ -11988,6 +12203,21 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_render_result_policy {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string"
+    body @entry(%callable: json) {
+      %policy = core.get %callable["result_policy"] default "inspect"
+      %is_data = core.call intrinsic.eq(%policy, "data")
+      core.if %is_data {
+        core.return "Result policy: data (deterministic chaining allowed)."
+      }
+      core.return "Result policy: inspect (review on the next model turn before another action or final)."
+    }
+  }
+
   op ax.agent.semantic @agent_render_callable_block {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -12048,8 +12278,8 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, bool, string, bool) -> string"
-    body @entry(%callable_split: json, %discovery_mode: bool, %language: string, %is_javascript: bool) {
+    type signature = "(json, bool, string, bool, bool) -> string"
+    body @entry(%callable_split: json, %discovery_mode: bool, %language: string, %is_javascript: bool, %feedback: bool) {
       // TS buildDistillerDefinition / buildExecutorDefinition: without
       // discovery every agent function is listed inline; with it, only the
       // always-included ones, which the ports keep in the inline split. Sorted
@@ -12088,6 +12318,10 @@ module @ax.agent version "0.1" {
       core.for %sorted_key in %sorted {
         %entry = core.get %by_key[%sorted_key]
         %block = core.call @agent_render_callable_block(%entry, %language, %is_javascript)
+        core.if %feedback {
+          %policy = core.call @agent_render_result_policy(%entry)
+          %block = core.call intrinsic.string.format("{}\n{}", %block, %policy)
+        }
         core.append %blocks, %block
       }
       %out = core.call intrinsic.string.join("\n\n", %blocks)
@@ -12676,6 +12910,8 @@ module @ax.agent version "0.1" {
         %is_session_record = core.call intrinsic.eq(%entry_type, "runtime_session")
         %before_stage = core.call intrinsic.lt(%position, %stage_start)
         %hidden = core.call intrinsic.or(%is_session_record, %before_stage)
+        %trace_only = core.get %entry["trace_only"] default false
+        %hidden = core.call intrinsic.or(%hidden, %trace_only)
         core.if %hidden {
         } else {
           core.append %entries, %entry
@@ -13353,6 +13589,8 @@ module @ax.agent version "0.1" {
         %is_session_record = core.call intrinsic.eq(%entry_type, "runtime_session")
         %before_stage = core.call intrinsic.lt(%position, %stage_start)
         %hidden = core.call intrinsic.or(%is_session_record, %before_stage)
+        %trace_only = core.get %entry["trace_only"] default false
+        %hidden = core.call intrinsic.or(%hidden, %trace_only)
         core.if %hidden {
         } else {
           core.append %entries, %entry

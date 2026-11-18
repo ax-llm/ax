@@ -14,11 +14,6 @@ import { axRuntimePrimitives } from './runtimePrimitives.js';
  * `discover.stages` was executor-only in the IR while TS had both stages.)
  */
 describe('rlm-prompts.json primitives stay in sync with the TS registry', () => {
-  // TypeScript-only primitives stay out of port prompts until their runtime
-  // implementation lands. Their parity work is tracked in the AxIR backlog.
-  const portablePrimitives = axRuntimePrimitives.filter(
-    (p) => !p.typescriptOnly
-  );
   const jsonPath = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     '../../../ir/axcore/data/rlm-prompts.json'
@@ -29,14 +24,14 @@ describe('rlm-prompts.json primitives stay in sync with the TS registry', () => 
 
   it('has the same primitive ids in the same order', () => {
     expect(irPrompts.primitives.map((p) => p.id)).toEqual(
-      portablePrimitives.map((p) => p.id)
+      axRuntimePrimitives.map((p) => p.id)
     );
   });
 
   it('mirrors each primitive field-for-field', () => {
     const normalize = (entry: unknown) =>
       JSON.parse(JSON.stringify(entry)) as Record<string, unknown>;
-    for (const tsPrimitive of portablePrimitives) {
+    for (const tsPrimitive of axRuntimePrimitives) {
       const irPrimitive = irPrompts.primitives.find(
         (p) => p.id === tsPrimitive.id
       );

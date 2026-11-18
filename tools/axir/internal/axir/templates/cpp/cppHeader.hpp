@@ -1222,6 +1222,8 @@ class Tool {
   Tool& context_handler(std::function<Value(Value,const AxToolContext&)> handler);
   std::string execution_mode = "blocking";
   Tool& execution(const std::string& mode);
+  Tool& result_policy(const std::string& policy);
+  std::string result_policy_value;
   std::string id;
   std::string name;
   std::string description;
