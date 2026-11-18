@@ -65,8 +65,20 @@ export class AxDockerSession {
       throw new Error(`Failed to pull image: ${response.statusText}`);
     }
 
-    // Wait for the pull to complete
-    await response.text();
+    // Docker reports pull failures inside the progress stream after HTTP 200.
+    const output = await response.text();
+    for (const line of output.split('\n')) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as {
+        error?: string;
+        errorDetail?: { message?: string };
+      };
+      if (event.error || event.errorDetail) {
+        throw new Error(
+          `Failed to pull image: ${event.errorDetail?.message || event.error || 'Unknown error'}`
+        );
+      }
+    }
   }
 
   async createContainer({
