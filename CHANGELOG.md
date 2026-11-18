@@ -1,5 +1,22 @@
 # Changelog
 
+## [25.4.13](https://github.com/ax-llm/ax/compare/25.4.12...25.4.13) (2026-11-18)
+
+### Features
+
+* **agent:** raise the default maxRuntimeChars from 3,000 to 12,000 ([#910](https://github.com/ax-llm/ax/issues/910)) ([5706a70](https://github.com/ax-llm/ax/commit/5706a70d2270b68bced7d3946dede3753bcba099))
+* **axir:** add ordinary F1 to the generated packages ([#911](https://github.com/ax-llm/ax/issues/911)) ([3a238a7](https://github.com/ax-llm/ax/commit/3a238a79202f3b28139f67da3be48879f354cab2))
+* **deepseek:** add deepseek-flash (V4.1-Flash) and make it the default ([#908](https://github.com/ax-llm/ax/issues/908)) ([29a8f86](https://github.com/ax-llm/ax/commit/29a8f869fe7b3fab7bdf4eb2de2ba4e5de6472ee))
+
+### Bug Fixes
+
+* **agent:** react to fresh evidence and compact older observations ([#913](https://github.com/ax-llm/ax/issues/913)) ([1699370](https://github.com/ax-llm/ax/commit/1699370109d0db35966a0c616e70a8796a8be7df))
+* **agent:** retry cut-off actor replies and keep the distiller from adding requirements ([#906](https://github.com/ax-llm/ax/issues/906)) ([b637b10](https://github.com/ax-llm/ax/commit/b637b105ab1d3e4aed36a0171a53e9bea7dc39c2))
+* **axir:** retry cut-off actor replies in the five generated languages ([#912](https://github.com/ax-llm/ax/issues/912)) ([03b1d87](https://github.com/ax-llm/ax/commit/03b1d8701c5d0f52b8551e94a1c85be0512793fc))
+* **axir:** port RLM observation feedback and compaction to the generated runtimes ([#914](https://github.com/ax-llm/ax/pull/914))
+* **funcs:** reject Docker image pull stream errors ([#909](https://github.com/ax-llm/ax/issues/909)) ([4717167](https://github.com/ax-llm/ax/commit/4717167906ed7dc69cffb15e8f06e4cdea1b82d8))
+* **funcs:** stop containers using Docker list states ([#907](https://github.com/ax-llm/ax/issues/907)) ([57171e6](https://github.com/ax-llm/ax/commit/57171e62b76931a4f7d28b4a0a578f1b2147a9da))
+
 ## [25.4.12](https://github.com/ax-llm/ax/compare/25.4.11...25.4.12) (2026-11-16)
 
 ### Bug Fixes
