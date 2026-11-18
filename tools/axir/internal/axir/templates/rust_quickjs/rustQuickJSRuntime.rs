@@ -87,6 +87,8 @@ impl AxCodeRuntime for QuickJsCodeRuntime {
         "JavaScript"
     }
 
+    fn supports_observation_boundaries(&self) -> bool { true }
+
     fn usage_instructions(&self) -> &str {
         USAGE_INSTRUCTIONS
     }

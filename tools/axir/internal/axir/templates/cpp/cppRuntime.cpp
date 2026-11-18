@@ -2457,6 +2457,10 @@ Value Core::agent_clarification_error(Value payload, Value state) {
       {"payload", payload},
   });
 }
+Value Core::agent_runtime_observation_boundaries(Value runtime) {
+  auto it = code_runtime_registry().find(str(get_key(runtime, "__code_runtime_id")));
+  return Value(it != code_runtime_registry().end() && it->second != nullptr && it->second->supports_observation_boundaries());
+}
 Value Core::agent_runtime_is_executable(Value runtime) {
   auto it = code_runtime_registry().find(str(get_key(runtime, "__code_runtime_id")));
   return Value(it != code_runtime_registry().end() && it->second != nullptr);

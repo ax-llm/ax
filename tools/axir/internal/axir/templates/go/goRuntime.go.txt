@@ -12533,6 +12533,10 @@ func _core_agent_clarification_error(values ...Value) Value {
 	}
 	return Object("__error", "clarification", "message", message, "payload", payload)
 }
+func _core_agent_runtime_observation_boundaries(runtime Value) Value {
+    support, ok := runtime.(interface { SupportsObservationBoundaries() bool })
+    return ok && support.SupportsObservationBoundaries()
+}
 func _core_agent_runtime_is_executable(runtime Value) Value { _, ok := runtime.(CodeRuntime); return ok }
 func _core_agent_runtime_create_session(values ...Value) (Value, error) {
 	if len(values) < 1 {

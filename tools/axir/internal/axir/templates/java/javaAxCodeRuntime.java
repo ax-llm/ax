@@ -7,6 +7,8 @@ public interface AxCodeRuntime {
   default String getUsageInstructions() { return ""; }
   AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options);
 
+  default boolean supportsObservationBoundaries() { return false; }
+
   /** A host callable the runtime can expose to actor code (e.g. llmQuery). */
   @FunctionalInterface
   interface HostCallable { Object call(Object params); }

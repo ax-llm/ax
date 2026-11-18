@@ -112,6 +112,8 @@ func (r *Runtime) RegisterHostCallable(name string, handler func(ax.Value) (ax.V
 
 func (r *Runtime) Language() string { return "JavaScript" }
 
+func (r *Runtime) SupportsObservationBoundaries() bool { return true }
+
 func (r *Runtime) UsageInstructions() string {
 	return usageInstructions
 }

@@ -38,351 +38,353 @@ type CoreStmt struct {
 type CoreIntrinsic string
 
 const (
-	IntrinsicNot                       CoreIntrinsic = "intrinsic.not"
-	IntrinsicAnd                       CoreIntrinsic = "intrinsic.and"
-	IntrinsicOr                        CoreIntrinsic = "intrinsic.or"
-	IntrinsicSameReference             CoreIntrinsic = "intrinsic.same_reference"
-	IntrinsicEq                        CoreIntrinsic = "intrinsic.eq"
-	IntrinsicNe                        CoreIntrinsic = "intrinsic.ne"
-	IntrinsicLT                        CoreIntrinsic = "intrinsic.lt"
-	IntrinsicLTE                       CoreIntrinsic = "intrinsic.lte"
-	IntrinsicGT                        CoreIntrinsic = "intrinsic.gt"
-	IntrinsicGTE                       CoreIntrinsic = "intrinsic.gte"
-	IntrinsicAdd                       CoreIntrinsic = "intrinsic.add"
-	IntrinsicMul                       CoreIntrinsic = "intrinsic.mul"
-	IntrinsicDiv                       CoreIntrinsic = "intrinsic.div"
-	IntrinsicStringCodepointLength     CoreIntrinsic = "intrinsic.string.codepoint_length"
-	IntrinsicStringUTF16Units          CoreIntrinsic = "intrinsic.string.utf16_units"
-	IntrinsicStringUTF8Length          CoreIntrinsic = "intrinsic.string.utf8_length"
-	IntrinsicMathIsFinite              CoreIntrinsic = "intrinsic.math.is_finite"
-	IntrinsicMathFloor                 CoreIntrinsic = "intrinsic.math.floor"
-	IntrinsicMathAbs                   CoreIntrinsic = "intrinsic.math.abs"
-	IntrinsicMathLog                   CoreIntrinsic = "intrinsic.math.log"
-	IntrinsicMathExp                   CoreIntrinsic = "intrinsic.math.exp"
-	IntrinsicMathSqrt                  CoreIntrinsic = "intrinsic.math.sqrt"
-	IntrinsicMathCos                   CoreIntrinsic = "intrinsic.math.cos"
-	IntrinsicMathPow                   CoreIntrinsic = "intrinsic.math.pow"
-	IntrinsicMathRandom                CoreIntrinsic = "intrinsic.math.random"
-	IntrinsicContains                  CoreIntrinsic = "intrinsic.contains"
-	IntrinsicLen                       CoreIntrinsic = "intrinsic.len"
-	IntrinsicTruthy                    CoreIntrinsic = "intrinsic.truthy"
-	IntrinsicIsNone                    CoreIntrinsic = "intrinsic.is_none"
-	IntrinsicIsNotNone                 CoreIntrinsic = "intrinsic.is_not_none"
-	IntrinsicNone                      CoreIntrinsic = "intrinsic.none"
-	IntrinsicCoalesce                  CoreIntrinsic = "intrinsic.coalesce"
-	IntrinsicMapMerge                  CoreIntrinsic = "intrinsic.map.merge"
-	IntrinsicMapContains               CoreIntrinsic = "intrinsic.map.contains"
-	IntrinsicMapGet                    CoreIntrinsic = "intrinsic.map.get"
-	IntrinsicMapDelete                 CoreIntrinsic = "intrinsic.map.delete"
-	IntrinsicMapUpdate                 CoreIntrinsic = "intrinsic.map.update"
-	IntrinsicMapKeys                   CoreIntrinsic = "intrinsic.map.keys"
-	IntrinsicMapValues                 CoreIntrinsic = "intrinsic.map.values"
-	IntrinsicRecordNew                 CoreIntrinsic = "intrinsic.record.new"
-	IntrinsicObjectCallMethod          CoreIntrinsic = "intrinsic.object.call_method"
-	IntrinsicProgramComponents         CoreIntrinsic = "intrinsic.program.components"
-	IntrinsicProgramApplyComponents    CoreIntrinsic = "intrinsic.program.apply_components"
-	IntrinsicProgramSignature          CoreIntrinsic = "intrinsic.program.signature"
-	IntrinsicAICompleteOnce            CoreIntrinsic = "intrinsic.ai.complete_once"
-	IntrinsicAIControlTakePending      CoreIntrinsic = "intrinsic.ai.control_take_pending"
-	IntrinsicAIControlPendingCount     CoreIntrinsic = "intrinsic.ai.control_pending_count"
-	IntrinsicAIClientFeatures          CoreIntrinsic = "intrinsic.ai.client_features"
-	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
-	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
-	IntrinsicExceptionRewrap           CoreIntrinsic = "intrinsic.exception.rewrap"
-	IntrinsicExceptionGenerate         CoreIntrinsic = "intrinsic.exception.generate"
-	IntrinsicCryptoSha256Hex           CoreIntrinsic = "intrinsic.crypto.sha256_hex"
-	IntrinsicRuntimeError              CoreIntrinsic = "intrinsic.error.runtime"
-	IntrinsicJSONParse                 CoreIntrinsic = "intrinsic.json.parse"
-	IntrinsicJSONParseStrict           CoreIntrinsic = "intrinsic.json.parse_strict"
-	IntrinsicJSONStringify             CoreIntrinsic = "intrinsic.json.stringify"
-	IntrinsicJSONStableStringify       CoreIntrinsic = "intrinsic.json.stable_stringify"
-	IntrinsicToolInvoke                CoreIntrinsic = "intrinsic.tool.invoke"
-	IntrinsicAIErrorResponse           CoreIntrinsic = "intrinsic.ai.error.response"
-	IntrinsicAIErrorRefusal            CoreIntrinsic = "intrinsic.ai.error.refusal"
-	IntrinsicAIErrorStream             CoreIntrinsic = "intrinsic.ai.error.stream"
-	IntrinsicAIErrorUnsupported        CoreIntrinsic = "intrinsic.ai.error.unsupported"
-	IntrinsicAIErrorAuth               CoreIntrinsic = "intrinsic.ai.error.auth"
-	IntrinsicAIErrorTimeout            CoreIntrinsic = "intrinsic.ai.error.timeout"
-	IntrinsicAIErrorStatus             CoreIntrinsic = "intrinsic.ai.error.status"
-	IntrinsicAIWarnOnce                CoreIntrinsic = "intrinsic.ai.warn_once"
-	IntrinsicStringEndsWith            CoreIntrinsic = "intrinsic.string.ends_with"
-	IntrinsicStringJoin                CoreIntrinsic = "intrinsic.string.join"
-	IntrinsicStringLower               CoreIntrinsic = "intrinsic.string.lower"
-	IntrinsicStringLowerCamel          CoreIntrinsic = "intrinsic.string.lower_camel"
-	IntrinsicStringTitleFromCamel      CoreIntrinsic = "intrinsic.string.title_from_camel"
-	IntrinsicStringFormat              CoreIntrinsic = "intrinsic.string.format"
-	IntrinsicStringSlice               CoreIntrinsic = "intrinsic.string.slice"
-	IntrinsicStringReplace             CoreIntrinsic = "intrinsic.string.replace"
-	IntrinsicStringRemoveSuf           CoreIntrinsic = "intrinsic.string.remove_suffix"
-	IntrinsicStringWords               CoreIntrinsic = "intrinsic.string.words"
-	IntrinsicStringDefault             CoreIntrinsic = "intrinsic.string.default_if_empty"
-	IntrinsicStringSplitOnce           CoreIntrinsic = "intrinsic.string.split_once"
-	IntrinsicStringSplitTrim           CoreIntrinsic = "intrinsic.string.split_trim_nonempty"
-	IntrinsicStringFindQuoted          CoreIntrinsic = "intrinsic.string.find_outside_quotes"
-	IntrinsicStringSplitQuoted         CoreIntrinsic = "intrinsic.string.split_outside_quotes"
-	IntrinsicStringSplitTopLevel       CoreIntrinsic = "intrinsic.string.split_top_level"
-	IntrinsicStringExtractGroup        CoreIntrinsic = "intrinsic.string.extract_leading_group"
-	IntrinsicStringConsumeOpt          CoreIntrinsic = "intrinsic.string.consume_optional_quoted_prefix"
-	IntrinsicStringExtractSuf          CoreIntrinsic = "intrinsic.string.extract_quoted_suffix"
-	IntrinsicStringSplit               CoreIntrinsic = "intrinsic.string.split"
-	IntrinsicStringStartsWith          CoreIntrinsic = "intrinsic.string.starts_with"
-	IntrinsicStringDropHighSurrogate   CoreIntrinsic = "intrinsic.string.drop_trailing_high_surrogate"
-	IntrinsicStringConcatStreamText    CoreIntrinsic = "intrinsic.string.concat_stream_text"
-	IntrinsicStringStr                 CoreIntrinsic = "intrinsic.string.str"
-	IntrinsicRegexReplace              CoreIntrinsic = "intrinsic.regex.replace"
-	IntrinsicSortedStrings             CoreIntrinsic = "intrinsic.list.sorted_strings"
-	IntrinsicJSONPretty                CoreIntrinsic = "intrinsic.json.pretty"
-	IntrinsicTemplateParse             CoreIntrinsic = "intrinsic.template.parse"
-	IntrinsicTemplateRender            CoreIntrinsic = "intrinsic.template.render_tree"
-	IntrinsicTemplateCollect           CoreIntrinsic = "intrinsic.template.collect_vars"
-	IntrinsicTemplateValidate          CoreIntrinsic = "intrinsic.template.validate"
-	IntrinsicPromptStructured          CoreIntrinsic = "intrinsic.prompt.structured"
-	IntrinsicPromptUserContent         CoreIntrinsic = "intrinsic.prompt.user_content"
-	IntrinsicAxGenRenderExamples       CoreIntrinsic = "intrinsic.axgen.render_examples"
-	IntrinsicAxGenRenderDemos          CoreIntrinsic = "intrinsic.axgen.render_demos"
-	IntrinsicAxGenApplyProcessors      CoreIntrinsic = "intrinsic.axgen.apply_field_processors"
-	IntrinsicAxGenRunAssertions        CoreIntrinsic = "intrinsic.axgen.run_assertions"
-	IntrinsicAxGenRecordTrace          CoreIntrinsic = "intrinsic.axgen.record_trace"
-	IntrinsicAxGenShouldContinue       CoreIntrinsic = "intrinsic.axgen.should_continue_steps"
-	IntrinsicAxGenApplyCache           CoreIntrinsic = "intrinsic.axgen.apply_context_cache"
-	IntrinsicAxGenMemoryRequest        CoreIntrinsic = "intrinsic.axgen.memory_add_request"
-	IntrinsicAxGenMemoryResponse       CoreIntrinsic = "intrinsic.axgen.memory_add_response"
-	IntrinsicAxGenMemoryFunction       CoreIntrinsic = "intrinsic.axgen.memory_add_function_result"
-	IntrinsicAxGenMemoryCorrection     CoreIntrinsic = "intrinsic.axgen.memory_add_correction"
-	IntrinsicAxGenCleanupCorrection    CoreIntrinsic = "intrinsic.axgen.memory_cleanup_corrections"
-	IntrinsicAxGenRecordChatLog        CoreIntrinsic = "intrinsic.axgen.record_chat_log"
-	IntrinsicAxGenRecordFunction       CoreIntrinsic = "intrinsic.axgen.record_function_call"
-	IntrinsicRunControlAborted         CoreIntrinsic = "intrinsic.run_control.aborted"
-	IntrinsicFlowDispatchGroup         CoreIntrinsic = "intrinsic.flow.dispatch_group"
-	IntrinsicFlowCachingFunction       CoreIntrinsic = "intrinsic.flow.caching_function"
-	IntrinsicAgentStageForward         CoreIntrinsic = "intrinsic.agent.stage_forward"
-	IntrinsicAgentNativeStageForward   CoreIntrinsic = "intrinsic.agent.native_stage_forward"
-	IntrinsicAgentStageStreamForward   CoreIntrinsic = "intrinsic.agent.stage_streaming_forward"
-	IntrinsicAgentStageChatLog         CoreIntrinsic = "intrinsic.agent.stage_chat_log"
-	IntrinsicAgentStageUsage           CoreIntrinsic = "intrinsic.agent.stage_usage"
-	IntrinsicAgentStageTraces          CoreIntrinsic = "intrinsic.agent.stage_traces"
-	IntrinsicAgentClarificationErr     CoreIntrinsic = "intrinsic.agent.clarification_error"
-	IntrinsicAgentRuntimeCreate        CoreIntrinsic = "intrinsic.agent.runtime.create_session"
-	IntrinsicAgentRuntimeExecutable    CoreIntrinsic = "intrinsic.agent.runtime.is_executable"
-	IntrinsicAgentRuntimeExecute       CoreIntrinsic = "intrinsic.agent.runtime.execute"
-	IntrinsicAgentRuntimeInspect       CoreIntrinsic = "intrinsic.agent.runtime.inspect"
-	IntrinsicAgentRuntimeExport        CoreIntrinsic = "intrinsic.agent.runtime.export_state"
-	IntrinsicAgentRuntimeRestore       CoreIntrinsic = "intrinsic.agent.runtime.restore_state"
-	IntrinsicAgentRuntimeClose         CoreIntrinsic = "intrinsic.agent.runtime.close"
-	IntrinsicAgentRuntimeLanguage      CoreIntrinsic = "intrinsic.agent.runtime.language"
-	IntrinsicAgentRuntimeUsage         CoreIntrinsic = "intrinsic.agent.runtime.usage_instructions"
-	IntrinsicAgentProgramForward       CoreIntrinsic = "intrinsic.agent.program_forward"
-	IntrinsicAgentMemorySearch         CoreIntrinsic = "intrinsic.agent.memory_search"
-	IntrinsicAgentSkillSearch          CoreIntrinsic = "intrinsic.agent.skill_search"
-	IntrinsicAgentObserverNotify       CoreIntrinsic = "intrinsic.agent.observer.notify"
-	IntrinsicAgentTranscribe           CoreIntrinsic = "intrinsic.agent.transcribe"
-	IntrinsicAgentCallableInvoke       CoreIntrinsic = "intrinsic.agent.callable.invoke"
-	IntrinsicStreamEventParts          CoreIntrinsic = "intrinsic.stream.event_content_parts"
-	IntrinsicDescriptionAppend         CoreIntrinsic = "intrinsic.description.append"
-	IntrinsicURLValid                  CoreIntrinsic = "intrinsic.url.valid"
-	IntrinsicURLEncodeComponent        CoreIntrinsic = "intrinsic.url.encode_component"
-	IntrinsicSignatureError            CoreIntrinsic = "intrinsic.error.signature"
-	IntrinsicValidationError           CoreIntrinsic = "intrinsic.error.validation"
-	IntrinsicDecisionRefusalError      CoreIntrinsic = "intrinsic.error.decision_refusal"
-	IntrinsicListGet                   CoreIntrinsic = "intrinsic.list.get"
-	IntrinsicFieldItem                 CoreIntrinsic = "intrinsic.field.item"
-	IntrinsicNestedFields              CoreIntrinsic = "intrinsic.fields.from_map"
-	IntrinsicValidImage                CoreIntrinsic = "intrinsic.media.valid_image"
-	IntrinsicValidAudio                CoreIntrinsic = "intrinsic.media.valid_audio"
-	IntrinsicValidFile                 CoreIntrinsic = "intrinsic.media.valid_file"
-	IntrinsicValidURLShape             CoreIntrinsic = "intrinsic.media.valid_url_shape"
-	IntrinsicExceptionIsAborted        CoreIntrinsic = "intrinsic.exception.is_aborted"
-	IntrinsicExceptionIsInfrastructure CoreIntrinsic = "intrinsic.exception.is_infrastructure"
-	IntrinsicExceptionIsRefusal        CoreIntrinsic = "intrinsic.exception.is_refusal"
-	IntrinsicExceptionIsValidation     CoreIntrinsic = "intrinsic.exception.is_validation"
-	IntrinsicStringIndexOf             CoreIntrinsic = "intrinsic.string.index_of"
-	IntrinsicAIStreamOpen              CoreIntrinsic = "intrinsic.ai.stream_open"
-	IntrinsicAIStreamNext              CoreIntrinsic = "intrinsic.ai.stream_next"
-	IntrinsicAIStreamClose             CoreIntrinsic = "intrinsic.ai.stream_close"
-	IntrinsicAxGenEmitDelta            CoreIntrinsic = "intrinsic.axgen.emit_delta"
-	IntrinsicAxGenCallProcessor        CoreIntrinsic = "intrinsic.axgen.call_processor"
-	IntrinsicAxGenCheckStreamAssert    CoreIntrinsic = "intrinsic.axgen.check_streaming_assertion"
-	IntrinsicAxGenDeprecation          CoreIntrinsic = "intrinsic.axgen.deprecation"
-	IntrinsicAxGenSpeak                CoreIntrinsic = "intrinsic.axgen.speak"
-	IntrinsicDateZoneOffset            CoreIntrinsic = "intrinsic.date.zone_offset"
-	IntrinsicAxGenCachingFunction      CoreIntrinsic = "intrinsic.axgen.caching_function"
-	IntrinsicAxGenCacheRead            CoreIntrinsic = "intrinsic.axgen.cache_read"
-	IntrinsicAxGenCacheWrite           CoreIntrinsic = "intrinsic.axgen.cache_write"
-	IntrinsicAxGenResultFormatter      CoreIntrinsic = "intrinsic.axgen.function_result_formatter"
+	IntrinsicNot                               CoreIntrinsic = "intrinsic.not"
+	IntrinsicAnd                               CoreIntrinsic = "intrinsic.and"
+	IntrinsicOr                                CoreIntrinsic = "intrinsic.or"
+	IntrinsicSameReference                     CoreIntrinsic = "intrinsic.same_reference"
+	IntrinsicEq                                CoreIntrinsic = "intrinsic.eq"
+	IntrinsicNe                                CoreIntrinsic = "intrinsic.ne"
+	IntrinsicLT                                CoreIntrinsic = "intrinsic.lt"
+	IntrinsicLTE                               CoreIntrinsic = "intrinsic.lte"
+	IntrinsicGT                                CoreIntrinsic = "intrinsic.gt"
+	IntrinsicGTE                               CoreIntrinsic = "intrinsic.gte"
+	IntrinsicAdd                               CoreIntrinsic = "intrinsic.add"
+	IntrinsicMul                               CoreIntrinsic = "intrinsic.mul"
+	IntrinsicDiv                               CoreIntrinsic = "intrinsic.div"
+	IntrinsicStringCodepointLength             CoreIntrinsic = "intrinsic.string.codepoint_length"
+	IntrinsicStringUTF16Units                  CoreIntrinsic = "intrinsic.string.utf16_units"
+	IntrinsicStringUTF8Length                  CoreIntrinsic = "intrinsic.string.utf8_length"
+	IntrinsicMathIsFinite                      CoreIntrinsic = "intrinsic.math.is_finite"
+	IntrinsicMathFloor                         CoreIntrinsic = "intrinsic.math.floor"
+	IntrinsicMathAbs                           CoreIntrinsic = "intrinsic.math.abs"
+	IntrinsicMathLog                           CoreIntrinsic = "intrinsic.math.log"
+	IntrinsicMathExp                           CoreIntrinsic = "intrinsic.math.exp"
+	IntrinsicMathSqrt                          CoreIntrinsic = "intrinsic.math.sqrt"
+	IntrinsicMathCos                           CoreIntrinsic = "intrinsic.math.cos"
+	IntrinsicMathPow                           CoreIntrinsic = "intrinsic.math.pow"
+	IntrinsicMathRandom                        CoreIntrinsic = "intrinsic.math.random"
+	IntrinsicContains                          CoreIntrinsic = "intrinsic.contains"
+	IntrinsicLen                               CoreIntrinsic = "intrinsic.len"
+	IntrinsicTruthy                            CoreIntrinsic = "intrinsic.truthy"
+	IntrinsicIsNone                            CoreIntrinsic = "intrinsic.is_none"
+	IntrinsicIsNotNone                         CoreIntrinsic = "intrinsic.is_not_none"
+	IntrinsicNone                              CoreIntrinsic = "intrinsic.none"
+	IntrinsicCoalesce                          CoreIntrinsic = "intrinsic.coalesce"
+	IntrinsicMapMerge                          CoreIntrinsic = "intrinsic.map.merge"
+	IntrinsicMapContains                       CoreIntrinsic = "intrinsic.map.contains"
+	IntrinsicMapGet                            CoreIntrinsic = "intrinsic.map.get"
+	IntrinsicMapDelete                         CoreIntrinsic = "intrinsic.map.delete"
+	IntrinsicMapUpdate                         CoreIntrinsic = "intrinsic.map.update"
+	IntrinsicMapKeys                           CoreIntrinsic = "intrinsic.map.keys"
+	IntrinsicMapValues                         CoreIntrinsic = "intrinsic.map.values"
+	IntrinsicRecordNew                         CoreIntrinsic = "intrinsic.record.new"
+	IntrinsicObjectCallMethod                  CoreIntrinsic = "intrinsic.object.call_method"
+	IntrinsicProgramComponents                 CoreIntrinsic = "intrinsic.program.components"
+	IntrinsicProgramApplyComponents            CoreIntrinsic = "intrinsic.program.apply_components"
+	IntrinsicProgramSignature                  CoreIntrinsic = "intrinsic.program.signature"
+	IntrinsicAICompleteOnce                    CoreIntrinsic = "intrinsic.ai.complete_once"
+	IntrinsicAIControlTakePending              CoreIntrinsic = "intrinsic.ai.control_take_pending"
+	IntrinsicAIControlPendingCount             CoreIntrinsic = "intrinsic.ai.control_pending_count"
+	IntrinsicAIClientFeatures                  CoreIntrinsic = "intrinsic.ai.client_features"
+	IntrinsicRetrySleep                        CoreIntrinsic = "intrinsic.retry.sleep"
+	IntrinsicExceptionMessage                  CoreIntrinsic = "intrinsic.exception.message"
+	IntrinsicExceptionRewrap                   CoreIntrinsic = "intrinsic.exception.rewrap"
+	IntrinsicExceptionGenerate                 CoreIntrinsic = "intrinsic.exception.generate"
+	IntrinsicCryptoSha256Hex                   CoreIntrinsic = "intrinsic.crypto.sha256_hex"
+	IntrinsicRuntimeError                      CoreIntrinsic = "intrinsic.error.runtime"
+	IntrinsicJSONParse                         CoreIntrinsic = "intrinsic.json.parse"
+	IntrinsicJSONParseStrict                   CoreIntrinsic = "intrinsic.json.parse_strict"
+	IntrinsicJSONStringify                     CoreIntrinsic = "intrinsic.json.stringify"
+	IntrinsicJSONStableStringify               CoreIntrinsic = "intrinsic.json.stable_stringify"
+	IntrinsicToolInvoke                        CoreIntrinsic = "intrinsic.tool.invoke"
+	IntrinsicAIErrorResponse                   CoreIntrinsic = "intrinsic.ai.error.response"
+	IntrinsicAIErrorRefusal                    CoreIntrinsic = "intrinsic.ai.error.refusal"
+	IntrinsicAIErrorStream                     CoreIntrinsic = "intrinsic.ai.error.stream"
+	IntrinsicAIErrorUnsupported                CoreIntrinsic = "intrinsic.ai.error.unsupported"
+	IntrinsicAIErrorAuth                       CoreIntrinsic = "intrinsic.ai.error.auth"
+	IntrinsicAIErrorTimeout                    CoreIntrinsic = "intrinsic.ai.error.timeout"
+	IntrinsicAIErrorStatus                     CoreIntrinsic = "intrinsic.ai.error.status"
+	IntrinsicAIWarnOnce                        CoreIntrinsic = "intrinsic.ai.warn_once"
+	IntrinsicStringEndsWith                    CoreIntrinsic = "intrinsic.string.ends_with"
+	IntrinsicStringJoin                        CoreIntrinsic = "intrinsic.string.join"
+	IntrinsicStringLower                       CoreIntrinsic = "intrinsic.string.lower"
+	IntrinsicStringLowerCamel                  CoreIntrinsic = "intrinsic.string.lower_camel"
+	IntrinsicStringTitleFromCamel              CoreIntrinsic = "intrinsic.string.title_from_camel"
+	IntrinsicStringFormat                      CoreIntrinsic = "intrinsic.string.format"
+	IntrinsicStringSlice                       CoreIntrinsic = "intrinsic.string.slice"
+	IntrinsicStringReplace                     CoreIntrinsic = "intrinsic.string.replace"
+	IntrinsicStringRemoveSuf                   CoreIntrinsic = "intrinsic.string.remove_suffix"
+	IntrinsicStringWords                       CoreIntrinsic = "intrinsic.string.words"
+	IntrinsicStringDefault                     CoreIntrinsic = "intrinsic.string.default_if_empty"
+	IntrinsicStringSplitOnce                   CoreIntrinsic = "intrinsic.string.split_once"
+	IntrinsicStringSplitTrim                   CoreIntrinsic = "intrinsic.string.split_trim_nonempty"
+	IntrinsicStringFindQuoted                  CoreIntrinsic = "intrinsic.string.find_outside_quotes"
+	IntrinsicStringSplitQuoted                 CoreIntrinsic = "intrinsic.string.split_outside_quotes"
+	IntrinsicStringSplitTopLevel               CoreIntrinsic = "intrinsic.string.split_top_level"
+	IntrinsicStringExtractGroup                CoreIntrinsic = "intrinsic.string.extract_leading_group"
+	IntrinsicStringConsumeOpt                  CoreIntrinsic = "intrinsic.string.consume_optional_quoted_prefix"
+	IntrinsicStringExtractSuf                  CoreIntrinsic = "intrinsic.string.extract_quoted_suffix"
+	IntrinsicStringSplit                       CoreIntrinsic = "intrinsic.string.split"
+	IntrinsicStringStartsWith                  CoreIntrinsic = "intrinsic.string.starts_with"
+	IntrinsicStringDropHighSurrogate           CoreIntrinsic = "intrinsic.string.drop_trailing_high_surrogate"
+	IntrinsicStringConcatStreamText            CoreIntrinsic = "intrinsic.string.concat_stream_text"
+	IntrinsicStringStr                         CoreIntrinsic = "intrinsic.string.str"
+	IntrinsicRegexReplace                      CoreIntrinsic = "intrinsic.regex.replace"
+	IntrinsicSortedStrings                     CoreIntrinsic = "intrinsic.list.sorted_strings"
+	IntrinsicJSONPretty                        CoreIntrinsic = "intrinsic.json.pretty"
+	IntrinsicTemplateParse                     CoreIntrinsic = "intrinsic.template.parse"
+	IntrinsicTemplateRender                    CoreIntrinsic = "intrinsic.template.render_tree"
+	IntrinsicTemplateCollect                   CoreIntrinsic = "intrinsic.template.collect_vars"
+	IntrinsicTemplateValidate                  CoreIntrinsic = "intrinsic.template.validate"
+	IntrinsicPromptStructured                  CoreIntrinsic = "intrinsic.prompt.structured"
+	IntrinsicPromptUserContent                 CoreIntrinsic = "intrinsic.prompt.user_content"
+	IntrinsicAxGenRenderExamples               CoreIntrinsic = "intrinsic.axgen.render_examples"
+	IntrinsicAxGenRenderDemos                  CoreIntrinsic = "intrinsic.axgen.render_demos"
+	IntrinsicAxGenApplyProcessors              CoreIntrinsic = "intrinsic.axgen.apply_field_processors"
+	IntrinsicAxGenRunAssertions                CoreIntrinsic = "intrinsic.axgen.run_assertions"
+	IntrinsicAxGenRecordTrace                  CoreIntrinsic = "intrinsic.axgen.record_trace"
+	IntrinsicAxGenShouldContinue               CoreIntrinsic = "intrinsic.axgen.should_continue_steps"
+	IntrinsicAxGenApplyCache                   CoreIntrinsic = "intrinsic.axgen.apply_context_cache"
+	IntrinsicAxGenMemoryRequest                CoreIntrinsic = "intrinsic.axgen.memory_add_request"
+	IntrinsicAxGenMemoryResponse               CoreIntrinsic = "intrinsic.axgen.memory_add_response"
+	IntrinsicAxGenMemoryFunction               CoreIntrinsic = "intrinsic.axgen.memory_add_function_result"
+	IntrinsicAxGenMemoryCorrection             CoreIntrinsic = "intrinsic.axgen.memory_add_correction"
+	IntrinsicAxGenCleanupCorrection            CoreIntrinsic = "intrinsic.axgen.memory_cleanup_corrections"
+	IntrinsicAxGenRecordChatLog                CoreIntrinsic = "intrinsic.axgen.record_chat_log"
+	IntrinsicAxGenRecordFunction               CoreIntrinsic = "intrinsic.axgen.record_function_call"
+	IntrinsicRunControlAborted                 CoreIntrinsic = "intrinsic.run_control.aborted"
+	IntrinsicFlowDispatchGroup                 CoreIntrinsic = "intrinsic.flow.dispatch_group"
+	IntrinsicFlowCachingFunction               CoreIntrinsic = "intrinsic.flow.caching_function"
+	IntrinsicAgentStageForward                 CoreIntrinsic = "intrinsic.agent.stage_forward"
+	IntrinsicAgentNativeStageForward           CoreIntrinsic = "intrinsic.agent.native_stage_forward"
+	IntrinsicAgentStageStreamForward           CoreIntrinsic = "intrinsic.agent.stage_streaming_forward"
+	IntrinsicAgentStageChatLog                 CoreIntrinsic = "intrinsic.agent.stage_chat_log"
+	IntrinsicAgentStageUsage                   CoreIntrinsic = "intrinsic.agent.stage_usage"
+	IntrinsicAgentStageTraces                  CoreIntrinsic = "intrinsic.agent.stage_traces"
+	IntrinsicAgentClarificationErr             CoreIntrinsic = "intrinsic.agent.clarification_error"
+	IntrinsicAgentRuntimeCreate                CoreIntrinsic = "intrinsic.agent.runtime.create_session"
+	IntrinsicAgentRuntimeObservationBoundaries CoreIntrinsic = "intrinsic.agent.runtime.observation_boundaries"
+	IntrinsicAgentRuntimeExecutable            CoreIntrinsic = "intrinsic.agent.runtime.is_executable"
+	IntrinsicAgentRuntimeExecute               CoreIntrinsic = "intrinsic.agent.runtime.execute"
+	IntrinsicAgentRuntimeInspect               CoreIntrinsic = "intrinsic.agent.runtime.inspect"
+	IntrinsicAgentRuntimeExport                CoreIntrinsic = "intrinsic.agent.runtime.export_state"
+	IntrinsicAgentRuntimeRestore               CoreIntrinsic = "intrinsic.agent.runtime.restore_state"
+	IntrinsicAgentRuntimeClose                 CoreIntrinsic = "intrinsic.agent.runtime.close"
+	IntrinsicAgentRuntimeLanguage              CoreIntrinsic = "intrinsic.agent.runtime.language"
+	IntrinsicAgentRuntimeUsage                 CoreIntrinsic = "intrinsic.agent.runtime.usage_instructions"
+	IntrinsicAgentProgramForward               CoreIntrinsic = "intrinsic.agent.program_forward"
+	IntrinsicAgentMemorySearch                 CoreIntrinsic = "intrinsic.agent.memory_search"
+	IntrinsicAgentSkillSearch                  CoreIntrinsic = "intrinsic.agent.skill_search"
+	IntrinsicAgentObserverNotify               CoreIntrinsic = "intrinsic.agent.observer.notify"
+	IntrinsicAgentTranscribe                   CoreIntrinsic = "intrinsic.agent.transcribe"
+	IntrinsicAgentCallableInvoke               CoreIntrinsic = "intrinsic.agent.callable.invoke"
+	IntrinsicStreamEventParts                  CoreIntrinsic = "intrinsic.stream.event_content_parts"
+	IntrinsicDescriptionAppend                 CoreIntrinsic = "intrinsic.description.append"
+	IntrinsicURLValid                          CoreIntrinsic = "intrinsic.url.valid"
+	IntrinsicURLEncodeComponent                CoreIntrinsic = "intrinsic.url.encode_component"
+	IntrinsicSignatureError                    CoreIntrinsic = "intrinsic.error.signature"
+	IntrinsicValidationError                   CoreIntrinsic = "intrinsic.error.validation"
+	IntrinsicDecisionRefusalError              CoreIntrinsic = "intrinsic.error.decision_refusal"
+	IntrinsicListGet                           CoreIntrinsic = "intrinsic.list.get"
+	IntrinsicFieldItem                         CoreIntrinsic = "intrinsic.field.item"
+	IntrinsicNestedFields                      CoreIntrinsic = "intrinsic.fields.from_map"
+	IntrinsicValidImage                        CoreIntrinsic = "intrinsic.media.valid_image"
+	IntrinsicValidAudio                        CoreIntrinsic = "intrinsic.media.valid_audio"
+	IntrinsicValidFile                         CoreIntrinsic = "intrinsic.media.valid_file"
+	IntrinsicValidURLShape                     CoreIntrinsic = "intrinsic.media.valid_url_shape"
+	IntrinsicExceptionIsAborted                CoreIntrinsic = "intrinsic.exception.is_aborted"
+	IntrinsicExceptionIsInfrastructure         CoreIntrinsic = "intrinsic.exception.is_infrastructure"
+	IntrinsicExceptionIsRefusal                CoreIntrinsic = "intrinsic.exception.is_refusal"
+	IntrinsicExceptionIsValidation             CoreIntrinsic = "intrinsic.exception.is_validation"
+	IntrinsicStringIndexOf                     CoreIntrinsic = "intrinsic.string.index_of"
+	IntrinsicAIStreamOpen                      CoreIntrinsic = "intrinsic.ai.stream_open"
+	IntrinsicAIStreamNext                      CoreIntrinsic = "intrinsic.ai.stream_next"
+	IntrinsicAIStreamClose                     CoreIntrinsic = "intrinsic.ai.stream_close"
+	IntrinsicAxGenEmitDelta                    CoreIntrinsic = "intrinsic.axgen.emit_delta"
+	IntrinsicAxGenCallProcessor                CoreIntrinsic = "intrinsic.axgen.call_processor"
+	IntrinsicAxGenCheckStreamAssert            CoreIntrinsic = "intrinsic.axgen.check_streaming_assertion"
+	IntrinsicAxGenDeprecation                  CoreIntrinsic = "intrinsic.axgen.deprecation"
+	IntrinsicAxGenSpeak                        CoreIntrinsic = "intrinsic.axgen.speak"
+	IntrinsicDateZoneOffset                    CoreIntrinsic = "intrinsic.date.zone_offset"
+	IntrinsicAxGenCachingFunction              CoreIntrinsic = "intrinsic.axgen.caching_function"
+	IntrinsicAxGenCacheRead                    CoreIntrinsic = "intrinsic.axgen.cache_read"
+	IntrinsicAxGenCacheWrite                   CoreIntrinsic = "intrinsic.axgen.cache_write"
+	IntrinsicAxGenResultFormatter              CoreIntrinsic = "intrinsic.axgen.function_result_formatter"
 )
 
 var coreIntrinsicPython = map[CoreIntrinsic]string{
-	IntrinsicNot:                       "_core_not",
-	IntrinsicAnd:                       "_core_and",
-	IntrinsicOr:                        "_core_or",
-	IntrinsicSameReference:             "_core_same_reference",
-	IntrinsicEq:                        "_core_eq",
-	IntrinsicNe:                        "_core_ne",
-	IntrinsicLT:                        "_core_lt",
-	IntrinsicLTE:                       "_core_lte",
-	IntrinsicGT:                        "_core_gt",
-	IntrinsicGTE:                       "_core_gte",
-	IntrinsicAdd:                       "_core_add",
-	IntrinsicMul:                       "_core_mul",
-	IntrinsicDiv:                       "_core_div",
-	IntrinsicMathAbs:                   "_core_math_abs",
-	IntrinsicStringCodepointLength:     "_core_string_codepoint_length",
-	IntrinsicStringUTF16Units:          "_core_string_utf16_units",
-	IntrinsicStringUTF8Length:          "_core_string_utf8_length",
-	IntrinsicMathIsFinite:              "_core_math_is_finite",
-	IntrinsicMathFloor:                 "_core_math_floor",
-	IntrinsicMathLog:                   "_core_math_log",
-	IntrinsicMathExp:                   "_core_math_exp",
-	IntrinsicMathSqrt:                  "_core_math_sqrt",
-	IntrinsicMathCos:                   "_core_math_cos",
-	IntrinsicMathPow:                   "_core_math_pow",
-	IntrinsicMathRandom:                "_core_math_random",
-	IntrinsicContains:                  "_core_contains",
-	IntrinsicLen:                       "_core_len",
-	IntrinsicTruthy:                    "_core_truthy",
-	IntrinsicIsNone:                    "_core_is_none",
-	IntrinsicIsNotNone:                 "_core_is_not_none",
-	IntrinsicNone:                      "_core_none",
-	IntrinsicCoalesce:                  "_core_coalesce",
-	IntrinsicMapMerge:                  "_core_map_merge",
-	IntrinsicMapContains:               "_core_map_contains",
-	IntrinsicMapGet:                    "_core_map_get",
-	IntrinsicMapDelete:                 "_core_map_delete",
-	IntrinsicMapUpdate:                 "_core_map_update",
-	IntrinsicMapKeys:                   "_core_map_keys",
-	IntrinsicMapValues:                 "_core_map_values",
-	IntrinsicRecordNew:                 "_core_record_new",
-	IntrinsicObjectCallMethod:          "_core_object_call_method",
-	IntrinsicProgramComponents:         "_core_program_components",
-	IntrinsicProgramApplyComponents:    "_core_program_apply_components",
-	IntrinsicProgramSignature:          "_core_program_signature",
-	IntrinsicAICompleteOnce:            "_core_ai_complete_once",
-	IntrinsicAIControlTakePending:      "_core_ai_control_take_pending",
-	IntrinsicAIControlPendingCount:     "_core_ai_control_pending_count",
-	IntrinsicAIClientFeatures:          "_core_ai_client_features",
-	IntrinsicRetrySleep:                "_core_retry_sleep",
-	IntrinsicExceptionMessage:          "_core_exception_message",
-	IntrinsicExceptionRewrap:           "_core_exception_rewrap",
-	IntrinsicExceptionGenerate:         "_core_exception_generate",
-	IntrinsicCryptoSha256Hex:           "_core_crypto_sha256_hex",
-	IntrinsicRuntimeError:              "_core_runtime_error",
-	IntrinsicJSONParse:                 "_core_json_parse",
-	IntrinsicJSONParseStrict:           "_core_json_parse_strict",
-	IntrinsicJSONStringify:             "_core_json_stringify",
-	IntrinsicJSONStableStringify:       "_core_json_stable_stringify",
-	IntrinsicToolInvoke:                "_core_tool_invoke",
-	IntrinsicAIErrorResponse:           "_core_ai_error_response",
-	IntrinsicAIErrorRefusal:            "_core_ai_error_refusal",
-	IntrinsicAIErrorStream:             "_core_ai_error_stream",
-	IntrinsicAIErrorUnsupported:        "_core_ai_error_unsupported",
-	IntrinsicAIErrorAuth:               "_core_ai_error_auth",
-	IntrinsicAIErrorTimeout:            "_core_ai_error_timeout",
-	IntrinsicAIErrorStatus:             "_core_ai_error_status",
-	IntrinsicAIWarnOnce:                "_core_ai_warn_once",
-	IntrinsicStringEndsWith:            "_core_string_ends_with",
-	IntrinsicStringJoin:                "_core_string_join",
-	IntrinsicStringLower:               "_core_string_lower",
-	IntrinsicStringLowerCamel:          "_core_string_lower_camel",
-	IntrinsicStringTitleFromCamel:      "_core_string_title_from_camel",
-	IntrinsicStringFormat:              "_core_string_format",
-	IntrinsicStringSlice:               "_core_string_slice",
-	IntrinsicStringReplace:             "_core_string_replace",
-	IntrinsicStringRemoveSuf:           "_core_string_remove_suffix",
-	IntrinsicStringWords:               "_core_string_words",
-	IntrinsicStringDefault:             "_core_string_default_if_empty",
-	IntrinsicStringSplitOnce:           "_core_string_split_once",
-	IntrinsicStringSplitTrim:           "_core_string_split_trim_nonempty",
-	IntrinsicStringFindQuoted:          "_core_string_find_outside_quotes",
-	IntrinsicStringSplitQuoted:         "_core_string_split_outside_quotes",
-	IntrinsicStringSplitTopLevel:       "_core_string_split_top_level",
-	IntrinsicStringExtractGroup:        "_core_string_extract_leading_group",
-	IntrinsicStringConsumeOpt:          "_core_string_consume_optional_quoted_prefix",
-	IntrinsicStringExtractSuf:          "_core_string_extract_quoted_suffix",
-	IntrinsicStringSplit:               "_core_string_split",
-	IntrinsicStringStartsWith:          "_core_string_starts_with",
-	IntrinsicStringDropHighSurrogate:   "_core_string_drop_trailing_high_surrogate",
-	IntrinsicStringConcatStreamText:    "_core_string_concat_stream_text",
-	IntrinsicStringStr:                 "_core_string_str",
-	IntrinsicRegexReplace:              "_core_regex_replace",
-	IntrinsicSortedStrings:             "_core_sorted_strings",
-	IntrinsicJSONPretty:                "_core_json_pretty",
-	IntrinsicTemplateParse:             "_core_template_parse",
-	IntrinsicTemplateRender:            "_core_template_render_tree",
-	IntrinsicTemplateCollect:           "_core_template_collect_vars",
-	IntrinsicTemplateValidate:          "_core_template_validate",
-	IntrinsicPromptStructured:          "_core_prompt_structured",
-	IntrinsicPromptUserContent:         "_core_prompt_user_content",
-	IntrinsicAxGenRenderExamples:       "_core_axgen_render_examples",
-	IntrinsicAxGenRenderDemos:          "_core_axgen_render_demos",
-	IntrinsicAxGenApplyProcessors:      "_core_axgen_apply_field_processors",
-	IntrinsicAxGenRunAssertions:        "_core_axgen_run_assertions",
-	IntrinsicAxGenRecordTrace:          "_core_axgen_record_trace",
-	IntrinsicAxGenShouldContinue:       "_core_axgen_should_continue_steps",
-	IntrinsicAxGenApplyCache:           "_core_axgen_apply_context_cache",
-	IntrinsicAxGenMemoryRequest:        "_core_axgen_memory_add_request",
-	IntrinsicAxGenMemoryResponse:       "_core_axgen_memory_add_response",
-	IntrinsicAxGenMemoryFunction:       "_core_axgen_memory_add_function_result",
-	IntrinsicAxGenMemoryCorrection:     "_core_axgen_memory_add_correction",
-	IntrinsicAxGenCleanupCorrection:    "_core_axgen_memory_cleanup_corrections",
-	IntrinsicAxGenRecordChatLog:        "_core_axgen_record_chat_log",
-	IntrinsicAxGenRecordFunction:       "_core_axgen_record_function_call",
-	IntrinsicRunControlAborted:         "_core_run_control_aborted",
-	IntrinsicFlowDispatchGroup:         "_core_flow_dispatch_group",
-	IntrinsicFlowCachingFunction:       "_core_flow_caching_function",
-	IntrinsicAgentStageForward:         "_core_agent_stage_forward",
-	IntrinsicAgentNativeStageForward:   "_core_agent_native_stage_forward",
-	IntrinsicAgentStageStreamForward:   "_core_agent_stage_streaming_forward",
-	IntrinsicAgentStageChatLog:         "_core_agent_stage_chat_log",
-	IntrinsicAgentStageUsage:           "_core_agent_stage_usage",
-	IntrinsicAgentStageTraces:          "_core_agent_stage_traces",
-	IntrinsicAgentClarificationErr:     "_core_agent_clarification_error",
-	IntrinsicAgentRuntimeCreate:        "_core_agent_runtime_create_session",
-	IntrinsicAgentRuntimeExecutable:    "_core_agent_runtime_is_executable",
-	IntrinsicAgentRuntimeExecute:       "_core_agent_runtime_execute",
-	IntrinsicAgentRuntimeInspect:       "_core_agent_runtime_inspect",
-	IntrinsicAgentRuntimeExport:        "_core_agent_runtime_export_state",
-	IntrinsicAgentRuntimeRestore:       "_core_agent_runtime_restore_state",
-	IntrinsicAgentRuntimeClose:         "_core_agent_runtime_close",
-	IntrinsicAgentRuntimeLanguage:      "_core_agent_runtime_language",
-	IntrinsicAgentRuntimeUsage:         "_core_agent_runtime_usage_instructions",
-	IntrinsicAgentProgramForward:       "_core_agent_program_forward",
-	IntrinsicAgentMemorySearch:         "_core_agent_memory_search",
-	IntrinsicAgentSkillSearch:          "_core_agent_skill_search",
-	IntrinsicAgentObserverNotify:       "_core_agent_observer_notify",
-	IntrinsicAgentTranscribe:           "_core_agent_transcribe",
-	IntrinsicAgentCallableInvoke:       "_core_agent_callable_invoke",
-	IntrinsicStreamEventParts:          "_core_stream_event_content_parts",
-	IntrinsicDescriptionAppend:         "_core_description_append",
-	IntrinsicURLValid:                  "_core_url_valid",
-	IntrinsicURLEncodeComponent:        "_core_url_encode_component",
-	IntrinsicSignatureError:            "_core_signature_error",
-	IntrinsicValidationError:           "_core_validation_error",
-	IntrinsicDecisionRefusalError:      "_core_decision_refusal_error",
-	IntrinsicListGet:                   "_core_list_get",
-	IntrinsicFieldItem:                 "_core_field_item",
-	IntrinsicNestedFields:              "_core_fields_from_map",
-	IntrinsicValidImage:                "_valid_image",
-	IntrinsicValidAudio:                "_valid_audio",
-	IntrinsicValidFile:                 "_valid_file",
-	IntrinsicValidURLShape:             "_valid_url_shape",
-	IntrinsicExceptionIsAborted:        "_core_exception_is_aborted",
-	IntrinsicExceptionIsInfrastructure: "_core_exception_is_infrastructure",
-	IntrinsicExceptionIsRefusal:        "_core_exception_is_refusal",
-	IntrinsicExceptionIsValidation:     "_core_exception_is_validation",
-	IntrinsicStringIndexOf:             "_core_string_index_of",
-	IntrinsicAIStreamOpen:              "_core_ai_stream_open",
-	IntrinsicAIStreamNext:              "_core_ai_stream_next",
-	IntrinsicAIStreamClose:             "_core_ai_stream_close",
-	IntrinsicAxGenEmitDelta:            "_core_axgen_emit_delta",
-	IntrinsicAxGenCallProcessor:        "_core_axgen_call_processor",
-	IntrinsicAxGenCheckStreamAssert:    "_core_axgen_check_streaming_assertion",
-	IntrinsicAxGenDeprecation:          "_core_axgen_deprecation",
-	IntrinsicAxGenSpeak:                "_core_axgen_speak",
-	IntrinsicDateZoneOffset:            "_core_date_zone_offset",
-	IntrinsicAxGenCachingFunction:      "_core_axgen_caching_function",
-	IntrinsicAxGenCacheRead:            "_core_axgen_cache_read",
-	IntrinsicAxGenCacheWrite:           "_core_axgen_cache_write",
-	IntrinsicAxGenResultFormatter:      "_core_axgen_function_result_formatter",
+	IntrinsicNot:                               "_core_not",
+	IntrinsicAnd:                               "_core_and",
+	IntrinsicOr:                                "_core_or",
+	IntrinsicSameReference:                     "_core_same_reference",
+	IntrinsicEq:                                "_core_eq",
+	IntrinsicNe:                                "_core_ne",
+	IntrinsicLT:                                "_core_lt",
+	IntrinsicLTE:                               "_core_lte",
+	IntrinsicGT:                                "_core_gt",
+	IntrinsicGTE:                               "_core_gte",
+	IntrinsicAdd:                               "_core_add",
+	IntrinsicMul:                               "_core_mul",
+	IntrinsicDiv:                               "_core_div",
+	IntrinsicMathAbs:                           "_core_math_abs",
+	IntrinsicStringCodepointLength:             "_core_string_codepoint_length",
+	IntrinsicStringUTF16Units:                  "_core_string_utf16_units",
+	IntrinsicStringUTF8Length:                  "_core_string_utf8_length",
+	IntrinsicMathIsFinite:                      "_core_math_is_finite",
+	IntrinsicMathFloor:                         "_core_math_floor",
+	IntrinsicMathLog:                           "_core_math_log",
+	IntrinsicMathExp:                           "_core_math_exp",
+	IntrinsicMathSqrt:                          "_core_math_sqrt",
+	IntrinsicMathCos:                           "_core_math_cos",
+	IntrinsicMathPow:                           "_core_math_pow",
+	IntrinsicMathRandom:                        "_core_math_random",
+	IntrinsicContains:                          "_core_contains",
+	IntrinsicLen:                               "_core_len",
+	IntrinsicTruthy:                            "_core_truthy",
+	IntrinsicIsNone:                            "_core_is_none",
+	IntrinsicIsNotNone:                         "_core_is_not_none",
+	IntrinsicNone:                              "_core_none",
+	IntrinsicCoalesce:                          "_core_coalesce",
+	IntrinsicMapMerge:                          "_core_map_merge",
+	IntrinsicMapContains:                       "_core_map_contains",
+	IntrinsicMapGet:                            "_core_map_get",
+	IntrinsicMapDelete:                         "_core_map_delete",
+	IntrinsicMapUpdate:                         "_core_map_update",
+	IntrinsicMapKeys:                           "_core_map_keys",
+	IntrinsicMapValues:                         "_core_map_values",
+	IntrinsicRecordNew:                         "_core_record_new",
+	IntrinsicObjectCallMethod:                  "_core_object_call_method",
+	IntrinsicProgramComponents:                 "_core_program_components",
+	IntrinsicProgramApplyComponents:            "_core_program_apply_components",
+	IntrinsicProgramSignature:                  "_core_program_signature",
+	IntrinsicAICompleteOnce:                    "_core_ai_complete_once",
+	IntrinsicAIControlTakePending:              "_core_ai_control_take_pending",
+	IntrinsicAIControlPendingCount:             "_core_ai_control_pending_count",
+	IntrinsicAIClientFeatures:                  "_core_ai_client_features",
+	IntrinsicRetrySleep:                        "_core_retry_sleep",
+	IntrinsicExceptionMessage:                  "_core_exception_message",
+	IntrinsicExceptionRewrap:                   "_core_exception_rewrap",
+	IntrinsicExceptionGenerate:                 "_core_exception_generate",
+	IntrinsicCryptoSha256Hex:                   "_core_crypto_sha256_hex",
+	IntrinsicRuntimeError:                      "_core_runtime_error",
+	IntrinsicJSONParse:                         "_core_json_parse",
+	IntrinsicJSONParseStrict:                   "_core_json_parse_strict",
+	IntrinsicJSONStringify:                     "_core_json_stringify",
+	IntrinsicJSONStableStringify:               "_core_json_stable_stringify",
+	IntrinsicToolInvoke:                        "_core_tool_invoke",
+	IntrinsicAIErrorResponse:                   "_core_ai_error_response",
+	IntrinsicAIErrorRefusal:                    "_core_ai_error_refusal",
+	IntrinsicAIErrorStream:                     "_core_ai_error_stream",
+	IntrinsicAIErrorUnsupported:                "_core_ai_error_unsupported",
+	IntrinsicAIErrorAuth:                       "_core_ai_error_auth",
+	IntrinsicAIErrorTimeout:                    "_core_ai_error_timeout",
+	IntrinsicAIErrorStatus:                     "_core_ai_error_status",
+	IntrinsicAIWarnOnce:                        "_core_ai_warn_once",
+	IntrinsicStringEndsWith:                    "_core_string_ends_with",
+	IntrinsicStringJoin:                        "_core_string_join",
+	IntrinsicStringLower:                       "_core_string_lower",
+	IntrinsicStringLowerCamel:                  "_core_string_lower_camel",
+	IntrinsicStringTitleFromCamel:              "_core_string_title_from_camel",
+	IntrinsicStringFormat:                      "_core_string_format",
+	IntrinsicStringSlice:                       "_core_string_slice",
+	IntrinsicStringReplace:                     "_core_string_replace",
+	IntrinsicStringRemoveSuf:                   "_core_string_remove_suffix",
+	IntrinsicStringWords:                       "_core_string_words",
+	IntrinsicStringDefault:                     "_core_string_default_if_empty",
+	IntrinsicStringSplitOnce:                   "_core_string_split_once",
+	IntrinsicStringSplitTrim:                   "_core_string_split_trim_nonempty",
+	IntrinsicStringFindQuoted:                  "_core_string_find_outside_quotes",
+	IntrinsicStringSplitQuoted:                 "_core_string_split_outside_quotes",
+	IntrinsicStringSplitTopLevel:               "_core_string_split_top_level",
+	IntrinsicStringExtractGroup:                "_core_string_extract_leading_group",
+	IntrinsicStringConsumeOpt:                  "_core_string_consume_optional_quoted_prefix",
+	IntrinsicStringExtractSuf:                  "_core_string_extract_quoted_suffix",
+	IntrinsicStringSplit:                       "_core_string_split",
+	IntrinsicStringStartsWith:                  "_core_string_starts_with",
+	IntrinsicStringDropHighSurrogate:           "_core_string_drop_trailing_high_surrogate",
+	IntrinsicStringConcatStreamText:            "_core_string_concat_stream_text",
+	IntrinsicStringStr:                         "_core_string_str",
+	IntrinsicRegexReplace:                      "_core_regex_replace",
+	IntrinsicSortedStrings:                     "_core_sorted_strings",
+	IntrinsicJSONPretty:                        "_core_json_pretty",
+	IntrinsicTemplateParse:                     "_core_template_parse",
+	IntrinsicTemplateRender:                    "_core_template_render_tree",
+	IntrinsicTemplateCollect:                   "_core_template_collect_vars",
+	IntrinsicTemplateValidate:                  "_core_template_validate",
+	IntrinsicPromptStructured:                  "_core_prompt_structured",
+	IntrinsicPromptUserContent:                 "_core_prompt_user_content",
+	IntrinsicAxGenRenderExamples:               "_core_axgen_render_examples",
+	IntrinsicAxGenRenderDemos:                  "_core_axgen_render_demos",
+	IntrinsicAxGenApplyProcessors:              "_core_axgen_apply_field_processors",
+	IntrinsicAxGenRunAssertions:                "_core_axgen_run_assertions",
+	IntrinsicAxGenRecordTrace:                  "_core_axgen_record_trace",
+	IntrinsicAxGenShouldContinue:               "_core_axgen_should_continue_steps",
+	IntrinsicAxGenApplyCache:                   "_core_axgen_apply_context_cache",
+	IntrinsicAxGenMemoryRequest:                "_core_axgen_memory_add_request",
+	IntrinsicAxGenMemoryResponse:               "_core_axgen_memory_add_response",
+	IntrinsicAxGenMemoryFunction:               "_core_axgen_memory_add_function_result",
+	IntrinsicAxGenMemoryCorrection:             "_core_axgen_memory_add_correction",
+	IntrinsicAxGenCleanupCorrection:            "_core_axgen_memory_cleanup_corrections",
+	IntrinsicAxGenRecordChatLog:                "_core_axgen_record_chat_log",
+	IntrinsicAxGenRecordFunction:               "_core_axgen_record_function_call",
+	IntrinsicRunControlAborted:                 "_core_run_control_aborted",
+	IntrinsicFlowDispatchGroup:                 "_core_flow_dispatch_group",
+	IntrinsicFlowCachingFunction:               "_core_flow_caching_function",
+	IntrinsicAgentStageForward:                 "_core_agent_stage_forward",
+	IntrinsicAgentNativeStageForward:           "_core_agent_native_stage_forward",
+	IntrinsicAgentStageStreamForward:           "_core_agent_stage_streaming_forward",
+	IntrinsicAgentStageChatLog:                 "_core_agent_stage_chat_log",
+	IntrinsicAgentStageUsage:                   "_core_agent_stage_usage",
+	IntrinsicAgentStageTraces:                  "_core_agent_stage_traces",
+	IntrinsicAgentClarificationErr:             "_core_agent_clarification_error",
+	IntrinsicAgentRuntimeCreate:                "_core_agent_runtime_create_session",
+	IntrinsicAgentRuntimeObservationBoundaries: "_core_agent_runtime_observation_boundaries",
+	IntrinsicAgentRuntimeExecutable:            "_core_agent_runtime_is_executable",
+	IntrinsicAgentRuntimeExecute:               "_core_agent_runtime_execute",
+	IntrinsicAgentRuntimeInspect:               "_core_agent_runtime_inspect",
+	IntrinsicAgentRuntimeExport:                "_core_agent_runtime_export_state",
+	IntrinsicAgentRuntimeRestore:               "_core_agent_runtime_restore_state",
+	IntrinsicAgentRuntimeClose:                 "_core_agent_runtime_close",
+	IntrinsicAgentRuntimeLanguage:              "_core_agent_runtime_language",
+	IntrinsicAgentRuntimeUsage:                 "_core_agent_runtime_usage_instructions",
+	IntrinsicAgentProgramForward:               "_core_agent_program_forward",
+	IntrinsicAgentMemorySearch:                 "_core_agent_memory_search",
+	IntrinsicAgentSkillSearch:                  "_core_agent_skill_search",
+	IntrinsicAgentObserverNotify:               "_core_agent_observer_notify",
+	IntrinsicAgentTranscribe:                   "_core_agent_transcribe",
+	IntrinsicAgentCallableInvoke:               "_core_agent_callable_invoke",
+	IntrinsicStreamEventParts:                  "_core_stream_event_content_parts",
+	IntrinsicDescriptionAppend:                 "_core_description_append",
+	IntrinsicURLValid:                          "_core_url_valid",
+	IntrinsicURLEncodeComponent:                "_core_url_encode_component",
+	IntrinsicSignatureError:                    "_core_signature_error",
+	IntrinsicValidationError:                   "_core_validation_error",
+	IntrinsicDecisionRefusalError:              "_core_decision_refusal_error",
+	IntrinsicListGet:                           "_core_list_get",
+	IntrinsicFieldItem:                         "_core_field_item",
+	IntrinsicNestedFields:                      "_core_fields_from_map",
+	IntrinsicValidImage:                        "_valid_image",
+	IntrinsicValidAudio:                        "_valid_audio",
+	IntrinsicValidFile:                         "_valid_file",
+	IntrinsicValidURLShape:                     "_valid_url_shape",
+	IntrinsicExceptionIsAborted:                "_core_exception_is_aborted",
+	IntrinsicExceptionIsInfrastructure:         "_core_exception_is_infrastructure",
+	IntrinsicExceptionIsRefusal:                "_core_exception_is_refusal",
+	IntrinsicExceptionIsValidation:             "_core_exception_is_validation",
+	IntrinsicStringIndexOf:                     "_core_string_index_of",
+	IntrinsicAIStreamOpen:                      "_core_ai_stream_open",
+	IntrinsicAIStreamNext:                      "_core_ai_stream_next",
+	IntrinsicAIStreamClose:                     "_core_ai_stream_close",
+	IntrinsicAxGenEmitDelta:                    "_core_axgen_emit_delta",
+	IntrinsicAxGenCallProcessor:                "_core_axgen_call_processor",
+	IntrinsicAxGenCheckStreamAssert:            "_core_axgen_check_streaming_assertion",
+	IntrinsicAxGenDeprecation:                  "_core_axgen_deprecation",
+	IntrinsicAxGenSpeak:                        "_core_axgen_speak",
+	IntrinsicDateZoneOffset:                    "_core_date_zone_offset",
+	IntrinsicAxGenCachingFunction:              "_core_axgen_caching_function",
+	IntrinsicAxGenCacheRead:                    "_core_axgen_cache_read",
+	IntrinsicAxGenCacheWrite:                   "_core_axgen_cache_write",
+	IntrinsicAxGenResultFormatter:              "_core_axgen_function_result_formatter",
 }
 
 var knownCoreIntrinsics = map[string]bool{
@@ -539,6 +541,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.stage_traces":                    true,
 	"intrinsic.agent.clarification_error":             true,
 	"intrinsic.agent.runtime.create_session":          true,
+	"intrinsic.agent.runtime.observation_boundaries":  true,
 	"intrinsic.agent.runtime.is_executable":           true,
 	"intrinsic.agent.runtime.execute":                 true,
 	"intrinsic.agent.runtime.inspect":                 true,
@@ -796,112 +799,113 @@ type CoreIntrinsicInfo struct {
 
 var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.runtime.usage_instructions": intrinsicInfo("intrinsic.agent.runtime.usage_instructions", 1, 1, true, "string"),
-	"intrinsic.not":                                 intrinsicInfo("intrinsic.not", 1, 1, false, "bool"),
-	"intrinsic.and":                                 intrinsicInfo("intrinsic.and", 2, 2, false, "bool"),
-	"intrinsic.or":                                  intrinsicInfo("intrinsic.or", 2, 2, false, "bool"),
-	"intrinsic.same_reference":                      intrinsicInfo("intrinsic.same_reference", 2, 2, false, "bool"),
-	"intrinsic.eq":                                  intrinsicInfo("intrinsic.eq", 2, 2, false, "bool"),
-	"intrinsic.ne":                                  intrinsicInfo("intrinsic.ne", 2, 2, false, "bool"),
-	"intrinsic.lt":                                  intrinsicInfo("intrinsic.lt", 2, 2, false, "bool"),
-	"intrinsic.lte":                                 intrinsicInfo("intrinsic.lte", 2, 2, false, "bool"),
-	"intrinsic.gt":                                  intrinsicInfo("intrinsic.gt", 2, 2, false, "bool"),
-	"intrinsic.gte":                                 intrinsicInfo("intrinsic.gte", 2, 2, false, "bool"),
-	"intrinsic.mul":                                 intrinsicInfo("intrinsic.mul", 2, 2, false, "f64"),
-	"intrinsic.div":                                 intrinsicInfo("intrinsic.div", 2, 2, false, "f64"),
-	"intrinsic.string.codepoint_length":             intrinsicInfo("intrinsic.string.codepoint_length", 1, 1, false, "i64"),
-	"intrinsic.string.utf16_units":                  intrinsicInfo("intrinsic.string.utf16_units", 1, 1, false, "json"),
-	"intrinsic.string.utf8_length":                  intrinsicInfo("intrinsic.string.utf8_length", 1, 1, false, "i64"),
-	"intrinsic.math.is_finite":                      intrinsicInfo("intrinsic.math.is_finite", 1, 1, false, "bool"),
-	"intrinsic.math.floor":                          intrinsicInfo("intrinsic.math.floor", 1, 1, false, "f64"),
-	"intrinsic.math.abs":                            intrinsicInfo("intrinsic.math.abs", 1, 1, false, "f64"),
-	"intrinsic.math.log":                            intrinsicInfo("intrinsic.math.log", 1, 1, false, "f64"),
-	"intrinsic.math.exp":                            intrinsicInfo("intrinsic.math.exp", 1, 1, false, "f64"),
-	"intrinsic.math.sqrt":                           intrinsicInfo("intrinsic.math.sqrt", 1, 1, false, "f64"),
-	"intrinsic.math.cos":                            intrinsicInfo("intrinsic.math.cos", 1, 1, false, "f64"),
-	"intrinsic.math.pow":                            intrinsicInfo("intrinsic.math.pow", 2, 2, false, "f64"),
-	"intrinsic.math.random":                         intrinsicInfo("intrinsic.math.random", 0, 0, true, "f64"),
-	"intrinsic.len":                                 intrinsicInfo("intrinsic.len", 1, 1, false, "i64"),
-	"intrinsic.contains":                            intrinsicInfo("intrinsic.contains", 2, 2, false, "bool"),
-	"intrinsic.is_none":                             intrinsicInfo("intrinsic.is_none", 1, 1, false, "bool"),
-	"intrinsic.is_not_none":                         intrinsicInfo("intrinsic.is_not_none", 1, 1, false, "bool"),
-	"intrinsic.none":                                intrinsicInfo("intrinsic.none", 0, 0, false, "json"),
-	"intrinsic.coalesce":                            intrinsicInfo("intrinsic.coalesce", 2, 2, false, "json"),
-	"intrinsic.map.contains":                        intrinsicInfo("intrinsic.map.contains", 2, 2, false, "bool"),
-	"intrinsic.map.get":                             intrinsicInfo("intrinsic.map.get", 2, 3, false, "json"),
-	"intrinsic.map.delete":                          intrinsicInfo("intrinsic.map.delete", 2, 2, false, "json"),
-	"intrinsic.map.keys":                            intrinsicInfo("intrinsic.map.keys", 1, 1, false, "list<string>"),
-	"intrinsic.json.parse":                          intrinsicInfo("intrinsic.json.parse", 1, 1, false, "json"),
-	"intrinsic.json.stringify":                      intrinsicInfo("intrinsic.json.stringify", 1, 1, false, "string"),
-	"intrinsic.json.stable_stringify":               intrinsicInfo("intrinsic.json.stable_stringify", 1, 1, false, "string"),
-	"intrinsic.tool.invoke":                         intrinsicInfo("intrinsic.tool.invoke", 2, 3, true, "json"),
-	"intrinsic.run_control.aborted":                 intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
-	"intrinsic.flow.dispatch_group":                 intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
-	"intrinsic.flow.caching_function":               intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),
-	"intrinsic.agent.stage_forward":                 intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
-	"intrinsic.agent.native_stage_forward":          intrinsicInfo("intrinsic.agent.native_stage_forward", 6, 6, true, "json"),
-	"intrinsic.agent.stage_streaming_forward":       intrinsicInfo("intrinsic.agent.stage_streaming_forward", 6, 6, true, "json"),
-	"intrinsic.agent.stage_chat_log":                intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),
-	"intrinsic.agent.stage_usage":                   intrinsicInfo("intrinsic.agent.stage_usage", 1, 1, true, "json"),
-	"intrinsic.agent.stage_traces":                  intrinsicInfo("intrinsic.agent.stage_traces", 1, 1, true, "list<json>"),
-	"intrinsic.agent.clarification_error":           intrinsicInfo("intrinsic.agent.clarification_error", 2, 2, true, "error"),
-	"intrinsic.agent.runtime.create_session":        intrinsicInfo("intrinsic.agent.runtime.create_session", 3, 3, true, "json"),
-	"intrinsic.agent.runtime.is_executable":         intrinsicInfo("intrinsic.agent.runtime.is_executable", 1, 1, false, "bool"),
-	"intrinsic.agent.runtime.execute":               intrinsicInfo("intrinsic.agent.runtime.execute", 3, 3, true, "json"),
-	"intrinsic.agent.runtime.inspect":               intrinsicInfo("intrinsic.agent.runtime.inspect", 2, 2, true, "json"),
-	"intrinsic.agent.runtime.export_state":          intrinsicInfo("intrinsic.agent.runtime.export_state", 2, 2, true, "json"),
-	"intrinsic.agent.runtime.restore_state":         intrinsicInfo("intrinsic.agent.runtime.restore_state", 3, 3, true, "json"),
-	"intrinsic.agent.runtime.close":                 intrinsicInfo("intrinsic.agent.runtime.close", 1, 1, true, "json"),
-	"intrinsic.agent.runtime.language":              intrinsicInfo("intrinsic.agent.runtime.language", 1, 1, true, "string"),
-	"intrinsic.agent.memory_search":                 intrinsicInfo("intrinsic.agent.memory_search", 3, 3, true, "json"),
-	"intrinsic.agent.skill_search":                  intrinsicInfo("intrinsic.agent.skill_search", 2, 2, true, "json"),
-	"intrinsic.agent.observer.notify":               intrinsicInfo("intrinsic.agent.observer.notify", 4, 4, true, "json"),
-	"intrinsic.agent.transcribe":                    intrinsicInfo("intrinsic.agent.transcribe", 3, 3, true, "json"),
-	"intrinsic.agent.callable.invoke":               intrinsicInfo("intrinsic.agent.callable.invoke", 3, 3, true, "json"),
-	"intrinsic.object.call_method":                  intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
-	"intrinsic.program.components":                  intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
-	"intrinsic.program.apply_components":            intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
-	"intrinsic.program.signature":                   intrinsicInfo("intrinsic.program.signature", 1, 1, true, "json"),
-	"intrinsic.ai.complete_once":                    intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
-	"intrinsic.ai.control_take_pending":             intrinsicInfo("intrinsic.ai.control_take_pending", 1, 1, true, "json"),
-	"intrinsic.ai.control_pending_count":            intrinsicInfo("intrinsic.ai.control_pending_count", 1, 1, true, "i64"),
-	"intrinsic.ai.client_features":                  intrinsicInfo("intrinsic.ai.client_features", 2, 2, false, "json"),
-	"intrinsic.json.parse_strict":                   intrinsicInfo("intrinsic.json.parse_strict", 1, 1, true, "json"),
-	"intrinsic.retry.sleep":                         intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
-	"intrinsic.exception.message":                   intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
-	"intrinsic.exception.rewrap":                    intrinsicInfo("intrinsic.exception.rewrap", 2, 2, true, "error"),
-	"intrinsic.exception.generate":                  intrinsicInfo("intrinsic.exception.generate", 2, 2, true, "error"),
-	"intrinsic.crypto.sha256_hex":                   intrinsicInfo("intrinsic.crypto.sha256_hex", 1, 1, true, "string"),
-	"intrinsic.exception.is_aborted":                intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
-	"intrinsic.exception.is_infrastructure":         intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),
-	"intrinsic.exception.is_refusal":                intrinsicInfo("intrinsic.exception.is_refusal", 1, 1, true, "bool"),
-	"intrinsic.exception.is_validation":             intrinsicInfo("intrinsic.exception.is_validation", 1, 1, true, "bool"),
-	"intrinsic.string.index_of":                     intrinsicInfo("intrinsic.string.index_of", 3, 3, false, "i64"),
-	"intrinsic.ai.stream_open":                      intrinsicInfo("intrinsic.ai.stream_open", 3, 3, true, "json"),
-	"intrinsic.ai.stream_next":                      intrinsicInfo("intrinsic.ai.stream_next", 1, 1, true, "json"),
-	"intrinsic.ai.stream_close":                     intrinsicInfo("intrinsic.ai.stream_close", 1, 1, true, "void"),
-	"intrinsic.axgen.emit_delta":                    intrinsicInfo("intrinsic.axgen.emit_delta", 2, 2, true, "void"),
-	"intrinsic.axgen.call_processor":                intrinsicInfo("intrinsic.axgen.call_processor", 3, 3, true, "json"),
-	"intrinsic.axgen.check_streaming_assertion":     intrinsicInfo("intrinsic.axgen.check_streaming_assertion", 3, 3, true, "json"),
-	"intrinsic.axgen.deprecation":                   intrinsicInfo("intrinsic.axgen.deprecation", 2, 2, true, "void"),
-	"intrinsic.ai.warn_once":                        intrinsicInfo("intrinsic.ai.warn_once", 2, 2, true, "void"),
-	"intrinsic.axgen.speak":                         intrinsicInfo("intrinsic.axgen.speak", 3, 3, true, "json"),
-	"intrinsic.date.zone_offset":                    intrinsicInfo("intrinsic.date.zone_offset", 2, 2, true, "f64"),
-	"intrinsic.axgen.caching_function":              intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),
-	"intrinsic.axgen.cache_read":                    intrinsicInfo("intrinsic.axgen.cache_read", 2, 2, true, "json"),
-	"intrinsic.axgen.cache_write":                   intrinsicInfo("intrinsic.axgen.cache_write", 3, 3, true, "void"),
-	"intrinsic.axgen.function_result_formatter":     intrinsicInfo("intrinsic.axgen.function_result_formatter", 0, 0, true, "json"),
-	"intrinsic.string.format":                       intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
-	"intrinsic.string.join":                         intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
-	"intrinsic.string.slice":                        intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),
-	"intrinsic.string.replace":                      intrinsicInfo("intrinsic.string.replace", 3, 3, false, "string"),
-	"intrinsic.string.split":                        intrinsicInfo("intrinsic.string.split", 2, 2, false, "list<string>"),
-	"intrinsic.string.split_top_level":              intrinsicInfo("intrinsic.string.split_top_level", 2, 2, false, "list<string>"),
-	"intrinsic.string.extract_leading_group":        intrinsicInfo("intrinsic.string.extract_leading_group", 3, 3, false, "json"),
-	"intrinsic.url.valid":                           intrinsicInfo("intrinsic.url.valid", 1, 1, false, "bool"),
-	"intrinsic.url.encode_component":                intrinsicInfo("intrinsic.url.encode_component", 1, 1, false, "string"),
-	"intrinsic.stream.event_content_parts":          intrinsicInfo("intrinsic.stream.event_content_parts", 1, 1, false, "list<string>"),
-	"intrinsic.string.drop_trailing_high_surrogate": intrinsicInfo("intrinsic.string.drop_trailing_high_surrogate", 1, 1, false, "string"),
-	"intrinsic.string.concat_stream_text":           intrinsicInfo("intrinsic.string.concat_stream_text", 2, 2, false, "string"),
+	"intrinsic.not":                                  intrinsicInfo("intrinsic.not", 1, 1, false, "bool"),
+	"intrinsic.and":                                  intrinsicInfo("intrinsic.and", 2, 2, false, "bool"),
+	"intrinsic.or":                                   intrinsicInfo("intrinsic.or", 2, 2, false, "bool"),
+	"intrinsic.same_reference":                       intrinsicInfo("intrinsic.same_reference", 2, 2, false, "bool"),
+	"intrinsic.eq":                                   intrinsicInfo("intrinsic.eq", 2, 2, false, "bool"),
+	"intrinsic.ne":                                   intrinsicInfo("intrinsic.ne", 2, 2, false, "bool"),
+	"intrinsic.lt":                                   intrinsicInfo("intrinsic.lt", 2, 2, false, "bool"),
+	"intrinsic.lte":                                  intrinsicInfo("intrinsic.lte", 2, 2, false, "bool"),
+	"intrinsic.gt":                                   intrinsicInfo("intrinsic.gt", 2, 2, false, "bool"),
+	"intrinsic.gte":                                  intrinsicInfo("intrinsic.gte", 2, 2, false, "bool"),
+	"intrinsic.mul":                                  intrinsicInfo("intrinsic.mul", 2, 2, false, "f64"),
+	"intrinsic.div":                                  intrinsicInfo("intrinsic.div", 2, 2, false, "f64"),
+	"intrinsic.string.codepoint_length":              intrinsicInfo("intrinsic.string.codepoint_length", 1, 1, false, "i64"),
+	"intrinsic.string.utf16_units":                   intrinsicInfo("intrinsic.string.utf16_units", 1, 1, false, "json"),
+	"intrinsic.string.utf8_length":                   intrinsicInfo("intrinsic.string.utf8_length", 1, 1, false, "i64"),
+	"intrinsic.math.is_finite":                       intrinsicInfo("intrinsic.math.is_finite", 1, 1, false, "bool"),
+	"intrinsic.math.floor":                           intrinsicInfo("intrinsic.math.floor", 1, 1, false, "f64"),
+	"intrinsic.math.abs":                             intrinsicInfo("intrinsic.math.abs", 1, 1, false, "f64"),
+	"intrinsic.math.log":                             intrinsicInfo("intrinsic.math.log", 1, 1, false, "f64"),
+	"intrinsic.math.exp":                             intrinsicInfo("intrinsic.math.exp", 1, 1, false, "f64"),
+	"intrinsic.math.sqrt":                            intrinsicInfo("intrinsic.math.sqrt", 1, 1, false, "f64"),
+	"intrinsic.math.cos":                             intrinsicInfo("intrinsic.math.cos", 1, 1, false, "f64"),
+	"intrinsic.math.pow":                             intrinsicInfo("intrinsic.math.pow", 2, 2, false, "f64"),
+	"intrinsic.math.random":                          intrinsicInfo("intrinsic.math.random", 0, 0, true, "f64"),
+	"intrinsic.len":                                  intrinsicInfo("intrinsic.len", 1, 1, false, "i64"),
+	"intrinsic.contains":                             intrinsicInfo("intrinsic.contains", 2, 2, false, "bool"),
+	"intrinsic.is_none":                              intrinsicInfo("intrinsic.is_none", 1, 1, false, "bool"),
+	"intrinsic.is_not_none":                          intrinsicInfo("intrinsic.is_not_none", 1, 1, false, "bool"),
+	"intrinsic.none":                                 intrinsicInfo("intrinsic.none", 0, 0, false, "json"),
+	"intrinsic.coalesce":                             intrinsicInfo("intrinsic.coalesce", 2, 2, false, "json"),
+	"intrinsic.map.contains":                         intrinsicInfo("intrinsic.map.contains", 2, 2, false, "bool"),
+	"intrinsic.map.get":                              intrinsicInfo("intrinsic.map.get", 2, 3, false, "json"),
+	"intrinsic.map.delete":                           intrinsicInfo("intrinsic.map.delete", 2, 2, false, "json"),
+	"intrinsic.map.keys":                             intrinsicInfo("intrinsic.map.keys", 1, 1, false, "list<string>"),
+	"intrinsic.json.parse":                           intrinsicInfo("intrinsic.json.parse", 1, 1, false, "json"),
+	"intrinsic.json.stringify":                       intrinsicInfo("intrinsic.json.stringify", 1, 1, false, "string"),
+	"intrinsic.json.stable_stringify":                intrinsicInfo("intrinsic.json.stable_stringify", 1, 1, false, "string"),
+	"intrinsic.tool.invoke":                          intrinsicInfo("intrinsic.tool.invoke", 2, 3, true, "json"),
+	"intrinsic.run_control.aborted":                  intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
+	"intrinsic.flow.dispatch_group":                  intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
+	"intrinsic.flow.caching_function":                intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),
+	"intrinsic.agent.stage_forward":                  intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
+	"intrinsic.agent.native_stage_forward":           intrinsicInfo("intrinsic.agent.native_stage_forward", 6, 6, true, "json"),
+	"intrinsic.agent.stage_streaming_forward":        intrinsicInfo("intrinsic.agent.stage_streaming_forward", 6, 6, true, "json"),
+	"intrinsic.agent.stage_chat_log":                 intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),
+	"intrinsic.agent.stage_usage":                    intrinsicInfo("intrinsic.agent.stage_usage", 1, 1, true, "json"),
+	"intrinsic.agent.stage_traces":                   intrinsicInfo("intrinsic.agent.stage_traces", 1, 1, true, "list<json>"),
+	"intrinsic.agent.clarification_error":            intrinsicInfo("intrinsic.agent.clarification_error", 2, 2, true, "error"),
+	"intrinsic.agent.runtime.create_session":         intrinsicInfo("intrinsic.agent.runtime.create_session", 3, 3, true, "json"),
+	"intrinsic.agent.runtime.observation_boundaries": intrinsicInfo("intrinsic.agent.runtime.observation_boundaries", 1, 1, false, "bool"),
+	"intrinsic.agent.runtime.is_executable":          intrinsicInfo("intrinsic.agent.runtime.is_executable", 1, 1, false, "bool"),
+	"intrinsic.agent.runtime.execute":                intrinsicInfo("intrinsic.agent.runtime.execute", 3, 3, true, "json"),
+	"intrinsic.agent.runtime.inspect":                intrinsicInfo("intrinsic.agent.runtime.inspect", 2, 2, true, "json"),
+	"intrinsic.agent.runtime.export_state":           intrinsicInfo("intrinsic.agent.runtime.export_state", 2, 2, true, "json"),
+	"intrinsic.agent.runtime.restore_state":          intrinsicInfo("intrinsic.agent.runtime.restore_state", 3, 3, true, "json"),
+	"intrinsic.agent.runtime.close":                  intrinsicInfo("intrinsic.agent.runtime.close", 1, 1, true, "json"),
+	"intrinsic.agent.runtime.language":               intrinsicInfo("intrinsic.agent.runtime.language", 1, 1, true, "string"),
+	"intrinsic.agent.memory_search":                  intrinsicInfo("intrinsic.agent.memory_search", 3, 3, true, "json"),
+	"intrinsic.agent.skill_search":                   intrinsicInfo("intrinsic.agent.skill_search", 2, 2, true, "json"),
+	"intrinsic.agent.observer.notify":                intrinsicInfo("intrinsic.agent.observer.notify", 4, 4, true, "json"),
+	"intrinsic.agent.transcribe":                     intrinsicInfo("intrinsic.agent.transcribe", 3, 3, true, "json"),
+	"intrinsic.agent.callable.invoke":                intrinsicInfo("intrinsic.agent.callable.invoke", 3, 3, true, "json"),
+	"intrinsic.object.call_method":                   intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
+	"intrinsic.program.components":                   intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
+	"intrinsic.program.apply_components":             intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
+	"intrinsic.program.signature":                    intrinsicInfo("intrinsic.program.signature", 1, 1, true, "json"),
+	"intrinsic.ai.complete_once":                     intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
+	"intrinsic.ai.control_take_pending":              intrinsicInfo("intrinsic.ai.control_take_pending", 1, 1, true, "json"),
+	"intrinsic.ai.control_pending_count":             intrinsicInfo("intrinsic.ai.control_pending_count", 1, 1, true, "i64"),
+	"intrinsic.ai.client_features":                   intrinsicInfo("intrinsic.ai.client_features", 2, 2, false, "json"),
+	"intrinsic.json.parse_strict":                    intrinsicInfo("intrinsic.json.parse_strict", 1, 1, true, "json"),
+	"intrinsic.retry.sleep":                          intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
+	"intrinsic.exception.message":                    intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
+	"intrinsic.exception.rewrap":                     intrinsicInfo("intrinsic.exception.rewrap", 2, 2, true, "error"),
+	"intrinsic.exception.generate":                   intrinsicInfo("intrinsic.exception.generate", 2, 2, true, "error"),
+	"intrinsic.crypto.sha256_hex":                    intrinsicInfo("intrinsic.crypto.sha256_hex", 1, 1, true, "string"),
+	"intrinsic.exception.is_aborted":                 intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
+	"intrinsic.exception.is_infrastructure":          intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),
+	"intrinsic.exception.is_refusal":                 intrinsicInfo("intrinsic.exception.is_refusal", 1, 1, true, "bool"),
+	"intrinsic.exception.is_validation":              intrinsicInfo("intrinsic.exception.is_validation", 1, 1, true, "bool"),
+	"intrinsic.string.index_of":                      intrinsicInfo("intrinsic.string.index_of", 3, 3, false, "i64"),
+	"intrinsic.ai.stream_open":                       intrinsicInfo("intrinsic.ai.stream_open", 3, 3, true, "json"),
+	"intrinsic.ai.stream_next":                       intrinsicInfo("intrinsic.ai.stream_next", 1, 1, true, "json"),
+	"intrinsic.ai.stream_close":                      intrinsicInfo("intrinsic.ai.stream_close", 1, 1, true, "void"),
+	"intrinsic.axgen.emit_delta":                     intrinsicInfo("intrinsic.axgen.emit_delta", 2, 2, true, "void"),
+	"intrinsic.axgen.call_processor":                 intrinsicInfo("intrinsic.axgen.call_processor", 3, 3, true, "json"),
+	"intrinsic.axgen.check_streaming_assertion":      intrinsicInfo("intrinsic.axgen.check_streaming_assertion", 3, 3, true, "json"),
+	"intrinsic.axgen.deprecation":                    intrinsicInfo("intrinsic.axgen.deprecation", 2, 2, true, "void"),
+	"intrinsic.ai.warn_once":                         intrinsicInfo("intrinsic.ai.warn_once", 2, 2, true, "void"),
+	"intrinsic.axgen.speak":                          intrinsicInfo("intrinsic.axgen.speak", 3, 3, true, "json"),
+	"intrinsic.date.zone_offset":                     intrinsicInfo("intrinsic.date.zone_offset", 2, 2, true, "f64"),
+	"intrinsic.axgen.caching_function":               intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),
+	"intrinsic.axgen.cache_read":                     intrinsicInfo("intrinsic.axgen.cache_read", 2, 2, true, "json"),
+	"intrinsic.axgen.cache_write":                    intrinsicInfo("intrinsic.axgen.cache_write", 3, 3, true, "void"),
+	"intrinsic.axgen.function_result_formatter":      intrinsicInfo("intrinsic.axgen.function_result_formatter", 0, 0, true, "json"),
+	"intrinsic.string.format":                        intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
+	"intrinsic.string.join":                          intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
+	"intrinsic.string.slice":                         intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),
+	"intrinsic.string.replace":                       intrinsicInfo("intrinsic.string.replace", 3, 3, false, "string"),
+	"intrinsic.string.split":                         intrinsicInfo("intrinsic.string.split", 2, 2, false, "list<string>"),
+	"intrinsic.string.split_top_level":               intrinsicInfo("intrinsic.string.split_top_level", 2, 2, false, "list<string>"),
+	"intrinsic.string.extract_leading_group":         intrinsicInfo("intrinsic.string.extract_leading_group", 3, 3, false, "json"),
+	"intrinsic.url.valid":                            intrinsicInfo("intrinsic.url.valid", 1, 1, false, "bool"),
+	"intrinsic.url.encode_component":                 intrinsicInfo("intrinsic.url.encode_component", 1, 1, false, "string"),
+	"intrinsic.stream.event_content_parts":           intrinsicInfo("intrinsic.stream.event_content_parts", 1, 1, false, "list<string>"),
+	"intrinsic.string.drop_trailing_high_surrogate":  intrinsicInfo("intrinsic.string.drop_trailing_high_surrogate", 1, 1, false, "string"),
+	"intrinsic.string.concat_stream_text":            intrinsicInfo("intrinsic.string.concat_stream_text", 2, 2, false, "string"),
 }
 
 func intrinsicInfo(name string, minArgs, maxArgs int, hostBoundary bool, returnKind string) CoreIntrinsicInfo {

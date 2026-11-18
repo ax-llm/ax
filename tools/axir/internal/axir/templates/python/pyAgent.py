@@ -2712,6 +2712,10 @@ def _core_agent_clarification_error(payload, state):
     )
 
 
+def _core_agent_runtime_observation_boundaries(runtime):
+    supports = getattr(runtime, "supports_observation_boundaries", None)
+    return callable(supports) and supports()
+
 def _core_agent_runtime_is_executable(runtime):
     return callable(getattr(runtime, "create_session", None))
 

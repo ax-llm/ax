@@ -210,6 +210,9 @@ class AxQuickJsCodeRuntime(AxCodeRuntime):
         self.host_callables[name] = handler
         return self
 
+    def supports_observation_boundaries(self) -> bool:
+        return True
+
     def get_usage_instructions(self) -> str:
         return _USAGE_INSTRUCTIONS
 

@@ -10990,6 +10990,7 @@ pub fn get_supported_ai_models_with_options(options: Value) -> AxResult<Vec<Valu
 pub type AxHostCallable = Arc<dyn Fn(Value) -> AxResult<Value> + Send + Sync + 'static>;
 
 pub trait AxCodeRuntime {
+    fn supports_observation_boundaries(&self) -> bool { false }
     fn language(&self) -> &str;
 
     fn usage_instructions(&self) -> &str {
@@ -26716,6 +26717,7 @@ impl CoreHost for CodeRuntimeHost {
 
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         match name {
+            "supports_observation_boundaries" => Ok(CoreValue::Bool(self.runtime.borrow().supports_observation_boundaries())),
             "create_session" => {
                 let globals = core_value_to_json(&core_arg(args, 0));
                 let options = core_value_to_json(&core_arg(args, 1));
@@ -26881,6 +26883,12 @@ fn core_agent_map(entries: &[(&str, CoreValue)]) -> Result<CoreValue, AxError> {
 
 // python: _core_agent_runtime_create_session(runtime, globals_, options)
 #[allow(dead_code)]
+fn core_agent_runtime_observation_boundaries(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    Ok(core_host_try(&runtime, "supports_observation_boundaries", &[])
+        .transpose()?.unwrap_or(CoreValue::Bool(false)))
+}
+
 fn core_agent_runtime_is_executable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Bool(matches!(core_arg(args, 0), CoreValue::Host(host) if host.host_type() == "AxCodeRuntime")))
 }
@@ -27508,6 +27516,7 @@ impl CoreHost for ScopedRuntimeHost {
         // that constructed this host; emitted code uses it synchronously.
         let runtime = unsafe { &mut *self.0 };
         match name {
+            "supports_observation_boundaries" => Ok(CoreValue::Bool(runtime.supports_observation_boundaries())),
             "create_session" => {
                 let globals = core_value_to_json(&core_arg(args, 0));
                 let options = core_value_to_json(&core_arg(args, 1));

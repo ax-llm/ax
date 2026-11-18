@@ -391,6 +391,10 @@ module @ax.agent version "0.1" {
       core.set %out["code_field_title"] = %code_field_title
       core.set %out["code_fence_language"] = %code_fence_language
       core.set %out["is_javascript"] = %is_js
+      %observation_boundaries = core.call intrinsic.agent.runtime.observation_boundaries(%runtime)
+      core.if %observation_boundaries {
+        core.set %out["observation_boundaries"] = true
+      }
       core.set %out["usage_instructions"] = %usage_instructions
       // The runtime's own usage instructions, which the actor prompts render
       // as TS renders getUsageInstructions(): nothing when it has none.
@@ -2518,7 +2522,10 @@ module @ax.agent version "0.1" {
       }
       %direct = core.get %entry["_directQualifiedCalls"] default %empty_list
       %direct_is_list = core.type_is %direct type "list"
-      core.if %direct_is_list {
+      %paused = core.call @agent_entry_is_paused(%entry)
+      %unpaused = core.call intrinsic.not(%paused)
+      %render_direct = core.call intrinsic.and(%direct_is_list, %unpaused)
+      core.if %render_direct {
         core.for %direct_name in %direct {
           %has_direct = core.call intrinsic.ne(%direct_name, "")
           core.if %has_direct {
@@ -2591,6 +2598,31 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_entry_is_paused {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> bool"
+    body @entry(%entry: json) {
+      %empty = core.list
+      %tags = core.get %entry["tags"] default %empty
+      %paused = core.call intrinsic.contains(%tags, "paused")
+      core.return %paused
+    }
+  }
+
+  op ax.agent.semantic @agent_render_paused_action_entry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> string"
+    body @entry(%entry: json, %output: string) {
+      %calls = core.call @agent_entry_callables_text(%entry)
+      %text = core.call intrinsic.string.format("Execution paused. Unexecuted code is omitted; continue from initialized bindings.\nRecorded calls: {}.\nResult:\n{}", %calls, %output)
+      core.return %text
+    }
+  }
+
   op ax.agent.semantic @agent_render_full_action_entry {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -2628,6 +2660,11 @@ module @ax.agent version "0.1" {
         } else {
           %output = core.let %full_err_text
         }
+      }
+      %paused = core.call @agent_entry_is_paused(%entry)
+      core.if %paused {
+        %paused_text = core.call @agent_render_paused_action_entry(%entry, %output)
+        core.return %paused_text
       }
       %text = core.call intrinsic.string.format("```{}\n{}\n```\nResult:\n{}", %fence, %code, %output)
       core.return %text
@@ -2904,6 +2941,10 @@ module @ax.agent version "0.1" {
           core.if %include_working {
             core.append %working_turns, %turn2
             %code = core.get %entry2["code"] default "(no code)"
+            %paused_working = core.call @agent_entry_is_paused(%entry2)
+            core.if %paused_working {
+              %code = core.let "(execution paused; submitted code omitted)"
+            }
             %code_len = core.call intrinsic.len(%code)
             %code_too_long = core.call intrinsic.gt(%code_len, 2000)
             core.if %code_too_long {
@@ -2999,10 +3040,26 @@ module @ax.agent version "0.1" {
       }
       %chars = core.call @agent_action_log_char_count(%entries)
       %trigger = core.get %checkpoints["triggerChars"] default 16000
+      %current = core.get %state["checkpoint_state"] default null
+      %action_replay = core.get %policy["actionReplay"] default "full"
+      %checkpointed = core.call intrinsic.eq(%action_replay, "checkpointed")
+      %observed_boundaries = core.get %state["observed_feedback"] default false
+      %measure_replay = core.call intrinsic.and(%checkpointed, %observed_boundaries)
+      core.if %measure_replay {
+        %hygiene = core.get %policy["contextHygiene"] default null
+        %hygiene_mode = core.get %hygiene["defaultMode"] default "none"
+        %parts = core.call @agent_build_action_log_parts(%state, %hygiene_mode)
+        %history = core.get %parts["history"] default ""
+        %summary_text = core.get %parts["summary"] default ""
+        %history_chars = core.call intrinsic.len(%history)
+        %summary_chars = core.call intrinsic.len(%summary_text)
+        %chars = core.call intrinsic.add(%history_chars, %summary_chars)
+        %fixed_chars = core.get %state["fixed_prompt_chars"] default 0
+        %trigger = core.call @agent_compute_effective_chat_budget(%trigger, %fixed_chars)
+      }
       %over = core.call intrinsic.gte(%chars, %trigger)
       core.if %over {
       } else {
-        %current = core.get %state["checkpoint_state"] default null
         core.return %current
       }
       %recent = core.get %policy["recentFullActions"] default 1
@@ -3034,6 +3091,27 @@ module @ax.agent version "0.1" {
       } else {
         %none_no_covered = core.call intrinsic.none()
         core.return %none_no_covered
+      }
+      %current_is_map = core.type_is %current type "object"
+      %can_reuse = core.call intrinsic.and(%current_is_map, %measure_replay)
+      core.if %can_reuse {
+        %previous_turns = core.get %current["turns"] default %empty_list
+        %kept_count = core.let 0
+        core.for %previous in %previous_turns {
+          %kept = core.call intrinsic.contains(%covered_turns, %previous)
+          core.if %kept {
+            %kept_count = core.call intrinsic.add(%kept_count, 1)
+          }
+        }
+        %previous_count = core.call intrinsic.len(%previous_turns)
+        %all_kept = core.call intrinsic.eq(%kept_count, %previous_count)
+        %negative_kept = core.call intrinsic.mul(-1, %kept_count)
+        %new_count = core.call intrinsic.add(%covered_count, %negative_kept)
+        %small_growth = core.call intrinsic.lt(%new_count, 4)
+        %reuse = core.call intrinsic.and(%all_kept, %small_growth)
+        core.if %reuse {
+          core.return %current
+        }
       }
       %summary = core.call @agent_fallback_checkpoint_summary(%entries, %covered_turns)
       %checkpoint = core.map
@@ -3133,6 +3211,7 @@ module @ax.agent version "0.1" {
       %checkpointed = core.call intrinsic.eq(%action_replay, "checkpointed")
       %index = core.let 0
       %fallback_turn = core.let 1
+      %last_index = core.call intrinsic.add(%count, -1)
       core.for %entry in %entries {
         %turn = core.call @agent_entry_turn(%entry, %fallback_turn)
         %is_error = core.call @agent_entry_is_error(%entry)
@@ -3149,6 +3228,12 @@ module @ax.agent version "0.1" {
         %covered_success = core.call intrinsic.and(%checkpoint_covered, %not_error)
         %not_replay_full = core.call intrinsic.not(%replay_full)
         %covered_success = core.call intrinsic.and(%covered_success, %not_replay_full)
+        %paused = core.call @agent_entry_is_paused(%entry)
+        %last = core.call intrinsic.eq(%index, %last_index)
+        %fresh_observation = core.call intrinsic.and(%paused, %last)
+        core.if %fresh_observation {
+          %covered_success = core.let false
+        }
         %rendered = core.let ""
         core.if %covered_success {
           %rendered = core.let ""
@@ -3177,6 +3262,38 @@ module @ax.agent version "0.1" {
           }
           core.if %has_tombstone {
             %rendered = core.let %tombstone
+          }
+          core.if %paused {
+            %render_full = core.let true
+            %older = core.call intrinsic.lt(%index, %last_index)
+            %older = core.call intrinsic.and(%older, %checkpointed)
+            %older = core.call intrinsic.and(%older, %not_error)
+            %not_tombstoned = core.call intrinsic.not(%has_tombstone)
+            %older = core.call intrinsic.and(%older, %not_tombstoned)
+            %observation = core.get %entry["output"] default ""
+            %policy_error = core.call intrinsic.string.starts_with(%observation, "[POLICY]")
+            %may_compact = core.call intrinsic.not(%policy_error)
+            %older = core.call intrinsic.and(%older, %may_compact)
+            %chars = core.call intrinsic.len(%observation)
+            %large = core.call intrinsic.gt(%chars, 810)
+            %older = core.call intrinsic.and(%older, %large)
+            core.if %older {
+              %head = core.call intrinsic.string.slice(%observation, 0, 480)
+              %tail_start = core.call intrinsic.add(%chars, -260)
+              %tail = core.call intrinsic.string.slice(%observation, %tail_start, %chars)
+              %excerpt = core.call intrinsic.string.format("Turn {} (older observation, excerpt):\n{}\n[... middle omitted ...]\n{}", %turn, %head, %tail)
+              %rendered = core.call @agent_render_paused_action_entry(%entry, %excerpt)
+              %original = core.call @agent_render_full_action_entry(%state, %entry)
+              %compaction = core.map
+              core.set %compaction["turn"] = %turn
+              core.set %compaction["mode"] = "compact"
+              core.set %compaction["reason"] = "older_observation"
+              %original_chars = core.call intrinsic.len(%original)
+              %rendered_chars = core.call intrinsic.len(%rendered)
+              core.set %compaction["originalChars"] = %original_chars
+              core.set %compaction["renderedChars"] = %rendered_chars
+              core.append %compactions, %compaction
+            }
           }
           %has_rendered_pre = core.call intrinsic.ne(%rendered, "")
           core.if %has_rendered_pre {
@@ -3887,6 +4004,18 @@ module @ax.agent version "0.1" {
         core.set %out["returns"] = %returns
       }
       core.set %out["always_include"] = %always_include
+      %result_policy_camel = core.get %raw["resultPolicy"] default null
+      %result_policy = core.get %raw["result_policy"] default %result_policy_camel
+      %has_result_policy = core.call intrinsic.is_not_none(%result_policy)
+      core.if %has_result_policy {
+        %inspect = core.call intrinsic.eq(%result_policy, "inspect")
+        %data = core.call intrinsic.eq(%result_policy, "data")
+        %allowed = core.call intrinsic.or(%inspect, %data)
+        core.if %allowed {} else {
+          core.raise "Tool resultPolicy must be inspect or data"
+        }
+        core.set %out["result_policy"] = %result_policy
+      }
       %execution = core.get %raw["execution"] default "blocking"
       %background = core.call intrinsic.eq(%execution, "background")
       core.if %background {
@@ -6249,6 +6378,151 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_clip_observation_text {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string, number) -> string"
+    body @entry(%text: string, %limit: number) {
+      %size = core.call intrinsic.len(%text)
+      %too_large = core.call intrinsic.gt(%size, %limit)
+      core.if %too_large {
+        %marker = core.let "... [truncated]"
+        %marker_size = core.call intrinsic.len(%marker)
+        %can_mark = core.call intrinsic.gt(%limit, %marker_size)
+        core.if %can_mark {
+          %negative_marker = core.call intrinsic.mul(%marker_size, -1)
+          %max_prefix = core.call intrinsic.add(%limit, %negative_marker)
+          %prefix = core.call intrinsic.string.slice(%text, 0, %max_prefix)
+          %out = core.call intrinsic.add(%prefix, %marker)
+          core.return %out
+        }
+        %out = core.call intrinsic.string.slice(%marker, 0, %limit)
+        core.return %out
+      }
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_apply_turn_observations {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> void"
+    body @entry(%state: json, %entry: json) {
+      %enabled = core.call @agent_observation_enabled(%state)
+      core.if %enabled {} else { core.return }
+      %discover = core.get %entry["discover_request"] default null
+      %has_discovery = core.type_is %discover type "object"
+      %recall = core.get %entry["recall_request"] default null
+      %has_recall = core.call intrinsic.is_not_none(%recall)
+      %new_context = core.call intrinsic.or(%has_discovery, %has_recall)
+      %pending = core.get %state["observation_pending"] default false
+      %feedback = core.call intrinsic.or(%pending, %new_context)
+      core.if %feedback {} else { core.return }
+      core.set %state["observed_feedback"] = true
+
+      %policy = core.get %state["context_policy"] default null
+      %ceiling = core.get %policy["maxRuntimeChars"] default 12000
+      %dynamic = core.get %state["dynamic_runtime_chars"] default %ceiling
+      %replay = core.get %policy["actionReplay"] default "full"
+      %full = core.call intrinsic.eq(%replay, "full")
+      %limit = core.let %dynamic
+      core.if %full { %limit = core.let %ceiling }
+      %invalid_limit = core.call intrinsic.lte(%limit, 0)
+      core.if %invalid_limit { %limit = core.let %ceiling }
+
+      %empty = core.list
+      %observations = core.get %state["turn_observations"] default %empty
+      %lines = core.list
+      %blocked = core.get %state["observation_blocked_action"] default ""
+      %was_blocked = core.call intrinsic.ne(%blocked, "")
+      %completion = core.get %entry["completion_payload"] default null
+      %attempted_completion = core.type_is %completion type "object"
+      core.if %attempted_completion {
+        %blocked = core.get %completion["type"] default "completion"
+        %was_blocked = core.let true
+      }
+      %pause = core.call intrinsic.or(%was_blocked, %new_context)
+      %header = core.let "[OBSERVATION] Review completed results on the next model turn. Continue from saved runtime values."
+      core.if %new_context {
+        %header = core.let "[OBSERVATION] Discovery or recall finished. Read the new context before continuing."
+      } else {
+        core.if %was_blocked {
+          %header = core.call intrinsic.string.format("[OBSERVATION] Execution paused before {}. Read the results and continue from saved runtime values.", %blocked)
+        }
+      }
+      %header_chars = core.call intrinsic.len(%header)
+      %remainder = core.call intrinsic.add(%limit, -1)
+      %negative_header = core.call intrinsic.mul(%header_chars, -1)
+      %remainder = core.call intrinsic.add(%remainder, %negative_header)
+      %remaining_results = core.call intrinsic.len(%observations)
+      core.for %observation in %observations {
+        %has_room = core.call intrinsic.gt(%remainder, 0)
+        core.if %has_room {
+          %budget = core.call intrinsic.div(%remainder, %remaining_results)
+          %budget = core.call intrinsic.math.floor(%budget)
+          %name = core.get %observation["qualifiedName"] default ""
+          %failure = core.get %observation["error"] default null
+          %is_failure = core.call intrinsic.is_not_none(%failure)
+          %value = core.get %observation["result"] default null
+          %text = core.let %failure
+          core.if %is_failure {} else {
+            %text = core.call intrinsic.json.stringify(%value)
+          }
+          %line = core.call intrinsic.string.format("{}: {}", %name, %text)
+          %bounded = core.call @agent_clip_observation_text(%line, %budget)
+          core.append %lines, %bounded
+          %used = core.call intrinsic.len(%bounded)
+          %used = core.call intrinsic.add(%used, 1)
+          %negative_used = core.call intrinsic.mul(%used, -1)
+          %remainder = core.call intrinsic.add(%remainder, %negative_used)
+        }
+        %remaining_results = core.call intrinsic.add(%remaining_results, -1)
+      }
+      core.append %lines, %header
+      %text = core.call intrinsic.string.join("\n", %lines)
+      %console_output = core.get %entry["output"] default ""
+      %can_show_console = core.call intrinsic.gt(%remainder, 1)
+      core.if %can_show_console {
+        %console_used = core.call intrinsic.contains(%text, %console_output)
+        core.if %console_used {} else {
+          %console_budget = core.call intrinsic.add(%remainder, -1)
+          %console_preview = core.call @agent_clip_observation_text(%console_output, %console_budget)
+          %text = core.call intrinsic.string.format("{}\n{}", %text, %console_preview)
+        }
+      }
+      %text = core.call @agent_clip_observation_text(%text, %limit)
+      core.set %entry["output"] = %text
+      %none = core.call intrinsic.none()
+      core.set %entry["_functionCalls"] = %observations
+      core.set %entry["completion_payload"] = %none
+      core.set %entry["callable_request"] = %none
+      core.set %entry["status"] = %none
+      core.set %entry["guidance_payload"] = %none
+      core.if %pause {
+        %tags = core.list
+        core.append %tags, "paused"
+        %old_error = core.get %entry["error"] default ""
+        %boundary_error = core.call intrinsic.contains(%old_error, "Review the current observations on the next model turn.")
+        core.if %boundary_error {
+          core.set %entry["is_error"] = false
+          core.set %entry["error"] = ""
+          core.set %entry["error_category"] = ""
+        }
+        %still_error = core.get %entry["is_error"] default false
+        core.if %still_error { core.append %tags, "error" }
+        core.set %entry["tags"] = %tags
+        core.set %entry["kind"] = "result"
+        core.set %entry["result"] = %none
+        core.set %entry["producedVars"] = %empty
+        core.set %entry["readVars"] = %empty
+        core.set %entry["callables"] = %empty
+      }
+      core.return
+    }
+  }
+
   op ax.agent.runtime @agent_runtime_execute_step {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -6266,6 +6540,13 @@ module @ax.agent version "0.1" {
       // its entry is logged when its result asks for the call.
       %step_turn = core.call @agent_stage_step_turn(%state)
       core.set %state["active_step_turn"] = %step_turn
+      %observation_enabled = core.call @agent_observation_enabled(%state)
+      core.if %observation_enabled {
+        %observations = core.list
+        core.set %state["turn_observations"] = %observations
+        core.set %state["observation_pending"] = false
+        core.set %state["observation_blocked_action"] = ""
+      }
       %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
       %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
       core.call @agent_attach_code_analysis(%normalized, %raw)
@@ -6296,6 +6577,7 @@ module @ax.agent version "0.1" {
         }
         core.set %normalized["output"] = %rendered
       }
+      core.call @agent_apply_turn_observations(%state, %normalized)
       core.call @agent_runtime_append_action_log(%state, %normalized)
       core.call @agent_record_trace_event(%state, "runtime_execute", %normalized)
       %step_error = core.get %normalized["is_error"] default false
@@ -10134,6 +10416,85 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_observation_enabled {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> bool"
+    body @entry(%state: json) {
+      %contract = core.get %state["runtime_contract"] default null
+      %enabled = core.get %contract["observation_boundaries"] default false
+      core.return %enabled
+    }
+  }
+
+  op ax.agent.semantic @agent_guard_pending_observation {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> void throws"
+    body @entry(%state: json, %action: string) {
+      %pending = core.get %state["observation_pending"] default false
+      core.if %pending {
+        core.set %state["observation_blocked_action"] = %action
+        %error = core.call intrinsic.error.runtime("Review the current observations on the next model turn.")
+        core.raise %error
+      }
+      core.return
+    }
+  }
+
+  op ax.agent.semantic @agent_record_turn_observation {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string, json) -> void"
+    body @entry(%state: json, %qualified: string, %result: json) {
+      %empty = core.list
+      %observations = core.get %state["turn_observations"] default %empty
+      %record = core.map
+      core.set %record["qualifiedName"] = %qualified
+      %status = core.get %result["status"] default "ok"
+      %failed = core.call intrinsic.eq(%status, "error")
+      core.if %failed {
+        %failure = core.get %result["error"] default "Tool failed"
+        core.set %record["error"] = %failure
+      } else {
+        %value = core.get %result["value"] default null
+        core.set %record["result"] = %value
+      }
+      core.append %observations, %record
+      core.set %state["turn_observations"] = %observations
+      core.set %state["observation_pending"] = true
+      core.set %state["observed_feedback"] = true
+      core.return
+    }
+  }
+
+  op ax.agent.semantic @agent_runtime_tool_requires_inspection {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> bool"
+    body @entry(%state: json, %qualified: string) {
+      %empty = core.list
+      %inventory = core.get %state["callable_inventory"] default %empty
+      core.for %group in %inventory {
+        %members = core.get %group["callables"] default %empty
+        core.for %member in %members {
+          %name = core.get %member["qualified_name"] default ""
+          %matches = core.call intrinsic.eq(%name, %qualified)
+          core.if %matches {
+            %policy = core.get %member["result_policy"] default "inspect"
+            %inspect = core.call intrinsic.ne(%policy, "data")
+            core.return %inspect
+          }
+        }
+      }
+      core.return true
+    }
+  }
+
   op ax.agent.semantic @agent_runtime_invoke_callable {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -10146,9 +10507,31 @@ module @ax.agent version "0.1" {
         %error = core.call intrinsic.error.runtime("Agent invocation belongs to a closed run")
         core.raise %error
       }
+      %observation_enabled = core.call @agent_observation_enabled(%state)
+      core.if %observation_enabled {
+        %active_turn = core.get %state["active_step_turn"] default null
+        %in_step = core.call intrinsic.is_not_none(%active_turn)
+        core.if %in_step {} else {
+          %error = core.call intrinsic.error.runtime("Tool calls must belong to an active actor turn")
+          core.raise %error
+        }
+        core.call @agent_guard_pending_observation(%state, %qualified)
+      }
       %visible = core.call @agent_callable_visible(%state, %qualified)
       core.if %visible {
       } else {
+        core.if %observation_enabled {
+          %known_names = core.call @agent_runtime_callable_names(%state)
+          %known = core.call intrinsic.contains(%known_names, %qualified)
+          core.if %known {
+            %discover = core.list
+            core.append %discover, %qualified
+            core.call @agent_discover(%state, %discover)
+            core.set %state["observation_pending"] = true
+            core.set %state["observed_feedback"] = true
+            core.call @agent_guard_pending_observation(%state, %qualified)
+          }
+        }
         %message = core.call intrinsic.string.format("Agent callable is not discovered: {}", %qualified)
         %error = core.call intrinsic.error.runtime(%message)
         core.raise %error
@@ -10163,6 +10546,13 @@ module @ax.agent version "0.1" {
       %result = core.call @agent_execute_callable(%state, %request, %options)
       %status = core.get %result["status"] default "ok"
       %failed = core.call intrinsic.eq(%status, "error")
+      core.if %observation_enabled {
+        %inspect = core.call @agent_runtime_tool_requires_inspection(%state, %qualified)
+        %needs_observation = core.call intrinsic.or(%inspect, %failed)
+        core.if %needs_observation {
+          core.call @agent_record_turn_observation(%state, %qualified, %result)
+        }
+      }
       core.if %failed {
         %message = core.get %result["error"] default "Agent callable failed"
         %error = core.call intrinsic.error.runtime(%message)
@@ -10977,6 +11367,10 @@ module @ax.agent version "0.1" {
       %contract_options = core.map
       core.set %contract_options["runtime"] = %config
       %contract = core.call @normalize_agent_runtime(%contract_options)
+      %observation_boundaries = core.call intrinsic.agent.runtime.observation_boundaries(%runtime)
+      core.if %observation_boundaries {
+        core.set %contract["observation_boundaries"] = true
+      }
       %empty_map = core.map
       %saved_contract = core.get %state["runtime_contract"] default %empty_map
       core.set %state["runtime_contract"] = %contract
@@ -11024,6 +11418,10 @@ module @ax.agent version "0.1" {
           %language = core.call intrinsic.agent.runtime.language(%runtime)
           %usage = core.call intrinsic.agent.runtime.usage_instructions(%runtime)
           %mode = core.call intrinsic.string.format("runtime:{}:{}", %language, %usage)
+          %observation_boundaries = core.call intrinsic.agent.runtime.observation_boundaries(%runtime)
+          core.if %observation_boundaries {
+            %mode = core.call intrinsic.add(%mode, ":observations")
+          }
         }
       }
       %state_runtime = core.get %state["runtime_enabled"] default false

@@ -1,0 +1,73 @@
+{
+  "action_log": [
+    {
+      "_durableReads": [],
+      "_durableWrites": [],
+      "_functionCalls": [
+        {
+          "qualifiedName": "tool.read"
+        }
+      ],
+      "code": "var first = await tool.read(); await tool.unexecuted();",
+      "output": "First result: old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old  middle old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old \nInitialized bindings: first",
+      "producedVars": [],
+      "referencedVars": [],
+      "replayMode": "compact",
+      "stateDelta": "Execution paused; only initialized bindings persist. Later statements did not execute.",
+      "stepKind": "query",
+      "summary": "[SUMMARY]: Query step. Execution paused; only initialized bindings persist. Later statements did not execute.. Result: First result: old old old old old old old old old old old old old old old old old old old old old old old old old old....",
+      "tags": [
+        "paused"
+      ],
+      "turn": 1
+    },
+    {
+      "_durableReads": [],
+      "_durableWrites": [],
+      "_functionCalls": [
+        {
+          "qualifiedName": "tool.read"
+        }
+      ],
+      "code": "var next = await tool.read();",
+      "output": "Latest result: new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new  important new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new ",
+      "producedVars": [],
+      "referencedVars": [],
+      "replayMode": "full",
+      "stateDelta": "Execution paused; only initialized bindings persist. Later statements did not execute.",
+      "stepKind": "query",
+      "summary": "[SUMMARY]: Query step. Execution paused; only initialized bindings persist. Later statements did not execute.. Result: Latest result: new new new new new new new new new new new new new new new new new new new new new new new new new ne....",
+      "tags": [
+        "paused"
+      ],
+      "turn": 2
+    }
+  ],
+  "context_operation": "prepare",
+  "expected_context_events_subset": [
+    {
+      "kind": "action_compacted",
+      "mode": "compact",
+      "reason": "older_observation",
+      "stage": "executor",
+      "turn": 1
+    }
+  ],
+  "expected_context_result_subset": {
+    "prepared": {
+      "actionLog": "Execution paused. Unexecuted code is omitted; continue from initialized bindings.\nRecorded calls: tool.read.\nResult:\nTurn 1 (older observation, excerpt):\nFirst result: old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old ol\n[... middle omitted ...]\nold old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old old \nInitialized bindings: first\n\nExecution paused. Unexecuted code is omitted; continue from initialized bindings.\nRecorded calls: tool.read.\nResult:\nLatest result: new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new  important new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new new "
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-paused-observation-replay",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "budget": "balanced",
+      "preset": "checkpointed"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

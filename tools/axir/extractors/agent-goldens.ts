@@ -2562,6 +2562,50 @@ writeFixture('context-action-log-distilled-test-output', {
   ],
 });
 
+const pausedObservationLog: ActionLogEntry[] = [
+  {
+    turn: 1,
+    code: 'var first = await tool.read(); await tool.unexecuted();',
+    output: `First result: ${'old '.repeat(130)} middle ${'old '.repeat(130)}\nInitialized bindings: first`,
+    tags: ['paused'],
+    _functionCalls: [{ qualifiedName: 'tool.read' }],
+  },
+  {
+    turn: 2,
+    code: 'var next = await tool.read();',
+    output: `Latest result: ${'new '.repeat(130)} important ${'new '.repeat(130)}`,
+    tags: ['paused'],
+    _functionCalls: [{ qualifiedName: 'tool.read' }],
+  },
+];
+const pausedObservationParts = buildActionLogParts(pausedObservationLog, {
+  actionReplay: 'checkpointed',
+  compactOlderObservations: true,
+  recentFullActions: 3,
+});
+writeFixture('context-paused-observation-replay', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
+  },
+  context_operation: 'prepare',
+  action_log: pausedObservationLog as unknown as Json[],
+  expected_context_result_subset: {
+    prepared: { actionLog: pausedObservationParts.history },
+  },
+  expected_context_events_subset: [
+    {
+      kind: 'action_compacted',
+      stage: 'executor',
+      turn: 1,
+      mode: 'compact',
+      reason: 'older_observation',
+    },
+  ],
+});
+
 const checkpointWorkingEntries: ActionLogEntry[] = [
   {
     turn: 1,

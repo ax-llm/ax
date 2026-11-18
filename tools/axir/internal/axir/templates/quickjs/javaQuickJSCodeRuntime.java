@@ -17,6 +17,8 @@ public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable 
     this.runtimePolicy = defaultPolicy(runtimePolicy == null ? Map.of() : runtimePolicy);
   }
 
+  @Override public boolean supportsObservationBoundaries() { return true; }
+
   /** TypeScript's AxJSRuntime.getUsageInstructions() in its default stdout mode. */
   public String getUsageInstructions() {
     return "- Don't wrap async code in (async()=>{ ... })() \u2014 the runtime automatically handles async execution.\n"
