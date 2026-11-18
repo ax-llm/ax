@@ -247,7 +247,7 @@ export class ActorAgentRLM<
   private _primitiveFlags(): Record<string, boolean | undefined> {
     const opts = this.actorDefinitionBuildOptions;
     return {
-      observationBoundaries: opts?.observationBoundaries ?? true,
+      observationBoundaries: true,
       hasInspectRuntime: Boolean(opts?.hasInspectRuntime),
       hasAgentStatusCallback: Boolean(opts?.hasAgentStatusCallback),
       discoveryMode: Boolean(opts?.discoveryMode),
