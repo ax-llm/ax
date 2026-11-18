@@ -25,6 +25,9 @@ namespace axllm {
 double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall) {
   return Core::number(Core::eval_novel_f1(history, prediction, ground_truth, return_recall));
 }
+double f1_score(const std::string& prediction, const std::string& ground_truth) {
+  return Core::number(Core::eval_f1(prediction, ground_truth));
+}
 
 static std::function<bool()> agent_cancellation_check(Value options);
 namespace detail {

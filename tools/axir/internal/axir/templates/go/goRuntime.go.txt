@@ -13493,6 +13493,11 @@ func runConformanceFixtureKind(fixture map[string]Value) {
             actual := NovelF1Score(display(coreGet(item,"history","")), display(coreGet(item,"prediction","")), display(coreGet(item,"ground_truth","")), coreTruthy(coreGet(item,"return_recall",false)))
             assertEqual(actual, coreGet(item,"expected",nil), "novel F1: " + display(coreGet(item,"name","")))
         }
+	case "eval_f1":
+        for _, item := range coreIter(coreGet(fixture, "cases", Array())) {
+            actual := F1Score(display(coreGet(item,"prediction","")), display(coreGet(item,"ground_truth","")))
+            assertEqual(actual, coreGet(item,"expected",nil), "F1: " + display(coreGet(item,"name","")))
+        }
 	case "stream":
 		runConformanceStream(fixture)
 	case "forward":
@@ -20291,4 +20296,9 @@ func Version() string { return "{{AX_VERSION}}" }
 // Set returnRecall to return recall instead of the harmonic F1 score.
 func NovelF1Score(history, prediction, groundTruth string, returnRecall bool) float64 {
     return num(mustCore(eval_novel_f1(history, prediction, groundTruth, returnRecall)))
+}
+
+// F1Score scores multiset token overlap between a prediction and the ground truth.
+func F1Score(prediction, groundTruth string) float64 {
+    return num(mustCore(eval_f1(prediction, groundTruth)))
 }

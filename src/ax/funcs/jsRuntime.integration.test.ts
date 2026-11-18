@@ -541,6 +541,166 @@ describe('AxJSRuntime integration', () => {
     }
   });
 
+  it('waits for slow host calls and delayed result chains without an explicit await', async () => {
+    const calls: string[] = [];
+    const session = new AxJSRuntime({ timeout: 2_000 }).createSession({
+      read: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        calls.push('read');
+        return 'new evidence';
+      },
+      record: (value: string) => calls.push(value),
+    });
+    try {
+      await session.execute(`
+        read().then(async value => {
+          await new Promise(resolve => setTimeout(resolve, 30));
+          await record(value);
+        });
+        console.log('started');
+      `);
+      expect(calls).toEqual(['read', 'new evidence']);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('finishes scheduled callbacks before allowing another execution', async () => {
+    const calls: string[] = [];
+    const session = new AxJSRuntime({ timeout: 2_000 }).createSession({
+      record: (value: string) => calls.push(value),
+    });
+    try {
+      await session.execute(`setTimeout(() => record('timer'), 25); 'started'`);
+      expect(calls).toEqual(['timer']);
+      await session.execute(`await record('next')`);
+      expect(calls).toEqual(['timer', 'next']);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('blocks delayed host actions after the originating execution fails', async () => {
+    const calls: string[] = [];
+    const session = new AxJSRuntime({ timeout: 2_000 }).createSession({
+      read: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return 'value';
+      },
+      record: (value: string) => calls.push(value),
+    });
+    try {
+      await expect(
+        session.execute(`
+        read().then(async value => {
+          await new Promise(resolve => setTimeout(resolve, 25));
+          await record(value);
+        });
+        throw new Error('stop this execution');
+      `)
+      ).rejects.toThrow('stop this execution');
+      await session.execute(`await record('next')`);
+      expect(calls).toEqual(['next']);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('retains reusable async helpers and supports parallel calls across executions', async () => {
+    const session = new AxJSRuntime().createSession({
+      double: async (value: number) => value * 2,
+    });
+    try {
+      await session.execute(`
+        const savedDouble = async value => { return await double(value); };
+        const savedPromise = Promise.resolve(7);
+        const unresolvedData = new Promise(() => {});
+        await Promise.resolve();
+      `);
+      await expect(
+        session.execute(`
+        await Promise.all([savedDouble(2), savedDouble(3), savedPromise])
+      `)
+      ).resolves.toEqual([4, 6, 7]);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('ignores results from a host call whose worker timed out', async () => {
+    let resolveOld!: (value: string) => void;
+    let resolveNew!: (value: string) => void;
+    const session = new AxJSRuntime({ timeout: 300 }).createSession({
+      oldCall: () =>
+        new Promise<string>((resolve) => {
+          resolveOld = resolve;
+        }),
+      newCall: () =>
+        new Promise<string>((resolve) => {
+          resolveNew = resolve;
+        }),
+    });
+    try {
+      await expect(session.execute('await oldCall()')).rejects.toThrow(
+        'Execution timed out'
+      );
+      const next = session.execute('await newCall()');
+      while (!resolveNew)
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      resolveOld('stale');
+      resolveNew('current');
+      await expect(next).resolves.toBe('current');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('applies the execution deadline to a host call started without await', async () => {
+    let started = false;
+    const session = new AxJSRuntime({ timeout: 250 }).createSession({
+      never: () => {
+        started = true;
+        return new Promise(() => {});
+      },
+    });
+    try {
+      await expect(session.execute('never(); 1')).rejects.toThrow(
+        'Execution timed out'
+      );
+      expect(started).toBe(true);
+      await expect(session.execute('2 + 3')).resolves.toBe(5);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('rejects late detached host calls without terminating the persistent worker', async () => {
+    const calls: string[] = [];
+    const session = new AxJSRuntime().createSession({
+      record: () => calls.push('late'),
+    });
+    try {
+      await session.execute(`
+        var retained = 3;
+        setImmediate(() => record());
+        setImmediate(async () => {
+          try { await record(); }
+          catch (error) { globalThis.lateError = error.message; }
+        });
+      `);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await expect(
+        session.execute('({ retained, lateError })')
+      ).resolves.toEqual({
+        retained: 3,
+        lateError: 'Host calls require an active runtime execution',
+      });
+      expect(calls).toEqual([]);
+    } finally {
+      session.close();
+    }
+  });
+
   it('callback (fn-call) error preserves name and message when caught', async () => {
     const runtime = new AxJSRuntime();
     const thrower = () => {
@@ -572,6 +732,21 @@ describe('AxJSRuntime integration', () => {
       await session.execute('const x = await Promise.resolve(42)');
       const result = await session.execute('x');
       expect(result).toBe(42);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('preserves initialized values but skips later declarations when an async turn stops early', async () => {
+    const session = new AxJSRuntime({ outputMode: 'return' }).createSession();
+    try {
+      const result = await session.executeWithStatus!(
+        'const completed = await Promise.resolve(42); missingCall(); const unfinished = 2;'
+      );
+      expect(result.isError).toBe(true);
+      expect(String(result.value)).toContain('ReferenceError');
+      expect(await session.execute('completed')).toBe(42);
+      expect(await session.execute('typeof unfinished')).toBe('undefined');
     } finally {
       session.close();
     }

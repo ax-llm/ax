@@ -95,6 +95,19 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "Ax.f1Score",
+          "public_name": "Ax.f1Score",
+          "kind": "function",
+          "description": "Score multiset token overlap between a prediction and the ground truth after Unicode normalization. Every normalized token counts, including stopwords.",
+          "form": "Ax.f1Score",
+          "important_options": [
+            "prediction",
+            "ground truth"
+          ],
+          "returns": "score in [0, 1]"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "AxGen",
           "public_name": "AxGen",
           "kind": "type",

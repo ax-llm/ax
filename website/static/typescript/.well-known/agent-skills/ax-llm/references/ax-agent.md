@@ -213,6 +213,8 @@ Rules:
 - Prefer namespaced functions.
 - Default function namespace is `utils` when no namespace is set.
 - With `AxJSRuntime`, use the runtime call shape `await <namespace>.<name>({...})`. Custom runtimes should expose equivalent namespaced calls through their own `formatCallable()` guidance.
+- Tool results default to `resultPolicy: 'inspect'` in the TypeScript agent: the actor must read them on the next model turn before dependent actions or completion. Independent calls can use `batch([{ name: 'namespace.function', args: { ... } }, ...])`, which returns ordered fulfilled/rejected outcomes. Use `.resultPolicy('data')` only for tools with a deterministic result contract that permits chaining in the same turn. Discovery always pauses; see `ax-agent-rlm` for the full boundary contract.
+- Tool observations are logged automatically; a literal `console.log(...)` is not required. Initialized values survive observation pauses, and code after a pause is never replayed automatically. In `AxJSRuntime`, pending calls and their continuations stay within the originating execution and its timeout.
 - `.arg()` and `.returns()` can use Ax field helpers or any Standard Schema v1 validator directly.
 
 ## Grouped Function Modules
@@ -492,7 +494,7 @@ Discovery API:
 - `await discover(items: string[]): void`
 - `await discover({ tools?: string | string[], skills?: string | string[] }): void` when `onSkillsSearch` is configured
 
-Discovery returns `void`; fetched docs render in the next executor prompt.
+Discovery returns `void` and ends the current execution; fetched docs render in the next executor prompt. No dependent calls from the original block execute automatically.
 
 Rules:
 
@@ -503,6 +505,7 @@ Rules:
 - Call one batched `discover(...)` with every module, callable, and skill you need.
 - Do not split discovery into separate calls or wrap discovery in `Promise.all(...)`.
 - Read the next prompt's "Discovered Tool Docs" and "Loaded Skills" sections.
+- In TypeScript, a call to a known function whose full contract is still undiscovered loads its docs and pauses without invoking it. A declarative `batch(...)` loads every missing contract before running any member.
 - If a guessed call fails, stop guessing nearby names. Run `discover(...)` for that module or function and call only the exact discovered qualified name.
 
 ## Threading Parent Fields Into Child Agents
@@ -693,8 +696,8 @@ its own authorization, instance serialization, retry policy, and run record.
 - Do not use `new AxAgent(...)` for new code unless explicitly required.
 - Do not assume child agents are always under `agents.*`.
 - Do not guess function names in discovery mode.
-- Do not write a full multi-step RLM actor program in one turn; use `ax-agent-rlm`.
-- Do not combine `console.log(...)` with `final(...)`.
+- Do not prewrite actions that depend on interpreting new results; deterministic multi-step work and independent batches remain supported. See `ax-agent-rlm`.
+- Do not finalize before pending inspection results have reached a new model turn. Logging and deterministic completion may share a turn.
 - Do not add `bubbleErrors` for ordinary recoverable tool errors.
 - Do not call `discover()` from the distiller or responder stages.
 - Do not assign or inspect the return value of `await discover(...)`; read the next prompt instead.

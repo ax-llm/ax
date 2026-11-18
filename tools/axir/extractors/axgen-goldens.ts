@@ -2241,6 +2241,52 @@ writeFixture('eval-novel-f1', {
   ),
 });
 
+// Ordinary F1 keeps every normalized token, including stopwords and the empty
+// tokens that removed articles and punctuation leave behind.
+const f1Cases = [
+  ['constructor-match', 'constructor', 'constructor'],
+  ['constructor-prediction-only', 'constructor', 'cat'],
+  ['constructor-truth-only', 'cat', 'constructor'],
+  ['constructor-partial', 'constructor cat', 'constructor dog'],
+  [
+    'constructor-repeated-prediction',
+    'constructor constructor cat',
+    'constructor dog',
+  ],
+  ['constructor-repeated-truth', 'constructor', 'constructor constructor'],
+  [
+    'prototype-names',
+    '__proto__ hasOwnProperty toString',
+    'constructor toString',
+  ],
+  ['match', 'cat', 'cat'],
+  ['disjoint', 'cat', 'dog'],
+  ['multiset-overlap', 'cat cat dog', 'cat bird'],
+  ['repeated-both', 'kiwi kiwi mango', 'kiwi mango mango'],
+  ['stopwords-count', 'kiwi and mango', 'kiwi or mango'],
+  ['empty-both', '', ''],
+  ['empty-prediction', '', 'kiwi'],
+  ['empty-truth', 'kiwi', ''],
+  ['whitespace-only', ' ', ''],
+  ['articles-only', 'the', 'a'],
+  ['leading-article', 'the and kiwi', 'kiwi'],
+  ['trailing-article', 'kiwi the', 'kiwi'],
+  ['spaced-punctuation', 'kiwi , mango', 'kiwi mango'],
+  ['literal-backslash', 'kiwi\\mango', 'kiwimango'],
+  ['unicode-nfd', 'CAFÉ', 'cafe\u0301'],
+  ['unicode-case', 'ΟΣ', 'ος'],
+  ['whitespace', '\ufeffkiwi\u2028mango\u00a0', 'kiwi mango'],
+];
+writeFixture('eval-f1', {
+  kind: 'eval_f1',
+  cases: f1Cases.map(([name, prediction, groundTruth]) => ({
+    name: name!,
+    prediction: prediction!,
+    ground_truth: groundTruth!,
+    expected: AxEvalUtil.f1Score(prediction!, groundTruth!),
+  })),
+});
+
 // Citation ranges need no URL, and text blocks remain snapshots across chunks.
 for (const stream of [false, true]) {
   const citation = {

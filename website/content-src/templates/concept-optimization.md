@@ -85,6 +85,9 @@ TypeScript, `novel_f1_score` in Python/C++/Rust, `NovelF1Score` in Go, or
 `Ax.novelF1Score` in Java. Set the recall flag to return recall instead of F1.
 The AxGen optimization examples score the rationale from a provider response.
 
+For ordinary F1 with nothing excluded, use `AxEvalUtil.f1Score` in TypeScript,
+`f1_score` in Python/C++/Rust, `F1Score` in Go, or `Ax.f1Score` in Java.
+
 ## Bootstrap And GEPA Together
 
 Bootstrap demos are useful for small starter sets because they seed the model with concrete successful examples before GEPA mutates instructions/components. TypeScript `optimize(...)` composes the practical bootstrap-plus-GEPA path. Generated languages expose the optimizer primitives supported by their AxIR contract.

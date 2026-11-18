@@ -27,6 +27,7 @@ import { emitContextEvent } from './contextEvents.js';
 
 export type ActionLogTag =
   | 'error'
+  | 'paused'
   | 'dead-end'
   | 'foundational'
   | 'pivot'
@@ -51,6 +52,7 @@ export type ActionLogCompactionMode = 'distill' | 'compact';
 
 export type ActionLogCompactionReason =
   | 'structured_output'
+  | 'older_observation'
   | 'superseded'
   | 'pressure'
   | 'proactive'
@@ -135,6 +137,7 @@ export type ActionLogBuildPolicy = {
   checkpointTurns?: readonly number[];
   hygieneMode?: ActionLogHygieneMode;
   hygieneGraceTurns?: number;
+  compactOlderObservations?: boolean;
 };
 
 export type CheckpointSummaryState = {
@@ -396,6 +399,17 @@ function clearHindsightEvaluation(entry: ActionLogEntry): void {
 }
 
 function ensureEntryMetadata(entry: ActionLogEntry): void {
+  if (entry.tags.includes('paused')) {
+    // Static declarations describe submitted code, not executed statements.
+    // Do not turn an unexecuted suffix into claimed writes or finalization.
+    entry.producedVars ??= [];
+    entry.referencedVars ??= [];
+    entry._durableWrites ??= [];
+    entry._durableReads ??= [];
+    entry.stepKind ??= entry._functionCalls?.length ? 'query' : 'explore';
+    entry.stateDelta ??=
+      'Execution paused; only initialized bindings persist. Later statements did not execute.';
+  }
   if (!entry.producedVars) {
     entry.producedVars = extractDurableWriteTargets(entry.code);
   }
@@ -459,6 +473,7 @@ export function getQualifiedCallableUsages(
       entry._functionCalls.map((call) => call.qualifiedName)
     );
   }
+  if (entry.tags.includes('paused')) return [];
 
   ensureDiscoveryMetadata(entry as ActionLogEntry);
   return uniqueNonEmpty(entry._directQualifiedCalls ?? []);
@@ -746,6 +761,17 @@ function buildFutureReferenceSets(
   return futureRefs;
 }
 
+const OLDER_OBSERVATION_PREVIEW_CHARS = 768;
+
+function canCompactOlderObservation(entry: Readonly<ActionLogEntry>): boolean {
+  return (
+    entry.tags.includes('paused') &&
+    !entry.tags.includes('error') &&
+    !entry.output.startsWith('[POLICY]') &&
+    entry.output.length > OLDER_OBSERVATION_PREVIEW_CHARS
+  );
+}
+
 function assignReplayModes(
   entries: readonly ActionLogEntry[],
   policy: Readonly<ActionLogBuildPolicy>
@@ -775,6 +801,15 @@ function assignReplayModes(
 
     if (actionReplay === 'full') {
       entry.replayMode = 'full';
+      return;
+    }
+
+    if (
+      policy.compactOlderObservations &&
+      index < entries.length - 1 &&
+      canCompactOlderObservation(entry)
+    ) {
+      entry.replayMode = 'compact';
       return;
     }
 
@@ -1157,11 +1192,13 @@ export function extractWorkingCodeState(
     ensureEntryMetadata(entry as ActionLogEntry);
     ensureDiscoveryMetadata(entry as ActionLogEntry);
 
-    const code = entry.code
-      ? entry.code.length > WORKING_STATE_CODE_CAP
-        ? `${entry.code.slice(0, WORKING_STATE_CODE_CAP)}\n// ... (truncated)`
-        : entry.code
-      : '(no code)';
+    const code = entry.tags.includes('paused')
+      ? '(execution paused; submitted code omitted; consult observed results and initialized bindings)'
+      : entry.code
+        ? entry.code.length > WORKING_STATE_CODE_CAP
+          ? `${entry.code.slice(0, WORKING_STATE_CODE_CAP)}\n// ... (truncated)`
+          : entry.code
+        : '(no code)';
     const output = entry.output
       ? truncateInline(entry.output, WORKING_STATE_OUTPUT_CAP)
       : '(no output)';
@@ -1184,6 +1221,12 @@ export function extractWorkingCodeState(
   });
 
   return `=== Working Code State (verbatim) ===\n${blocks.join('\n\n')}`;
+}
+
+function observedCode(entry: Readonly<ActionLogEntry>): string {
+  return entry.tags.includes('paused')
+    ? '(execution paused; submitted code omitted)'
+    : entry.code || '(no code)';
 }
 
 /**
@@ -1222,7 +1265,7 @@ export function serializeTrajectoryEntries(
         `State delta: ${entry.stateDelta ?? 'none'}`,
         `Observed result: ${truncateInline(entry.output || '(no output)', 200)}`,
         `Failure cues: ${failureCues}`,
-        `Code excerpt: ${truncateInline(entry.code || '(no code)', 180)}`,
+        `Code excerpt: ${truncateInline(observedCode(entry), 180)}`,
       ].join('\n');
     })
     .join('\n\n');
@@ -1254,7 +1297,7 @@ function _serializeCheckpointEntries(
         `State delta: ${entry.stateDelta ?? 'none'}`,
         `Observed result: ${truncateInline(entry.output || '(no output)', 360)}`,
         `Failure cues: ${failureCues}`,
-        `Code excerpt: ${truncateInline(entry.code || '(no code)', 360)}`,
+        `Code excerpt: ${truncateInline(observedCode(entry), 360)}`,
       ].join('\n');
     })
     .join('\n\n');
@@ -1282,18 +1325,18 @@ function buildFallbackTrajectorySummary(
     const directCallables = getQualifiedCallableUsages(entry);
     if (directCallables.length > 0) {
       exactCallablesAndFormats.push(
-        `Turn ${entry.turn}: ${directCallables.join(', ')} via ${truncateInline(entry.code || '(no code)', 140)}`
+        `Turn ${entry.turn}: ${directCallables.join(', ')} via ${truncateInline(observedCode(entry), 140)}`
       );
-    } else if (/\bdiscover\s*\(/.test(entry.code)) {
+    } else if (/\bdiscover\s*\(/.test(observedCode(entry))) {
       exactCallablesAndFormats.push(
-        `Turn ${entry.turn}: ${truncateInline(entry.code || '(no code)', 140)}`
+        `Turn ${entry.turn}: ${truncateInline(observedCode(entry), 140)}`
       );
     }
     if (entry.stateDelta && entry.stateDelta !== 'none') {
       currentStateAndArtifacts.push(`Turn ${entry.turn}: ${entry.stateDelta}`);
     }
     const constraintMatches = [
-      ...`${entry.code}\n${entry.output}`.matchAll(
+      ...`${observedCode(entry)}\n${entry.output}`.matchAll(
         /\b(?:must|should|prefer|only|never|exact|format|deadline|path|id)\b[^.\n]{0,120}/gi
       ),
     ].map((match) => truncateInline(match[0], 140));
@@ -1713,8 +1756,15 @@ export function buildActionLog(entries: readonly ActionLogEntry[]): string {
   return buildActionLogWithPolicy(entries, {});
 }
 
-function renderFullActionReplayEntry(entry: Readonly<ActionLogEntry>): string {
-  return `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}`;
+function renderFullActionReplayEntry(
+  entry: Readonly<ActionLogEntry>,
+  output = entry.output
+): string {
+  if (entry.tags.includes('paused')) {
+    const calls = getQualifiedCallableUsages(entry);
+    return `Execution paused. Unexecuted code is omitted; continue from initialized bindings.\nRecorded calls: ${calls.join(', ') || '(see results)'}.\nResult:\n${output}`;
+  }
+  return `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${output}`;
 }
 
 function buildCompactActionReplayEntry(
@@ -1738,7 +1788,8 @@ function buildCompactActionReplayEntry(
 function renderActionReplayEntry(
   entry: Readonly<ActionLogEntry>,
   checkpointTurns: ReadonlySet<number>,
-  hygieneMode: ActionLogHygieneMode
+  hygieneMode: ActionLogHygieneMode,
+  compactOlderObservations: boolean
 ): { text: string; compaction?: ActionLogCompaction } {
   if (
     checkpointTurns.has(entry.turn) &&
@@ -1759,7 +1810,7 @@ function renderActionReplayEntry(
       if (!distilled) {
         return { text: fullText };
       }
-      const text = `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${distilled}`;
+      const text = renderFullActionReplayEntry(entry, distilled);
       if (text.length >= fullText.length) {
         return { text: fullText };
       }
@@ -1775,7 +1826,17 @@ function renderActionReplayEntry(
       };
     }
     case 'compact': {
-      const text = buildCompactActionReplayEntry(entry, hygieneMode);
+      const compactObservation =
+        compactOlderObservations && canCompactOlderObservation(entry);
+      const text = compactObservation
+        ? renderFullActionReplayEntry(
+            entry,
+            `Turn ${entry.turn} (older observation, excerpt):
+${entry.output.slice(0, 480)}
+[... middle omitted ...]
+${entry.output.slice(-260)}`
+          )
+        : buildCompactActionReplayEntry(entry, hygieneMode);
       if (text.length >= fullText.length) {
         return { text: fullText };
       }
@@ -1784,7 +1845,9 @@ function renderActionReplayEntry(
         compaction: {
           turn: entry.turn,
           mode: 'compact',
-          reason: getCompactionReason(entry, hygieneMode),
+          reason: compactObservation
+            ? 'older_observation'
+            : getCompactionReason(entry, hygieneMode),
           originalChars: fullText.length,
           renderedChars: text.length,
         },
@@ -1825,7 +1888,8 @@ export function buildActionLogReplayPlan(
       renderActionReplayEntry(
         entry,
         checkpointTurns,
-        policy.hygieneMode ?? 'none'
+        policy.hygieneMode ?? 'none',
+        policy.compactOlderObservations ?? false
       )
     )
     .filter((entry) => Boolean(entry.text));

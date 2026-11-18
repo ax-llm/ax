@@ -3854,6 +3854,7 @@ function evalTsTools(names: readonly (keyof typeof evalToolSpecs)[]) {
       title: 'Tools',
       functions: names.map((name) => ({
         ...evalToolSpecs[name],
+        resultPolicy: 'data' as const,
         func: async () => {
           const scripted = evalToolResults[name] as {
             value?: unknown;

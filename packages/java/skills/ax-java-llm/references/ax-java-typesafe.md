@@ -76,7 +76,7 @@ Runnable signature and native examples are under src/examples/java/generation/. 
 ## Relevant API Surface
 
 - Signatures: `Ax.s`, `Ax.f`, `AxSignature`
-- AxGen: `Ax.ax`, `Ax.novelF1Score`, `AxGen`, `Ax.runControl`, `AxRunControl`, `AxCachingFunction`, `AxGlobals.setCachingFunction`
+- AxGen: `Ax.ax`, `Ax.novelF1Score`, `Ax.f1Score`, `AxGen`, `Ax.runControl`, `AxRunControl`, `AxCachingFunction`, `AxGlobals.setCachingFunction`
 - AxAI: `Ax.ai`, `Ax.googleGeminiDecisions`, `AxAIGoogleGeminiDecisionsClient`, `Ax.openaiDecisions`, `AxAIOpenAIDecisionsClient`, `Ax.typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `Ax.getSupportedAIModels`, `OpenAICompatibleClient.CredentialRequest`, `OpenAICompatibleClient.CredentialProvider`, `AiClient.ownedWorkerFactory`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `AxGlobals.setRateLimiter`, `AxGlobals.setTracer`, `AxGlobals.setMeter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `AxProviderRouter.getCompatibilityReport`, `ProviderRouter`
 
 ## Guardrails

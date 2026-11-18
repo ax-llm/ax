@@ -11,6 +11,7 @@ import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import type { AxAgentActorTurnCallback } from './agentInternal/agentStateTypes.js';
 import type { AxAgentOnContextEvent } from './contextEvents.js';
+import { renderCallableSchemaDocs } from './runtimeDiscovery.js';
 import {
   axRuntimePrimitives,
   renderPrimitivesList,
@@ -294,7 +295,13 @@ function renderJavaScriptCallableBlock(args: AxRuntimeCallableFormatArgs) {
     : '';
   const signature = `\`${args.qualifiedName}(args: ${paramType})${returnType}\``;
   const description = args.description?.trim();
-  return description ? `${description}\n${signature}` : signature;
+  return [
+    description,
+    signature,
+    renderCallableSchemaDocs(args.parameters, args.returns),
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function renderGenericCallableBlock(
@@ -315,6 +322,8 @@ function renderGenericCallableBlock(
   if (args.returns) {
     parts.push(`Returns: \`${renderReturnsSummary(args.returns)}\``);
   }
+  const schemaDocs = renderCallableSchemaDocs(args.parameters, args.returns);
+  if (schemaDocs) parts.push(schemaDocs);
   parts.push(
     `Use the ${languageName} runtime's tool-call syntax for this callable.`
   );
@@ -545,6 +554,8 @@ export function axBuildDistillerDefinition(
   contextFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
+    /** @internal Render the shared prompt for runtimes without the TS tool boundary. */
+    observationBoundaries?: boolean;
     runtimeLanguageName?: string;
     runtimeCodeFieldTitle?: string;
     runtimeCodeFenceLanguage?: string;
@@ -606,6 +617,7 @@ export function axBuildDistillerDefinition(
       description?: string;
       parameters?: AxFunctionJSONSchema;
       returns?: AxFunctionJSONSchema;
+      resultPolicy?: 'inspect' | 'data';
       namespace: string;
       alwaysInclude?: boolean;
     }>;
@@ -651,9 +663,11 @@ export function axBuildDistillerDefinition(
           selectionCriteria: undefined as string | undefined,
         }));
 
+  const observationBoundaries = options.observationBoundaries ?? true;
   const actorBody = renderPromptTemplate(
     'rlm/distiller.md',
     {
+      observationBoundaries,
       contextVarList,
       promptLevel: options.promptLevel ?? 'default',
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
@@ -662,6 +676,7 @@ export function axBuildDistillerDefinition(
       primitivesList: renderPrimitivesList(
         'distiller',
         {
+          observationBoundaries,
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
           discoveryMode,
           skillsMode: Boolean(
@@ -683,7 +698,16 @@ export function axBuildDistillerDefinition(
               .map((fn) =>
                 renderCallableBlock({
                   qualifiedName: `${fn.namespace}.${fn.name}`,
-                  description: fn.description,
+                  description: [
+                    fn.description,
+                    observationBoundaries
+                      ? fn.resultPolicy === 'data'
+                        ? 'Result policy: data (deterministic chaining allowed).'
+                        : 'Result policy: inspect (review on the next model turn before another action or final).'
+                      : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join('\n'),
                   parameters: fn.parameters,
                   returns: fn.returns,
                   languageName: runtimeInfo.languageName,
@@ -746,6 +770,8 @@ export function axBuildExecutorDefinition(
   responderOutputFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
+    /** @internal Render the shared prompt for runtimes without the TS tool boundary. */
+    observationBoundaries?: boolean;
     runtimeLanguageName?: string;
     runtimeCodeFieldTitle?: string;
     runtimeCodeFenceLanguage?: string;
@@ -810,6 +836,7 @@ export function axBuildExecutorDefinition(
       description?: string;
       parameters?: AxFunctionJSONSchema;
       returns?: AxFunctionJSONSchema;
+      resultPolicy?: 'inspect' | 'data';
       namespace: string;
       alwaysInclude?: boolean;
     }>;
@@ -858,9 +885,11 @@ export function axBuildExecutorDefinition(
         .sort((a, b) => a.localeCompare(b))
         .map((namespace) => ({ namespace }));
 
+  const observationBoundaries = options.observationBoundaries ?? true;
   const actorBody = renderPromptTemplate(
     'rlm/executor.md',
     {
+      observationBoundaries,
       contextVarList,
       responderOutputFieldTitles,
       promptLevel: options.promptLevel ?? 'default',
@@ -870,6 +899,7 @@ export function axBuildExecutorDefinition(
       primitivesList: renderPrimitivesList(
         'executor',
         {
+          observationBoundaries,
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
           hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
           discoveryMode,
@@ -887,7 +917,16 @@ export function axBuildExecutorDefinition(
               .map((fn) =>
                 renderCallableBlock({
                   qualifiedName: `${fn.namespace}.${fn.name}`,
-                  description: fn.description,
+                  description: [
+                    fn.description,
+                    observationBoundaries
+                      ? fn.resultPolicy === 'data'
+                        ? 'Result policy: data (deterministic chaining allowed).'
+                        : 'Result policy: inspect (review on the next model turn before another action or final).'
+                      : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join('\n'),
                   parameters: fn.parameters,
                   returns: fn.returns,
                   languageName: runtimeInfo.languageName,

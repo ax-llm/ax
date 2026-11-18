@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/skill.tar.gz",
-      "digest": "sha256:3574097b305d00cdbcbf82debff6b8d0f7468a87a76872d837db1bf0e3ec718f"
+      "digest": "sha256:f6c0bb91751fe67e3dd199aa794f19c64e117904b73a03ecafd7ef2feb4c4954"
     },
     {
       "name": "ax-cpp-ai",
@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-cpp-typesafe/SKILL.md",
-      "digest": "sha256:ded79b21a6b92bfb181fd220eea6f0853ad3d8baa2a0e37f06fb58aa45391211"
+      "digest": "sha256:61c67aae43686140abec67d807967ad272ec9b8d2c1ce66784726fa9ca33aa48"
     },
     {
       "name": "ax-cpp-audio",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:99709fa74bc937f47f741b0e7c248846147bc6859b244b99a7b8e4df914ce467"
+      "digest": "sha256:aa340d31d9c313835d3ded2555b985c04445fc7afa3237a4f53fc316d1c017eb"
     },
     {
       "name": "ax-cpp-flow",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-cpp-refine/SKILL.md",
-      "digest": "sha256:e7329d271cedf9cbd59f1fa3cdde0915d17eaa3b3fcb983afcaddefd77de1510"
+      "digest": "sha256:1f5fc43625d643531d3e2cfb041aaeaac777163d269232e60d363baaa01f3de4"
     },
     {
       "name": "ax-cpp-playbook",

@@ -16,3 +16,12 @@ Unicode 17 tables so C++ and language Unicode versions agree; refresh with
 The public adapters are `novel_f1_score` (Python/C++/Rust), `NovelF1Score` (Go),
 and `Ax.novelF1Score` (Java). `eval-novel-f1.json` derives expected scores from
 the TypeScript public utility and runs through all five adapters.
+
+## Ordinary F1
+
+`eval.axir` also owns `@eval_f1`, the ordinary F1 from the same file. It shares
+the normalization but excludes nothing: stopwords and the empty tokens that
+removed articles and punctuation leave behind all count, as they do in
+TypeScript. The public adapters are `f1_score` (Python/C++/Rust), `F1Score`
+(Go), and `Ax.f1Score` (Java). `eval-f1.json` derives expected scores from
+`AxEvalUtil.f1Score` and runs through all five adapters.

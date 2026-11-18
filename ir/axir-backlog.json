@@ -3882,7 +3882,7 @@
     },
     {
       "id": "axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr",
-      "status": "open",
+      "status": "done",
       "title": "Keep ordinary F1 token counts independent of inherited object properties",
       "createdAt": "2026-11-15",
       "sourcePR": 898,
@@ -3895,9 +3895,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-11-17",
+      "completedByCommit": "278a22558e5227ac54103682a1959eadb15945ec",
+      "verification": "The generated packages had no ordinary F1, so it was added: @eval_f1 in eval.axir, exposed as f1_score (Python, C++, Rust), F1Score (Go) and Ax.f1Score (Java). eval-f1.json: 24 TypeScript-derived cases pass through all five public functions, covering constructor and other inherited-property names, stopwords, empty and whitespace-only inputs, empty tokens left by articles and punctuation, and Unicode. Five-language dev verification passed with 2,201 fixtures per language; fixture synchronization and package freshness pass. The Python runner rejects a deliberately wrong expected score."
     },
     {
       "id": "axir-2026-11-16-validate-event-envelope-identity-field-types",
@@ -3964,6 +3964,31 @@
       "completedAt": "2026-11-17",
       "completedByCommit": "0b7e5b8446ad3350222c22b27900a6bca49c17f9",
       "verification": "npm run axir:verify:dev passed for Python, Java, C++, Go and Rust (2,209 conformance fixtures each, including nine new TypeScript-derived cut-off fixtures). axir:conformance:check, axir:check-packages, the 72 fast AxIR Go tests, the response-perturbation gate and the TypeScript workspace tests (4,243 passed, 1 skipped) passed. The real-engine agent suite passed on Go, Java, C++ and Rust (14 fixtures each); Python's was not run locally because the quickjs module is not installed."
+    },
+    {
+      "id": "axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations",
+      "status": "open",
+      "title": "Preserve fresh RLM tool feedback and compact older observations",
+      "createdAt": "2026-11-17",
+      "sourcePR": null,
+      "sourceCommit": "5706a70d2270b68bced7d3946dede3753bcba099",
+      "tsPaths": [
+        "src/ax/agent",
+        "src/ax/funcs/jsRuntime.ts",
+        "src/ax/funcs/worker.runtime.ts",
+        "src/ax/ai/types.ts",
+        "src/ax/dsp/sig.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TypeScript agents pause after discovery and inspection results before dependent actions. Port data-tool chaining, ordered independent batches, bounded previews, suspended program replay, and checkpoint reuse to the generated agent runtimes.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

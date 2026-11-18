@@ -23,12 +23,11 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr` [axgen] Keep ordinary F1 token counts independent of inherited object properties
+- `axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations` [axagent] Preserve fresh RLM tool feedback and compact older observations
   - Status: open
-  - Source PR: #898
-  - Source commit: `269f5b998721d4f22bf3081b1c86df0f33952067`
-  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
-  - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
+  - Source commit: `5706a70d2270b68bced7d3946dede3753bcba099`
+  - TS paths: `src/ax/agent`, `src/ax/funcs/jsRuntime.ts`, `src/ax/funcs/worker.runtime.ts`, `src/ax/ai/types.ts`, `src/ax/dsp/sig.ts`
+  - Impact: TypeScript agents pause after discovery and inspection results before dependent actions. Port data-tool chaining, ordered independent batches, bounded previews, suspended program replay, and checkpoint reuse to the generated agent runtimes.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
@@ -1615,6 +1614,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-14
   - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
   - Verification: `TypeScript-derived AxGen forward and streaming fixtures pass in all five languages with native file-valued document inputs, indexed text-block snapshots, and deduplicated URL-less citations in per-request log usage. All five public examples pass ordinary and streaming live Anthropic calls with source-offset checks. Generated logs keep request-local document identities in separate entries; TypeScript getUsage has no direct generated AxGen method equivalent.`
+- `axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr` [axgen] Keep ordinary F1 token counts independent of inherited object properties
+  - Status: done
+  - Source PR: #898
+  - Source commit: `269f5b998721d4f22bf3081b1c86df0f33952067`
+  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
+  - Impact: Ordinary F1 treats constructor as a word count, producing NaN in TypeScript. Preserve finite multiset scores and cross-language parity.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-17
+  - Completed by: `278a22558e5227ac54103682a1959eadb15945ec`
+  - Verification: `The generated packages had no ordinary F1, so it was added: @eval_f1 in eval.axir, exposed as f1_score (Python, C++, Rust), F1Score (Go) and Ax.f1Score (Java). eval-f1.json: 24 TypeScript-derived cases pass through all five public functions, covering constructor and other inherited-property names, stopwords, empty and whitespace-only inputs, empty tokens left by articles and punctuation, and Unicode. Five-language dev verification passed with 2,201 fixtures per language; fixture synchronization and package freshness pass. The Python runner rejects a deliberately wrong expected score.`
 - `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
   - Status: done
   - Source PR: #901

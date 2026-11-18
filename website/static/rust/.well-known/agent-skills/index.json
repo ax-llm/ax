@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-rust-llm/skill.tar.gz",
-      "digest": "sha256:ee597be022bb339ab3d4981530ff30938c0031367aad1bb335732f0896900b59"
+      "digest": "sha256:ee9f4be2175899a969767939177093e3b97cdf7c33cd5cb283a3dd041d852c98"
     },
     {
       "name": "ax-rust-ai",
@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-rust-typesafe/SKILL.md",
-      "digest": "sha256:7609b4174f2fbaefb5e2259a749872def7547fd61194235f55af2378ff4d5661"
+      "digest": "sha256:0e4b3e249e5ea13c6467c9ab8cf4886f8a80f43ba90a26b5308910e4ec8dfc41"
     },
     {
       "name": "ax-rust-audio",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:364f19b0944d309acd4351278f3d8934b937777091305ca76e435a028dd2cac5"
+      "digest": "sha256:db504477694aaa262e010ebae53e2fda98c8a05153208aa3036d2be5ee98a8fd"
     },
     {
       "name": "ax-rust-flow",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-rust-refine/SKILL.md",
-      "digest": "sha256:7be4ba0f0440d95c35ef90cb46d4ece2230b6b0708c727a79bf76435a13092c4"
+      "digest": "sha256:f037a0d45f4057d2ce0915ea12419c3e02772381233ddbf7aeb90bbb8e0bbb44"
     },
     {
       "name": "ax-rust-playbook",

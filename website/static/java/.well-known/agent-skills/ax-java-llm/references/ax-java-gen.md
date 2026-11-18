@@ -130,7 +130,7 @@ An unregistered tool name produces an error result for that call alone, with the
 
 ## Relevant API Surface
 
-- AxGen: `Ax.ax`, `Ax.novelF1Score`, `AxGen`, `Ax.runControl`, `AxRunControl`, `AxCachingFunction`, `AxGlobals.setCachingFunction`
+- AxGen: `Ax.ax`, `Ax.novelF1Score`, `Ax.f1Score`, `AxGen`, `Ax.runControl`, `AxRunControl`, `AxCachingFunction`, `AxGlobals.setCachingFunction`
 - Tools: `Ax.fn`, `Tool`
 - MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPWebSocketTransport`, `AxMCPStdioTransport`
 

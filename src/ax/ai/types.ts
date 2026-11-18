@@ -420,6 +420,7 @@ export type AxAgentCompletionProtocol = Readonly<{
 }>;
 
 export type AxFunctionJSONSchema = {
+  description?: string;
   type: string | string[];
   properties?: Record<
     string,
@@ -436,6 +437,12 @@ export type AxFunctionJSONSchema = {
 };
 
 export type AxFunction = {
+  /**
+   * AxAgent pauses for model interpretation after results by default.
+   * Use `data` only for results whose documented contract permits deterministic
+   * processing and chaining without a new model decision. Does not affect AxGen.
+   */
+  resultPolicy?: 'inspect' | 'data';
   /** Background tools permit independent model work while they execute. */
   execution?: 'blocking' | 'background';
   name: string;

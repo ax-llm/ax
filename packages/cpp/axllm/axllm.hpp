@@ -34,6 +34,7 @@
 
 namespace axllm {
 double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall = false);
+double f1_score(const std::string& prediction, const std::string& ground_truth);
 
 struct Value;
 using Array = std::vector<Value>;
@@ -1065,6 +1066,7 @@ struct Core {
   static Value _normalize_optimization_dataset(Value dataset);
   static Value _date_parse_named_datetime_impl(Value text, Value units, Value start, Value end);
   static Value _stream_extract_block_impl(Value input);
+  static Value eval_f1(Value prediction, Value ground_truth);
   static Value _normalize_optimization_metric_scores(Value raw);
   static Value _scalarize_optimization_scores(Value scores, Value options);
   static Value _stream_strip_leading_fence_impl(Value text);
@@ -1383,8 +1385,8 @@ struct Core {
   static Value _agent_compute_effective_chat_budget(Value base_budget, Value fixed_overhead_chars);
   static Value _agent_action_log_char_count(Value entries);
   static Value _agent_compute_dynamic_runtime_chars(Value entries, Value target_prompt_chars, Value max_runtime_chars);
-  static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
   static Value _build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace);
+  static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
   static Value _agent_render_context_pressure(Value pressure);
   static Value _agent_depth_limited_value(Value value, Value depth, Value ancestors);
   static Value _agent_smart_stringify(Value value, Value max_chars);

@@ -836,7 +836,8 @@ export class ActorAgentRLM<
     runOptions?: Pick<
       import('../ai/types.js').AxAIServiceOptions,
       'control' | 'executionPath'
-    >
+    >,
+    observations?: import('./agentInternal/turnObservations.js').TurnObservations
   ): Record<string, unknown> {
     return buildRuntimeGlobals(
       this,
@@ -852,7 +853,8 @@ export class ActorAgentRLM<
       onUsed,
       onFunctionCall,
       getCurrentMemories,
-      runOptions
+      runOptions,
+      observations
     );
   }
 
