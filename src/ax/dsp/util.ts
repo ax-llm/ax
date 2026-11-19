@@ -414,10 +414,12 @@ export class LRUCache<K, V> {
 
   get(key: K): V | undefined {
     const value = this.cache.get(key);
-    if (value) {
+    // A stored 0/false/'' is still a hit; only a missing key should leave the
+    // recency order alone.
+    if (this.cache.has(key)) {
       // Refresh position by deleting and re-adding
       this.cache.delete(key);
-      this.cache.set(key, value);
+      this.cache.set(key, value as V);
     }
     return value;
   }
@@ -427,9 +429,9 @@ export class LRUCache<K, V> {
       this.cache.delete(key);
     } else if (this.cache.size >= this.maxSize) {
       // Remove oldest entry (first item in map)
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) {
-        this.cache.delete(firstKey);
+      const oldest = this.cache.keys().next();
+      if (!oldest.done) {
+        this.cache.delete(oldest.value);
       }
     }
     this.cache.set(key, value);
