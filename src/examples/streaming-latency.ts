@@ -251,7 +251,7 @@ function createLLM(selectedProvider: SupportedProvider): {
   switch (selectedProvider) {
     case 'openai': {
       const model = (process.env.AX_STREAM_BENCH_MODEL ??
-        AxAIOpenAIModel.GPT5Nano) as AxAIOpenAIModel;
+        AxAIOpenAIModel.GPT6Luna) as AxAIOpenAIModel;
       return {
         model,
         llm: ai({
