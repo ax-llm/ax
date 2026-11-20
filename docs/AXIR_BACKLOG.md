@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-11-20-treat-falsy-values-and-keys-as-real-lru-cache-entries` [axgen] Treat falsy values and keys as real LRU cache entries
+  - Status: open
+  - Source PR: #916
+  - Source commit: `ca1e927dcdbb37a63b83ca3f0fb7b1080993937a`
+  - TS paths: `src/ax/dsp/util.ts`, `src/ax/dsp/util.test.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust packages key their LRU cache on truthiness: a cached 0/false/empty string is re-read as a miss, and an empty or 0 key is never evicted, so the cache grows past maxSize.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
