@@ -295,3 +295,38 @@ describe('File type validation', () => {
     expect(() => validateValue(field, value)).not.toThrow();
   });
 });
+
+describe('LRUCache', () => {
+  test('a falsy value is still a hit and refreshes recency', () => {
+    const cache = new LRUCache<string, number>(2);
+    cache.set('a', 0);
+    cache.set('b', 1);
+
+    expect(cache.get('a')).toBe(0);
+    cache.set('c', 2);
+
+    expect(cache.get('a')).toBe(0); // refreshed, so b is the victim
+    expect(cache.get('b')).toBeUndefined();
+    expect(cache.get('c')).toBe(2);
+  });
+
+  test('a falsy key is evicted instead of growing past capacity', () => {
+    const cache = new LRUCache<string | number, number>(2);
+    cache.set('', 1);
+    cache.set(0, 2);
+    cache.set('x', 3);
+
+    expect(cache.get('')).toBeUndefined();
+    expect(cache.get(0)).toBe(2);
+    expect(cache.get('x')).toBe(3);
+  });
+
+  test('an undefined key is evicted as well', () => {
+    const cache = new LRUCache<string | undefined, number>(1);
+    cache.set(undefined, 1);
+    cache.set('x', 2);
+
+    expect(cache.get(undefined)).toBeUndefined();
+    expect(cache.get('x')).toBe(2);
+  });
+});
