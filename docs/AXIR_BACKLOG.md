@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/util.ts`, `src/ax/dsp/util.test.ts`
   - Impact: Generated Python, Java, C++, Go, and Rust packages key their LRU cache on truthiness: a cached 0/false/empty string is re-read as a miss, and an empty or 0 key is never evicted, so the cache grows past maxSize.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-11-21-forward-contextoptions-description-to-the-distiller-stage` [axagent] Forward contextOptions.description to the distiller stage
+  - Status: open
+  - Source PR: #919
+  - Source commit: `85f64c872a9be8d29cf0f50413a79785deeb79ba`
+  - TS paths: `src/ax/agent/agentInternal/coordinator.ts`
+  - Impact: Generated runtimes may drop the distiller-specific prompt addendum from contextOptions.description
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -1565,26 +1572,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-13
   - Completed by: `dcbe2fb57eb6b40c6e287031fa43ca7a41829eef`
   - Verification: `34 TypeScript-derived Hydrogen fixtures pass in all five generated languages. Full release verification passes for Python, Java, C++, Go, and Rust, each executing all 2,154 conformance fixtures; Java and Go were rerun after fixing per-call streaming options. Live Hydrogen calls pass in all five generated languages. The TypeScript workspace suite passes (4,123 tests, one existing skip), as do build, conformance sync, strict Core checking, lint, provenance, lowering, generated package consistency, generated examples, skills, and website checks.`
-- `axir-2026-11-14-keep-anthropic-document-citations-instead-of-dropping-them` [axai] Keep Anthropic document citations instead of dropping them
-  - Status: done
-  - Source PR: #894
-  - Source commit: `cb4d34eba5b2a0c661126ee0fd31d61846715ec4`
-  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.citations.test.ts`, `src/ax/ai/types.ts`
-  - Impact: Anthropic document citations (char_location, page_location, content_block_location) carry a cited span instead of a url; normalization must keep that span and its document index/title for both streaming and non-streaming responses.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-14
-  - Completed by: `5736c56dde36a30a97dd5adaefdd7636e2e990f8`
-  - Verification: `Merged #895 ports citation normalization and text-block snapshots to Core. CI passed full conformance for Python, Java, C++, Go, and Rust, including TypeScript-derived ordinary/streaming cases for character, page, and content-block locations, file IDs, URL citations, invalid citations, and immutable snapshots.`
-- `axir-2026-11-14-render-document-citations-without-urls-in-default-loggers` [axgen] Render document citations without URLs in default loggers
-  - Status: done
-  - Source PR: #894
-  - Source commit: `51dfd05ab98357e5b876b5a84bd6107cc05a49ae`
-  - TS paths: `src/ax/dsp/loggers.ts`
-  - Impact: Default loggers render a document title or fallback label when a citation has no URL.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-14
-  - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
-  - Verification: `Generated clients expose structured chat logs rather than the TypeScript terminal formatter; they do not perform URL-dependent display lookups. Core now retains URL-less document citation titles and source ranges in per-request usage.citations and text_blocks. TypeScript-derived forward and streaming log fixtures pass in all five languages, and live examples print these records successfully in all five.`
 - `axir-2026-11-14-keep-a-shared-value-in-truncated-runtime-output-instead-of-repor` [axagent] Keep a shared value in truncated runtime output instead of reporting a cycle
   - Status: done
   - Source PR: #893
@@ -1595,6 +1582,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-14
   - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
   - Verification: `Core uses an ancestor stack and native reference identity, preserving shared siblings while marking genuine cycles. Nine formatter cases pass in Python, Java, C++, Go, and Rust, covering shared objects/arrays, self and nested cycles, equal distinct values, depth limits, and large-array budgets. The generated Go native test also distinguishes an empty slice view from a self-containing slice.`
+- `axir-2026-11-14-keep-anthropic-document-citations-instead-of-dropping-them` [axai] Keep Anthropic document citations instead of dropping them
+  - Status: done
+  - Source PR: #894
+  - Source commit: `cb4d34eba5b2a0c661126ee0fd31d61846715ec4`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.citations.test.ts`, `src/ax/ai/types.ts`
+  - Impact: Anthropic document citations (char_location, page_location, content_block_location) carry a cited span instead of a url; normalization must keep that span and its document index/title for both streaming and non-streaming responses.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-14
+  - Completed by: `5736c56dde36a30a97dd5adaefdd7636e2e990f8`
+  - Verification: `Merged #895 ports citation normalization and text-block snapshots to Core. CI passed full conformance for Python, Java, C++, Go, and Rust, including TypeScript-derived ordinary/streaming cases for character, page, and content-block locations, file IDs, URL citations, invalid citations, and immutable snapshots.`
 - `axir-2026-11-14-port-anthropic-native-document-inputs-and-cited-text-blocks` [axai] Port Anthropic native document inputs and cited text blocks
   - Status: done
   - Source PR: #895
@@ -1615,6 +1612,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-14
   - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
   - Verification: `TypeScript-derived AxGen forward and streaming fixtures pass in all five languages with native file-valued document inputs, indexed text-block snapshots, and deduplicated URL-less citations in per-request log usage. All five public examples pass ordinary and streaming live Anthropic calls with source-offset checks. Generated logs keep request-local document identities in separate entries; TypeScript getUsage has no direct generated AxGen method equivalent.`
+- `axir-2026-11-14-render-document-citations-without-urls-in-default-loggers` [axgen] Render document citations without URLs in default loggers
+  - Status: done
+  - Source PR: #894
+  - Source commit: `51dfd05ab98357e5b876b5a84bd6107cc05a49ae`
+  - TS paths: `src/ax/dsp/loggers.ts`
+  - Impact: Default loggers render a document title or fallback label when a citation has no URL.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-14
+  - Completed by: `13e83f8e6981753d7a68fe119e80593947d83b80`
+  - Verification: `Generated clients expose structured chat logs rather than the TypeScript terminal formatter; they do not perform URL-dependent display lookups. Core now retains URL-less document citation titles and source ranges in per-request usage.citations and text_blocks. TypeScript-derived forward and streaming log fixtures pass in all five languages, and live examples print these records successfully in all five.`
 - `axir-2026-11-15-keep-ordinary-f1-token-counts-independent-of-inherited-object-pr` [axgen] Keep ordinary F1 token counts independent of inherited object properties
   - Status: done
   - Source PR: #898
@@ -1625,16 +1632,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-17
   - Completed by: `278a22558e5227ac54103682a1959eadb15945ec`
   - Verification: `The generated packages had no ordinary F1, so it was added: @eval_f1 in eval.axir, exposed as f1_score (Python, C++, Rust), F1Score (Go) and Ax.f1Score (Java). eval-f1.json: 24 TypeScript-derived cases pass through all five public functions, covering constructor and other inherited-property names, stopwords, empty and whitespace-only inputs, empty tokens left by articles and punctuation, and Unicode. Five-language dev verification passed with 2,201 fixtures per language; fixture synchronization and package freshness pass. The Python runner rejects a deliberately wrong expected score.`
-- `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
-  - Status: done
-  - Source PR: #901
-  - Source commit: `71900b89b7bbd92915494f2b2d97f1853e91a7f8`
-  - TS paths: `src/ax/event/util.ts`, `src/ax/event/envelope-validation.test.ts`
-  - Impact: Reject non-string id/source/type values with clear field-specific validation errors before routing or persistence. Preserve valid envelopes and empty-string rejection across generated languages.
-  - Suggested AxIR work: Add TS-derived conformance cases for numeric and object identity fields plus valid and empty-string controls.; Implement equivalent runtime validation in AxIR/Core and generated event ingress paths including dynamically typed and JSON inputs.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-11-16
-  - Completed by: `10e8f6ff78c8ff893dceb4fc1e78bd84306de84d`
-  - Verification: `Event conformance passed in Python, Java, C++, Go, and Rust, including the 34-case identity fixture and public publish checks. Focused TypeScript and backlog tests, 72 fast AxIR checks, strict Core validation, provenance audits, generated package freshness, and full fixture synchronization passed. The local aggregate test:axir run timed out during broader C++ verification; PR CI supplies full-suite validation.`
 - `axir-2026-11-16-preserve-regex-and-division-semantics-in-agent-javascript-analys` [axagent] Preserve regex and division semantics in agent JavaScript analysis
   - Status: done
   - Source PR: #900
@@ -1645,15 +1642,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-16
   - Completed by: `595820951a3d72aacc14afc7d98e01ff5d1b5e3a`
   - Verification: `The runtime helper is regenerated directly from the TypeScript scanner and embedded in all five generated packages. 150 focused TypeScript tests, 137 AxIR maintenance tests, and eight native Goja scanner cases pass, including Unicode and escaped identifiers. Full TypeScript workspace checks passed with 4,222 tests and one existing skip. Build/test CI passed on 1cde3c78d888b40e6e0ee6f77927b13e3e2f80f8, including all five generated-language verification and example suites, package freshness, and all five real-engine checks.`
-- `axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply` [axagent] Retry an agent actor turn after a cut-off model reply
+- `axir-2026-11-16-validate-event-envelope-identity-field-types` [axevent] Validate event envelope identity field types
   - Status: done
-  - Source PR: #906
-  - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
-  - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
-  - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
-  - Completed at: 2026-11-17
-  - Completed by: `0b7e5b8446ad3350222c22b27900a6bca49c17f9`
-  - Verification: `npm run axir:verify:dev passed for Python, Java, C++, Go and Rust (2,209 conformance fixtures each, including nine new TypeScript-derived cut-off fixtures). axir:conformance:check, axir:check-packages, the 72 fast AxIR Go tests, the response-perturbation gate and the TypeScript workspace tests (4,243 passed, 1 skipped) passed. The real-engine agent suite passed on Go, Java, C++ and Rust (14 fixtures each); Python's was not run locally because the quickjs module is not installed.`
+  - Source PR: #901
+  - Source commit: `71900b89b7bbd92915494f2b2d97f1853e91a7f8`
+  - TS paths: `src/ax/event/util.ts`, `src/ax/event/envelope-validation.test.ts`
+  - Impact: Reject non-string id/source/type values with clear field-specific validation errors before routing or persistence. Preserve valid envelopes and empty-string rejection across generated languages.
+  - Suggested AxIR work: Add TS-derived conformance cases for numeric and object identity fields plus valid and empty-string controls.; Implement equivalent runtime validation in AxIR/Core and generated event ingress paths including dynamically typed and JSON inputs.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-11-16
+  - Completed by: `10e8f6ff78c8ff893dceb4fc1e78bd84306de84d`
+  - Verification: `Event conformance passed in Python, Java, C++, Go, and Rust, including the 34-case identity fixture and public publish checks. Focused TypeScript and backlog tests, 72 fast AxIR checks, strict Core validation, provenance audits, generated package freshness, and full fixture synchronization passed. The local aggregate test:axir run timed out during broader C++ verification; PR CI supplies full-suite validation.`
 - `axir-2026-11-17-preserve-fresh-rlm-tool-feedback-and-compact-older-observations` [axagent] Preserve fresh RLM tool feedback and compact older observations
   - Status: done
   - Source commit: `5706a70d2270b68bced7d3946dede3753bcba099`
@@ -1663,3 +1661,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-11-17
   - Completed by: `befbfb6dbff4dd57d06928802cd9aea3def9df51`
   - Verification: `All five embedded JavaScript conformance runners passed 17 cases each, including discovery before execution, observation before side effects, deterministic batches, and partial batch failures. The observation regression fails on the previous main. The TypeScript-derived replay fixture, AxIR semantic parity, focused TypeScript regressions, and 72 fast compiler tests passed.`
+- `axir-2026-11-17-retry-an-agent-actor-turn-after-a-cut-off-model-reply` [axagent] Retry an agent actor turn after a cut-off model reply
+  - Status: done
+  - Source PR: #906
+  - TS paths: `src/ax/agent/agentInternal/cutOffReply.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agent.cutOffReply.test.ts`
+  - Impact: TypeScript now retries a distiller or executor model call whose reply was cut off at the output limit instead of failing the run. AxGen reports such a reply as 'Max tokens reached before completion'; a truncated tool-call payload surfaces as 'Invalid function arguments'. One actor turn spends up to three extra calls: the first repeats the request unchanged and later ones append a short note to the action log asking for a smaller step. Other failures and a reply that stays cut off after every retry are rethrown unchanged. The five generated ports still end the run on the first cut-off reply.
+  - Suggested AxIR work: Add a Core helper that recognizes a cut-off reply error and wraps the actor step call with up to three retries; Add a TS-derived conformance fixture whose first executor reply has finish reason length; Run npm run axir:conformance:check and npm run test:axir
+  - Completed at: 2026-11-17
+  - Completed by: `0b7e5b8446ad3350222c22b27900a6bca49c17f9`
+  - Verification: `npm run axir:verify:dev passed for Python, Java, C++, Go and Rust (2,209 conformance fixtures each, including nine new TypeScript-derived cut-off fixtures). axir:conformance:check, axir:check-packages, the 72 fast AxIR Go tests, the response-perturbation gate and the TypeScript workspace tests (4,243 passed, 1 skipped) passed. The real-engine agent suite passed on Go, Java, C++ and Rust (14 fixtures each); Python's was not run locally because the quickjs module is not installed.`
