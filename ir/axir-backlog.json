@@ -4017,10 +4017,7 @@
       "createdAt": "2026-11-21",
       "sourcePR": 919,
       "sourceCommit": "85f64c872a9be8d29cf0f50413a79785deeb79ba",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/coordinator.ts",
-        "src/ax/agent/coordinator.test.ts"
-      ],
+      "tsPaths": ["src/ax/agent/coordinator.test.ts"],
       "portableSurface": "axagent",
       "impact": "Generated runtimes may drop the distiller-specific prompt addendum from contextOptions.description",
       "suggestedAxirWork": [

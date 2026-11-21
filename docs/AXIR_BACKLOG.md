@@ -34,7 +34,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Status: open
   - Source PR: #919
   - Source commit: `85f64c872a9be8d29cf0f50413a79785deeb79ba`
-  - TS paths: `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/coordinator.test.ts`
+  - TS paths: `src/ax/agent/coordinator.test.ts`
   - Impact: Generated runtimes may drop the distiller-specific prompt addendum from contextOptions.description
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
