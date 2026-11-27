@@ -156,6 +156,9 @@ export const axBedrockModelCapabilities: Readonly<
   [AxAIBedrockModel.Gpt6Astra]: gpt6({ thinkingAlwaysOn: true }),
   // GPT-6.1 Sol also rejects reasoning effort 'none', unlike GPT-6 Sol.
   [AxAIBedrockModel.Gpt61Sol]: gpt6({ thinkingAlwaysOn: true }),
+  // GPT-6.2 Sol and Astra reject reasoning effort 'none' too.
+  [AxAIBedrockModel.Gpt62Sol]: gpt6({ thinkingAlwaysOn: true }),
+  [AxAIBedrockModel.Gpt62Astra]: gpt6({ thinkingAlwaysOn: true }),
 };
 
 export function axGetBedrockModelCapabilities(
@@ -406,6 +409,30 @@ export const axModelInfoBedrock: AxModelInfo[] = [
     currency: 'usd',
     maxTokens: 131072,
     contextWindow: 1000000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.Gpt62Sol,
+    currency: 'usd',
+    maxTokens: 128000,
+    contextWindow: 1050000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.Gpt62Astra,
+    currency: 'usd',
+    maxTokens: 128000,
+    contextWindow: 1050000,
     notSupported: { temperature: true, topP: true },
     supported: {
       structuredOutputs: true,
