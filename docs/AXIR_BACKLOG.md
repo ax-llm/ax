@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/util.ts`, `src/ax/dsp/util.test.ts`
   - Impact: Generated Python, Java, C++, Go, and Rust packages key their LRU cache on truthiness: a cached 0/false/empty string is re-read as a miss, and an empty or 0 key is never evicted, so the cache grows past maxSize.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-11-21-forward-contextoptions-description-to-the-distiller-stage` [axagent] Forward contextOptions.description to the distiller stage
+  - Status: open
+  - Source PR: #919
+  - Source commit: `85f64c872a9be8d29cf0f50413a79785deeb79ba`
+  - TS paths: `src/ax/agent/coordinator.test.ts`
+  - Impact: Generated runtimes may drop the distiller-specific prompt addendum from contextOptions.description
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

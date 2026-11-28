@@ -934,6 +934,28 @@ describe('AxAgent coordinator routing', () => {
       expect(coord.distiller._genOptions.maxTurns).toBe(7);
       expect(coord.executor._genOptions.maxTurns).toBe(7);
     });
+
+    it('contextOptions.description is appended to the distiller actor prompt only', () => {
+      const a = agent('docText:string, query:string -> answer:string', {
+        contextFields: ['docText'],
+        contextOptions: { description: 'DISTILLER-MARK' },
+        executorOptions: { description: 'EXECUTOR-MARK' },
+        runtime: makeRuntime(),
+      });
+      const coord = a as any;
+      const distillerDesc = coord.distiller.actorProgram
+        .getSignature()
+        .getDescription() as string;
+      const executorDesc = coord.executor.actorProgram
+        .getSignature()
+        .getDescription() as string;
+
+      expect(distillerDesc).toContain('DISTILLER-MARK');
+      expect(distillerDesc).not.toContain('EXECUTOR-MARK');
+      expect(executorDesc).toContain('EXECUTOR-MARK');
+      expect(executorDesc).not.toContain('DISTILLER-MARK');
+      expect(coord.distiller._genOptions.description).toBeUndefined();
+    });
   });
 
   // -------------------------------------------------------------------------

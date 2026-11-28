@@ -364,12 +364,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .build();
 
     const shared = pickShared(options);
-    const distillerOverrides = options.contextOptions ?? {};
+    const { description: distillerDescription, ...distillerOverrides } =
+      options.contextOptions ?? {};
     this.distiller = new ActorAgentRLM<any, any>(
       { ...init, signature: distillerSig },
       {
         ...shared,
         ...distillerOverrides,
+        ...(distillerDescription !== undefined
+          ? { executorOptions: { description: distillerDescription } }
+          : {}),
         contextFields: [...ctxFieldInputs],
         contextMapText: this.contextMap?.text,
         stageVariant: 'distiller',

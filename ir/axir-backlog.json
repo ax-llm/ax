@@ -4009,6 +4009,25 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-11-21-forward-contextoptions-description-to-the-distiller-stage",
+      "status": "open",
+      "title": "Forward contextOptions.description to the distiller stage",
+      "createdAt": "2026-11-21",
+      "sourcePR": 919,
+      "sourceCommit": "85f64c872a9be8d29cf0f50413a79785deeb79ba",
+      "tsPaths": ["src/ax/agent/coordinator.test.ts"],
+      "portableSurface": "axagent",
+      "impact": "Generated runtimes may drop the distiller-specific prompt addendum from contextOptions.description",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
