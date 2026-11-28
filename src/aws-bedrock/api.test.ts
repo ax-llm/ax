@@ -279,12 +279,14 @@ describe('AxAIBedrock Converse capabilities', () => {
     });
   });
 
-  it('advertises GPT-6 and GPT-6.1 Sol tools, images, and reasoning', () => {
+  it('advertises GPT-6, GPT-6.1 Sol, and GPT-6.2 tools, images, and reasoning', () => {
     for (const model of [
       AxAIBedrockModel.Gpt6Sol,
       AxAIBedrockModel.Gpt6Luna,
       AxAIBedrockModel.Gpt6Astra,
       AxAIBedrockModel.Gpt61Sol,
+      AxAIBedrockModel.Gpt62Sol,
+      AxAIBedrockModel.Gpt62Astra,
     ]) {
       expect(createAI(model).getFeatures(model)).toMatchObject({
         functions: true,
@@ -518,6 +520,16 @@ describe('AxAIBedrock Converse request mapping', () => {
       { thinkingTokenBudget: 'high' },
       { temperature: 0.3, topP: 0.9 }
     );
+    await chatWith(
+      AxAIBedrockModel.Gpt62Sol,
+      { thinkingTokenBudget: 'medium' },
+      { temperature: 0.3, topP: 0.9 }
+    );
+    await chatWith(
+      AxAIBedrockModel.Gpt62Astra,
+      { thinkingTokenBudget: 'highest' },
+      { temperature: 0.3 }
+    );
     // Haiku 5.5 rejects temperature and top_p even with thinking disabled.
     await chatWith(
       AxAIBedrockModel.ClaudeHaiku55,
@@ -534,6 +546,8 @@ describe('AxAIBedrock Converse request mapping', () => {
       { maxTokens: 4096 },
       { maxTokens: 4096 },
       { maxTokens: 4096 },
+      { maxTokens: 4096 },
+      { maxTokens: 4096 },
       { maxTokens: 4096, temperature: 0 },
     ]);
     expect(sent.map((r) => r.additionalModelRequestFields)).toEqual([
@@ -543,15 +557,19 @@ describe('AxAIBedrock Converse request mapping', () => {
       { reasoning: { effort: 'max' } },
       { reasoning: { effort: 'low' } },
       { reasoning: { effort: 'high' } },
+      { reasoning: { effort: 'medium' } },
+      { reasoning: { effort: 'max' } },
       { thinking: { type: 'disabled' } },
       undefined,
     ]);
   });
 
-  it('rejects disabling GPT-6 Astra and GPT-6.1 Sol reasoning', async () => {
+  it('rejects disabling GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 reasoning', async () => {
     for (const model of [
       AxAIBedrockModel.Gpt6Astra,
       AxAIBedrockModel.Gpt61Sol,
+      AxAIBedrockModel.Gpt62Sol,
+      AxAIBedrockModel.Gpt62Astra,
     ]) {
       await expect(
         getImpl(createAI(model)).createChatReq(

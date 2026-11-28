@@ -30,6 +30,8 @@ export enum AxAIBedrockModel {
   Gpt6Luna = 'us.openai.gpt-6-luna',
   Gpt6Astra = 'us.openai.gpt-6-astra',
   Gpt61Sol = 'us.openai.gpt-6.1-sol',
+  Gpt62Sol = 'us.openai.gpt-6.2-sol',
+  Gpt62Astra = 'us.openai.gpt-6.2-astra',
 }
 
 // Embed models
